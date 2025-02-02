@@ -1,0 +1,357 @@
+html, body {
+    height: 100%;
+    overflow: hidden; /* Prevent scrolling */
+    margin: 0; /* Remove unwanted spacing */
+    padding: 0; /* Remove unwanted spacing */
+  }
+
+
+
+  #main-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Fill entire viewport */
+    
+  }
+  
+
+
+#toggle-sidebar {
+ 
+    background-color: transparent;
+    border: none;
+    color : #6c757d;
+}
+.body {
+ 
+    color: white;
+}
+#session-list {
+    flex-grow: 1; /* Take up available vertical space */
+    overflow-y: auto; /* Enable scrolling when content overflows */
+}
+
+
+
+#session-list::-webkit-scrollbar {
+    width: 8px; /* Scrollbar width */
+}
+
+#session-list::-webkit-scrollbar-thumb {
+    background-color: #6c757d; /* Scrollbar thumb color */
+    border-radius: 4px; /* Rounded corners */
+}
+
+#session-list::-webkit-scrollbar-track {
+    background-color: #f1f1f1; /* Scrollbar track color */
+}
+
+#session-list {
+    scrollbar-width: thin; /* For Firefox */
+    scrollbar-color: #6c757d #f1f1f1; /* Thumb and track color */
+}
+
+#new-chat {
+    position: sticky; /* Sticky to ensure it's always visible at the bottom */
+    bottom: 0; /* Stick to the bottom of the sidebar */
+}
+
+.chat-input-container {
+    background-color: #f9f9f9;
+    border-radius: 1.5rem; /* Rounded corners */
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+
+
+  
+  
+}
+
+
+.chat-input-container textarea {
+    border: none;
+    background: none;
+    resize: none;
+    flex-grow: 1;
+    font-size: 1rem;
+    outline: none; /* Remove focus outline */
+}
+
+
+.chat-icon {
+    cursor: pointer;
+    font-size: 1.2rem;
+    color: #5f6368;
+    transition: color 0.3s;
+}
+.selectmodel{
+    border-radius: 1.5rem;
+    box-shadow:  0 0 5px rgba(0, 0, 0, 0.5);
+}
+.chat-icon:hover {
+    color: #000;
+}
+.header {
+    background-color: white;
+    padding: 1rem;
+    box-shadow: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.send-button {
+    background-color: #000;
+    color: #fff;
+    border-radius: 50%;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.send-button:hover {
+    background-color: #333;
+}
+
+/* Hide scrollbar for Chrome, Safari, and Edge */
+#chat-history::-webkit-scrollbar {
+    width: 0.5rem; /* Small width to make it thin */
+}
+
+#chat-history::-webkit-scrollbar-thumb {
+    background-color: #d1d1d1; /* Light gray scrollbar thumb */
+    border-radius: 1rem; /* Rounded corners for the scrollbar thumb */
+}
+
+#chat-history::-webkit-scrollbar-track {
+    background-color: #f1f1f1; /* Light gray background for the scrollbar track */
+    border-radius: 1rem; /* Rounded corners for the track */
+}
+
+/* Hide scrollbar for Firefox */
+#chat-history {
+    scrollbar-width: thin; /* Makes the scrollbar thin */
+    scrollbar-color: #d1d1d1 #f1f1f1; /* Thumb color and track color */
+   
+       
+      
+    
+}
+
+/* Hide scrollbar for Internet Explorer and Edge (older versions) */
+#chat-history {
+    -ms-overflow-style: none; /* Optional: Removes old styles */
+}
+
+#chat-history {
+    /* General scrollbar styling for Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+#chat-history::-webkit-scrollbar {
+    width: 8px; /* Thin scrollbar width */
+}
+
+#chat-history::-webkit-scrollbar-track {
+    background: #f1f1f1; /* Light gray track */
+    border-radius: 10px;
+}
+
+#chat-history::-webkit-scrollbar-thumb {
+    background: #c1c1c1; /* Scrollbar thumb color */
+    border-radius: 10px;
+}
+
+#chat-history::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8; /* Slightly darker on hover */
+}
+
+
+        
+
+
+
+#sidebar {
+
+    height: 100%; /* Full height of the viewport */
+    width: 30vw; /* Width proportional to viewport width */
+    max-width: 30vw; /* Ensure it doesn’t exceed the viewport width */
+    /* z-index: 1050; Stack above main content */
+    /* background-color: #f8f9fa; */
+    overflow: hidden; /* Prevent content overflow */
+    transition: transform 0.3s ease-in-out, width 0.3s ease-in-out;
+}
+
+#sidebar.collapsed {
+   
+    width: 0; /* Prevent content overflow */
+    max-width: 0;
+    transition: transform 0.3s ease-in-out, width 0.3s ease-in-out;
+}
+
+
+
+
+
+
+textarea:focus {
+    outline: none;
+    /* Removes the blue outline */
+    box-shadow: none;
+    /* Removes any shadow effect */
+}
+
+
+
+#content {
+    transition: all 0.3s ease;
+    flex-grow: 1; /* Allow the content to take remaining space */
+    overflow: auto; /* Prevent scrolling issues */
+
+
+    /* Matches sidebar width */
+}
+
+
+#content.expanded {
+    margin-right: 0;
+    /* Full width when sidebar is collapsed */
+}
+
+@media (max-width: 768px) {
+
+    /* LEFT SIDE */
+    #leftside {
+      position: fixed;
+      top: 0    ;
+      left: 0;
+  
+      /* Fill the remaining 90% of viewport height */
+      height: calc(100vh - 0vh);
+      max-height: calc(100vh - 0vh);
+  
+      /* Full width on mobile by default */
+      width: 100vw;
+      max-width: 100vw;
+  
+      /* If content is taller than 90vh, allow scrolling */
+      overflow-y: auto;
+      overflow-x: hidden;
+  
+      z-index: 1000; 
+      transition: all 0.3s ease;
+    }
+  
+    /* Slide #leftside left by 70vw (showing only 30vw or fully off-screen if -100vw) */
+    #leftside.collapsed {
+      transform: translateX(-70vw);
+      transition: all 0.3s ease;
+    }
+  
+    /* Slide #leftside fully visible */
+    #leftside.expanded {
+      transform: translateX(0);
+      transition: all 0.3s ease;
+    }
+  
+    /* SIDEBAR (Right Panel) */
+    #sidebar {
+      position: fixed;
+      top:0vh;
+  
+      right: 0;
+      width: 70vw;           /* Occupies 70% of viewport width */
+      max-width: 70vw;
+  
+      /* Remaining 90% of viewport height */
+      height: calc(100vh - 10vh);
+      max-height: calc(100vh - 10vh);
+  
+      overflow-y: auto;
+      overflow-x: hidden;
+  
+      /* Slide off to the right by default */
+      transform: translateX(100%);
+      z-index: 1050;
+      transition: all 0.3s ease;
+    }
+  
+    /* Slide the sidebar into view (no horizontal transform) */
+    #sidebar.expanded {
+      transform: translateX(0);
+      transition: all 0.3s ease;
+    }
+  
+    /* Collapse sidebar back off to the right */
+    #sidebar.collapsed {
+      transform: translateX(100%);
+      transition: all 0.3s ease;
+    }
+    #chat-history {
+        flex-grow: 0;            /* stops it from growing */
+      height: 65vh;            /* sets a fixed height of 400px */
+      max-height: 65vh;        /* sets a fixed height of 400px */
+        overflow-y: auto;        /* adds a vertical scrollbar when content exceeds 400px */
+      }
+  }
+  #chat-history {
+    flex-grow: 0;            /* stops it from growing */
+  height: 65vh;            /* sets a fixed height of 400px */
+  max-height: 65vh;        /* sets a fixed height of 400px */
+    overflow-y: auto;        /* adds a vertical scrollbar when content exceeds 400px */
+  }
+  
+  /*add rule for 360 x 255 to shrink the chat history */
+    @media (max-width: 360px) {
+        #chat-history {
+        height: 40vh;            /* sets a fixed height of 400px */
+        max-height: 40vh;        /* sets a fixed height of 400px */
+        /** make the children have smaller font */
+        font-size: 0.8rem;
+        }
+        .chat-message {
+            font-size: 0.8rem;
+        }
+        /** make chat-input-container smaller */
+        .chat-input-container {
+            padding: 0.5rem 0.5rem;
+        }
+        .chat-icon {
+            font-size: 1rem;
+        }
+        .send-button {
+            width: 2rem;
+            height: 2rem;
+        }
+        .chat-input-container textarea {
+            font-size: 0.8rem;
+        }
+        /* make div class p-1 smaller */
+        .p-1 {
+            padding: 0.25rem;
+        }
+        /* make class="d-flex align-items-center " smaller */
+        .d-flex.align-items-center {
+            font-size: 0.8rem;
+        }
+        /** make dropdown smaller */
+        .selectmodel {
+            padding: 0.5rem 0.5rem;
+            font-size: small;
+        }
+        .dropdown-menu {
+            font-size: 0.8rem;
+        }
+        #dropdown {
+            font-size: 0.8rem;
+        }
+        
+    
+    }

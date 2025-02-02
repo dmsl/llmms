@@ -1,0 +1,9 @@
+.nav-link.active {
+    color: white !important;
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.navbar {
+    box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.2); /* Adds subtle shadow to navbar */
+}
