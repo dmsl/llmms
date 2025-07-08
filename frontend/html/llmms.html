@@ -218,12 +218,26 @@
                                     // Initialize from saved state or default to checked (ON)
                                     const savedState = sessionStorage.getItem('llmMsEnabled');
                                     const isEnabled = savedState !== null ? savedState === 'true' : true;
+                                    llmMsToggle.checked = isEnabled; // Set the toggle state
+                                    toggleLlmMs(isEnabled); // Apply the state
+                                    // If no saved state, default to ON and save it
 
-                                    // Set the toggle to match saved state
-                                    llmMsToggle.checked = isEnabled;
-
-                                    // Apply the correct visual state on load
-                                    toggleLlmMs(isEnabled);
+                                    if (savedState === null) {
+                                        sessionStorage.setItem('llmMsEnabled', true); // Save the default state
+                                    }
+                                    
+    if (savedState === null) {
+        // No saved state, default to ON and toggle it
+        const defaultState = true; // Default to ON
+        sessionStorage.setItem('llmMsEnabled', defaultState); // Save the default state
+        llmMsToggle.checked = defaultState; // Set the toggle to ON
+        toggleLlmMs(defaultState); // Apply the default state
+    } else {
+        // Use the saved state
+        const isEnabled = savedState === 'true';
+        llmMsToggle.checked = isEnabled; // Set the toggle to match the saved state
+        toggleLlmMs(isEnabled); // Apply the saved state
+    }
                                 });
                             </script>
 
@@ -355,12 +369,12 @@
                                 <div class="card-body">
                                     <div class="mb-3">
                                         <label for="tokenAllocation" class="form-label">Max Token Budget</label>
-                                        <input type="range" class="form-range" id="tokenAllocation" min="100" max="2048"
-                                            step="64" value="1024">
+                                        <input type="range" class="form-range" id="tokenAllocation" min="512" max="12288"
+                                            step="64" value="2048">
                                         <div class="d-flex justify-content-between">
-                                            <small>100</small>
-                                            <small id="tokenValue">1024</small>
-                                            <small>2048</small>
+                                            <small>512</small>
+                                            <small id="tokenValue">2048</small>
+                                            <small>12288</small>
                                         </div>
                                     </div>
 
@@ -393,8 +407,8 @@
                                         <div id="dynamicMarginContainer" class="mb-3">
                                             <label for="dynamicMarginCoeff" class="form-label">Dynamic Margin
                                                 Coefficient</label>
-                                            <input type="number" class="form-control" id="dynamicMarginCoeff" min="0.5"
-                                                max="5" step="0.1" value="1.0">
+                                            <input type="number" class="form-control" id="dynamicMarginCoeff" min="0.1"
+                                                max="1" step="0.05" value="0.2">
                                         </div>
 
                                     </div>
@@ -431,7 +445,7 @@
     <script src="/js/jquery.easing.min.js"></script>
 
     <!-- Changed version number to v=1.1 to ensure browser gets the latest code -->
-    <script src="/js/llmms.js?v=1.1"></script>
+    <script src="/js/new_chat_script.js?v=1.1"></script>
     <script src="/js/jquery.easing.min.js?v=1"></script>
     <script src="/js/classie.js?v=1"></script>
     <script src="/js/jqBootstrapValidation.js?v=1"></script>

@@ -49,4 +49,4 @@ fi
 
 # Start Uvicorn with the proper module path, ensuring output is captured
 echo "Starting uvicorn server..."
-uvicorn app.main:app --host 127.0.0.1 --port 62828 --reload --log-level $LOG_LEVEL
+uvicorn app.main:app --host 127.0.0.1 --port 62828 --reload --log-level $LOG_LEVEL 

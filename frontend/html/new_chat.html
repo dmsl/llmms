@@ -12,6 +12,20 @@
     <link rel="stylesheet" href="/css/index.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/chat.css?v=1.0">
+    <!-- Our responsive CSS -->
+    <!-- <link rel="stylesheet" href="/css/responsive.css"> -->
+
+    <!-- Add these scripts in the head section, before your main script.js is loaded -->
+    <!-- TensorFlow.js Core and Universal Sentence Encoder
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script> -->
+
+    <!-- PDF.js for PDF parsing -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script> -->
+
+    <!-- Mammoth.js for DOCX parsing
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script> -->
+
 </head>
 
 <body>
@@ -67,7 +81,7 @@
                         <div class="tw-dropdown ml-2 dropdown">
                             <button class="tw-btn tw-btn-outline p-2 rounded border border-gray-300 hover:bg-gray-100"
                                 type="button" id="navLinks" data-bs-toggle="dropdown" aria-expanded="false">
-                                <img src="/chatucy_logo.png" alt="ChatUCY Logo" class="img-fluid"
+                                <img src="/img/chatucy_logo.png" alt="ChatUCY Logo" class="img-fluid"
                                     style="max-height: 30px; margin: 0 auto;">
                             </button>
                             <ul class="tw-dropdown-menu dropdown-menu dropdown-menu-end" aria-labelledby="navLinks">
@@ -75,19 +89,17 @@
                                     <div class="d-flex align-items-center justify-content-center">
 
                                         <span class="ms-1" style="font-size: 0.8em;">v1.2</span>
-                                        <span class="badge bg-warning text-dark ms-1"
-                                            style="font-size: 0.7em;">DEV</span>
                                     </div>
                                 </li>
                                 <li>
                                     <hr class="dropdown-divider">
                                 </li>
                                 <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/index.html"><i class="fa fa-home me-2"></i>Home</a></li>
+                                        href="/"><i class="fa fa-home me-2"></i>Home</a></li>
                                 <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/privacy_llm.html"><i class="fa fa-lock me-2"></i>Privacy</a></li>
+                                        href="/privacy"><i class="fa fa-lock me-2"></i>Privacy</a></li>
                                 <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/terms.html"><i class="fa fa-file-text me-2"></i>Terms</a></li>
+                                        href="/terms"><i class="fa fa-file-text me-2"></i>Terms</a></li>
                             </ul>
                         </div>
                     </div>
@@ -206,12 +218,18 @@
                                     // Initialize from saved state or default to checked (ON)
                                     const savedState = sessionStorage.getItem('llmMsEnabled');
                                     const isEnabled = savedState !== null ? savedState === 'true' : true;
-
-                                    // Set the toggle to match saved state
-                                    llmMsToggle.checked = isEnabled;
-
-                                    // Apply the correct visual state on load
-                                    toggleLlmMs(isEnabled);
+    if (savedState === null) {
+        // No saved state, default to ON and toggle it
+        const defaultState = true; // Default to ON
+        sessionStorage.setItem('llmMsEnabled', defaultState); // Save the default state
+        llmMsToggle.checked = defaultState; // Set the toggle to ON
+        toggleLlmMs(defaultState); // Apply the default state
+    } else {
+        // Use the saved state
+        const isEnabled = savedState === 'true';
+        llmMsToggle.checked = isEnabled; // Set the toggle to match the saved state
+        toggleLlmMs(isEnabled); // Apply the saved state
+    }
                                 });
                             </script>
 
@@ -343,14 +361,27 @@
                                 <div class="card-body">
                                     <div class="mb-3">
                                         <label for="tokenAllocation" class="form-label">Max Token Budget</label>
-                                        <input type="range" class="form-range" id="tokenAllocation" min="100" max="2048"
-                                            step="64" value="1024">
+                                        <input type="range" class="form-range" id="tokenAllocation" min="512" max="12288"
+                                            step="64" value="2048">
                                         <div class="d-flex justify-content-between">
-                                            <small>100</small>
-                                            <small id="tokenValue">1024</small>
-                                            <small>2048</small>
+                                            <small>512</small>
+                                            <small id="tokenValue">2048</small>
+                                            <small>12288</small>
                                         </div>
                                     </div>
+
+
+                                    <!-- <div class="mb-3">
+                                        <label for="startTokens" class="form-label">Starting Token Budget</label>
+                                        <input type="number" class="form-control" id="startTokens" min="16" max="256"
+                                            step="16" value="64">
+                                    </div> -->
+
+                                    <!-- <div class="mb-3">
+                                        <label for="maxRounds" class="form-label">Max Rounds</label>
+                                        <input type="number" class="form-control" id="maxRounds" min="1" max="20"
+                                            step="1" value="10">
+                                    </div> -->
 
                                     <div class="mb-3">
                                         <label for="selectionCriteria" class="form-label">Selection Criteria
@@ -368,8 +399,8 @@
                                         <div id="dynamicMarginContainer" class="mb-3">
                                             <label for="dynamicMarginCoeff" class="form-label">Dynamic Margin
                                                 Coefficient</label>
-                                            <input type="number" class="form-control" id="dynamicMarginCoeff" min="0.5"
-                                                max="5" step="0.1" value="1.0">
+                                            <input type="number" class="form-control" id="dynamicMarginCoeff" min="0.1"
+                                                max="1" step="0.05" value="0.2">
                                         </div>
 
                                     </div>
@@ -399,17 +430,21 @@
     </div>
 
     <!-- jQuery and other libraries -->
+    <!-- Import Marked.js for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="/js/jquery-1.11.0.js"></script>
     <script src="/js/bootstrap.bundle.js"></script>
     <script src="/js/jquery.easing.min.js"></script>
-    <script src="/js/script.js?v=1"></script>
-    <script src="/js/new_chat_script.js?v=1"></script>
+
+    <!-- Changed version number to v=1.1 to ensure browser gets the latest code -->
+    <script src="/js/new_chat_script_copy.js?v=1.1"></script>
+    <script src="/js/jquery.easing.min.js?v=1"></script>
     <script src="/js/classie.js?v=1"></script>
     <script src="/js/jqBootstrapValidation.js?v=1"></script>
     <script src="/js/contact_me.js?v=1"></script>
     <script src="/js/freelancer.js?v=1"></script>
     <script src="https://kit.fontawesome.com/502aa52b51.js" crossorigin="anonymous"></script>
+    <!-- Load our document processing modules -->
     <script src="/js/responsive.js?v=1"></script>
 
     <!-- Advanced Settings Modal Script -->
@@ -520,6 +555,8 @@
                     preloadedQuery: document.getElementById('preloadedQuery').value,
                     models: {},
                     tokenAllocation: parseInt(document.getElementById('tokenAllocation').value),
+                    // startTokens: parseInt(document.getElementById('startTokens').value),
+                    // maxRounds: parseInt(document.getElementById('maxRounds').value),
                     weights: {
                         alpha: parseFloat(document.getElementById('alphaWeight').value),
                         beta: parseFloat(document.getElementById('betaWeight').value),
@@ -578,6 +615,8 @@
                     MODELS: activeModels,
                     EMBEDDING_MODEL: settings.otherParams.embeddingModel,
                     DYNAMIC_MARGIN_COEFF: settings.earlyStoppingParams.dynamicMarginCoeff,
+                    // START_TOKENS: settings.startTokens,
+                    // MAX_ROUNDS: settings.maxRounds,
                     MAX_TOKENS: settings.tokenAllocation,
                     XPLORE_COEFF: settings.mabParams.xploreCoeff,
                     ALPHA: settings.weights.alpha,

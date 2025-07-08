@@ -128,7 +128,7 @@ def compute_base_score_for_mab(
 ###############################################################################
 def stream_llm_ms_mab(
     question: str,
-    max_rounds: int = 50,
+    max_rounds: int = 127,
     total_token_budget: int = 2048,
     a=0.7,
     b=0.3,
@@ -157,9 +157,7 @@ def stream_llm_ms_mab(
     Yields:
         JSON strings containing the current state and partial results
     """
-    # Set the constants for this function run
     global ALPHA, BETA, XPLORE_COEFF, EMBEDDING_MODEL, MODELS, EARLY_STOPPING_MARGIN_RATIO, system_prompt
-    # Store original values to restore later
     original_alpha = ALPHA
     original_beta = BETA
     original_xplore_coeff = XPLORE_COEFF
@@ -167,7 +165,7 @@ def stream_llm_ms_mab(
     original_models = MODELS
     original_early_stopping_ratio = EARLY_STOPPING_MARGIN_RATIO
     original_system_prompt = system_prompt
-    # Set new values for this run
+
     ALPHA = a
     BETA = b
     XPLORE_COEFF = dc
@@ -181,155 +179,207 @@ def stream_llm_ms_mab(
     if custom_system_prompt is not None:
         system_prompt = custom_system_prompt
 
-    # Handle messages parameter properly
     if messages is None:
-        # If no messages provided, create a new list with system and user messages
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
         ]
     else:
-        # If messages were provided, ensure system message is at the top
-        # Find if there's already a system message
         has_system_message = False
         for msg in messages:
             if msg.get("role") == "system":
                 has_system_message = True
-                # Update the system message content
                 msg["content"] = system_prompt
                 break
-
-        # If no system message found, insert one at the beginning
         if not has_system_message:
             messages.insert(0, {"role": "system", "content": system_prompt})
 
-    # Flag to track if we've seen a final completion
     complete_response_received = False
     final_response = None
 
-    try:
-        # Embed the question once.
-        q_emb = embed_text(question)
-        if q_emb is None:
-            yield json.dumps(
-                {"status": "error", "error": "Empty question embedding", "done": True}
-            )
-            return
-        q_emb = q_emb.reshape(1, -1)
-        arms = MODELS
-        # Initialize per-arm state.
-        stats = {}  # For each arm: pulls count, cumulative reward, average reward.
-        outputs = {}  # Cumulative output from each model.
-        generators = {}  # Generator per model.
-        done_flags = {}  # Whether a model is finished.
-        last_eval_count = {}  # Tokens used per model.
-        scores = {}  # Current score for each model.
-        done_reasons = {}  # Reason for completion.
-        tracking = {m: 0 for m in arms}  # Count how many times each model is chosen.
-        for m in arms:
-            stats[m] = {"n": 0, "cumulative_reward": 0.0, "avg": 0.0}
-            outputs[m] = ""
-            generators[m] = generate_stream(
-                m, question, total_token_budget // len(arms), messages
-            )
-            done_flags[m] = False
-            scores[m] = 0.0
-            last_eval_count[m] = 0
-            done_reasons[m] = "unknown"
-        total_pulls = 0
-        tokens_used = 0
-        # Initial status update
+    q_emb = embed_text(question)
+    if q_emb is None:
         yield json.dumps(
-            {
-                "status": "initialized",
-                "models": arms,
-                "done": False,
-                "config": {
-                    "total_budget": total_token_budget,
-                    "max_rounds": max_rounds,
-                    "alpha": ALPHA,
-                    "beta": BETA,
-                    "explore_coeff": XPLORE_COEFF,
-                },
-            }
+            {"status": "error", "error": "Failed to generate embedding for question", "done": True}
         )
-        # --- INITIAL PULL: one chunk per model ---
-        for m in arms:
-            try:
-                nm, chunk, eval_count, is_final, done_reason = next(generators[m])
-                outputs[m] = chunk
-                last_eval_count[m] = eval_count
-                done_reasons[m] = done_reason
-                if done_reason == "stop":
-                    done_flags[m] = True
-                emb = embed_text(outputs[m])
-                score = (
-                    compute_base_score_for_mab(m, emb, q_emb, outputs, arms)
-                    if emb is not None
-                    else 0.0
-                )
-                scores[m] = score
-                stats[m]["n"] = 1
-                stats[m]["cumulative_reward"] = score
-                stats[m]["avg"] = score
-                # Update tokens only if eval_count is present.
-                if eval_count:
-                    tokens_used += eval_count
-                total_pulls += 1
-                # Yield updated state after each model's initial pull
-                yield json.dumps(
-                    {
-                        "status": "initial_pull",
-                        "model": m,
-                        "partial_output": chunk,
-                        "score": score,
+        return
+    q_emb = q_emb.reshape(1, -1)
+    arms = MODELS
+    stats = {}
+    outputs = {}
+    generators = {}
+    done_flags = {}
+    last_eval_count = {}
+    scores = {}
+    done_reasons = {}
+    tracking = {m: 0 for m in arms}
+    for m in arms:
+        stats[m] = {"n": 0, "cumulative_reward": 0.0, "avg": 0.0}
+        outputs[m] = ""
+        generators[m] = generate_stream(
+            m, question, total_token_budget // len(arms), messages
+        )
+        done_flags[m] = False
+        scores[m] = 0.0
+        last_eval_count[m] = 0
+        done_reasons[m] = "unknown"
+    total_pulls = 0
+    tokens_used = 0
+    yield json.dumps(
+        {
+            "status": "initialized",
+            "models": arms,
+            "current_tokens": total_token_budget // len(arms),
+            "max_total_tokens": total_token_budget,
+            "done": False,
+        }
+        
+    )
+    for m in arms:
+        try:
+            nm, chunk, eval_count, is_final, done_reason = next(generators[m])
+            outputs[m] = chunk
+            last_eval_count[m] = eval_count
+            done_reasons[m] = done_reason
+            if done_reason == "stop":
+                done_flags[m] = True
+            emb = embed_text(outputs[m])
+            score = (
+                compute_base_score_for_mab(m, emb, q_emb, outputs, arms)
+                if emb is not None
+                else 0.0
+            )
+            scores[m] = score
+            stats[m]["n"] = 1
+            stats[m]["cumulative_reward"] = score
+            stats[m]["avg"] = score
+            if eval_count:
+                tokens_used += eval_count
+            total_pulls += 1
+            yield json.dumps(
+                {
+                    "status": "model_progress",
+                    "round": 1,
+                    "model": m,
+                    "partial_output": chunk,
+                    "tokens": eval_count,
+                    "done": is_final,
+                     "reason": done_reason if is_final else "unknown",  # Change this line
+                }
+            )
+            # Send scoring update
+            yield json.dumps(
+                {
+                    "status": "model_scored",
+                    "round": 1,
+                    "model": m,
+                    "score": scores[m],
+                    "metrics": {
                         "tokens": eval_count,
                         "done": is_final,
-                        "models_state": {
-                            model: {
-                                "score": scores.get(model, 0.0),
-                                "tokens": last_eval_count.get(model, 0),
-                                "done": done_flags.get(model, False),
-                            }
-                            for model in arms
-                        },
-                    }
-                )
-            except StopIteration:
-                done_flags[m] = True
+                    },
+                }
+            )
+            if is_final:
                 yield json.dumps(
                     {
-                        "status": "initial_pull_failed",
+                        "status": "model_finished",
+                        "round": 1,
                         "model": m,
-                        "error": "Failed to get initial output",
+                        "reason": done_reason,
+                        "tokens": eval_count,
                         "done": False,
                     }
                 )
-        round_count = 0
-        # --- MAIN LOOP: pull one arm at a time based on UCB ---
-        while (
-            tokens_used < total_token_budget
-            and round_count < max_rounds
-            and not all(done_flags.values())
-        ):
-            progress = tokens_used / total_token_budget
-            dynamic_xplore = XPLORE_COEFF * (1 - progress)
-            # Compute UCB for active arms.
-            ucb_values = {}
-            for m in arms:
-                if done_flags[m]:
-                    ucb_values[m] = -float("inf")
-                else:
-                    n = stats[m]["n"]
-                    avg = stats[m]["avg"]
-                    ucb = (
-                        avg + dynamic_xplore * math.sqrt(2 * math.log(total_pulls) / n)
-                        if n > 0
-                        else float("inf")
-                    )
-                    ucb_values[m] = ucb
-            chosen_model = max(ucb_values, key=ucb_values.get)
-            tracking[chosen_model] += 1  # Count this selection.
+        except StopIteration:
+            done_flags[m] = True
+            yield json.dumps(
+                {
+                    "status": "model_exhausted",
+                    "round": 1,
+                    "model": m,
+                }
+            )
+    round_count = 1
+    round_start_sent = False
+    
+    # Only send round_start once at the beginning
+    if not round_start_sent:
+        yield json.dumps(
+            {
+                "status": "round_start",
+                "round": round_count,
+                "token_allocation": total_token_budget // len(arms),
+                "models": arms,
+                "cumulative_tokens": tokens_used,
+                "done": False,
+            }
+        )
+        round_start_sent = True
+    progress = tokens_used / total_token_budget
+    dynamic_xplore = XPLORE_COEFF * (1 - progress)
+    ucb_values = {}
+    for m in arms:
+        if done_flags[m]:
+            ucb_values[m] = -float("inf")
+        else:
+            n = stats[m]["n"]
+            avg = stats[m]["avg"]
+            ucb = (
+                avg + dynamic_xplore * math.sqrt(2 * math.log(total_pulls) / n)
+                if n > 0
+                else float("inf")
+            )
+            ucb_values[m] = ucb
+    chosen_model = max(ucb_values, key=ucb_values.get)
+    non_selected_models = [m for m in arms if m != chosen_model and not done_flags[m]]
+    for model in non_selected_models:
+        scores[model] = 0.0  # Reset scores for non-selected models
+        model_ucb = ucb_values[model] if model in ucb_values else 0.0
+          # Also send model_scored update with 0 score
+        yield json.dumps(
+            {
+                "status": "model_scored",
+                "round": round_count,
+                "model": model,
+                "score": 0.0,  # Reset score to 0
+                "selectivity": model_ucb,
+                "metrics": {
+                    "tokens": last_eval_count[model],
+                    "done": done_flags[model],
+                },
+            })
+
+    tracking[chosen_model] += 1
+    
+    # Check if chosen model is already done or no models are available
+    if done_flags[chosen_model] or all(done_flags.values()):
+        # All models are done, finish immediately
+        if scores:
+            best_model = max(scores.keys(), key=lambda m: scores[m])
+            yield json.dumps(
+                {
+                    "status": "final_result",
+                    "reason": "all_models_finished",
+                    "best_model": best_model,
+                    "output": outputs[best_model],
+                    "score": scores[chosen_model],
+                    "tokens": last_eval_count[best_model],
+                    "done": True,
+                }
+            )
+        else:
+            yield json.dumps(
+                {
+                    "status": "error",
+                    "error": "No results produced - all models finished",
+                    "done": True,
+                }
+            )
+        return  # Exit the function completely
+    else:
+        # Pull from the chosen model until it's done or tokens are exhausted
+        while not done_flags[chosen_model] and tokens_used < total_token_budget:
             try:
                 nm, chunk, eval_count, is_final, done_reason = next(
                     generators[chosen_model]
@@ -337,239 +387,120 @@ def stream_llm_ms_mab(
                 outputs[chosen_model] = chunk
                 last_eval_count[chosen_model] = eval_count
                 done_reasons[chosen_model] = done_reason
-                if done_reason == "stop":
+                
+                # Update score immediately
+                emb = embed_text(outputs[chosen_model])
+                new_score = (
+                    compute_base_score_for_mab(chosen_model, emb, q_emb, outputs, arms)
+                    if emb is not None
+                    else 0.0
+                )
+                scores[chosen_model] = new_score
+                
+                yield json.dumps(
+                    {
+                        "status": "model_progress",
+                        "round": round_count,
+                        "model": chosen_model,
+                        "partial_output": chunk,
+                        "tokens": eval_count,
+                        "done": is_final,
+                       "reason": done_reason if is_final else "unknown",  # Change this line
+                    }
+                )
+                # Send metrics for each pull
+                yield json.dumps(
+                    {
+                        "status": "model_scored",
+                        "round": round_count,
+                        "model": chosen_model,
+                        "score": scores[chosen_model],
+                        "selectivity": tracking[chosen_model],
+                       "metrics": {
+                            "tokens": last_eval_count[chosen_model],
+                            "done": done_flags[chosen_model],
+                        },
+                    }
+
+                )
+                
+                
+                if eval_count:
+                    tokens_used += eval_count
+                total_pulls += 1
+                
+                if done_reason == "stop" or is_final:
                     done_flags[chosen_model] = True
+                    # If this model is done, yield final result and exit
+                    if scores:
+                        best_model = max(scores.keys(), key=lambda m: scores[m])
+                        yield json.dumps(
+                            {
+                                "status": "final_result",
+                                "reason": "model_completed",
+                                "best_model": best_model,
+                                "output": outputs[best_model],
+                                "score": scores[best_model],
+                                "selectivity": tracking[chosen_model],
+                                "tokens": last_eval_count[best_model],
+                                "done": True,
+                            }
+                        )
+                    return  # Exit the function completely
+                    
             except StopIteration:
                 done_flags[chosen_model] = True
                 yield json.dumps(
                     {
-                        "status": "model_finished",
+                        "status": "model_exhausted",
+                        "round": round_count,
                         "model": chosen_model,
-                        "done": False,
-                        "tokens": last_eval_count[chosen_model],
-                        "reason": "StopIteration",
                     }
                 )
-                continue
-            # Update tokens only if eval_count is present.
-            if eval_count:
-                tokens_used += eval_count
-            round_count += 1
-            total_pulls += 1
-            # Update score and stats.
-            emb = embed_text(outputs[chosen_model])
-            new_score = (
-                compute_base_score_for_mab(chosen_model, emb, q_emb, outputs, arms)
-                if emb is not None
-                else 0.0
-            )
-            scores[chosen_model] = new_score
-            reward = new_score
-            stats[chosen_model]["n"] += 1
-            stats[chosen_model]["cumulative_reward"] += reward
-            stats[chosen_model]["avg"] = (
-                stats[chosen_model]["cumulative_reward"] / stats[chosen_model]["n"]
-            )
-
-            # Add models_outputs to include all current model outputs
-            models_outputs = {m: outputs[m] for m in arms if outputs[m]}
-
-            # Yield status update after this round
-            yield json.dumps(
-                {
-                    "status": "round_update",
-                    "round": round_count,
-                    "chosen_model": chosen_model,
-                    "partial_output": chunk,
-                    "score": new_score,
-                    "tokens": eval_count,
-                    "total_tokens": tokens_used,
-                    "progress": f"{int(progress * 100)}%",
-                    "done": False,
-                    "models_state": {
-                        model: {
-                            "score": scores.get(model, 0.0),
-                            "tokens": last_eval_count.get(model, 0),
-                            "done": done_flags.get(model, False),
-                        }
-                        for model in arms
-                    },
-                    "models_outputs": models_outputs,
-                }
-            )
-            # --- Optional Early Stopping with Completion ---
-            active_scores = [scores[m] for m in arms if not done_flags[m]]
-            if len(active_scores) > 1:
-                best_active_score = max(active_scores)
-                sorted_scores = sorted(active_scores)
-                second_best = sorted_scores[-2]
-                if (
-                    second_best > 0
-                    and (best_active_score - second_best) / second_best
-                    > EARLY_STOPPING_MARGIN_RATIO
-                ):
-                    best_model = max(arms, key=lambda m: scores[m])
-                    yield json.dumps(
-                        {
-                            "status": "early_stopping",
-                            "best_model": best_model,
-                            "score": scores[best_model],
-                            "reason": "margin_exceeded",
-                            "done": False,
-                            "partial_output": outputs[best_model],
-                        }
-                    )
-                    while (
-                        not done_flags[best_model] and tokens_used < total_token_budget
-                    ):
-                        try:
-                            nm, chunk, eval_count, is_final, done_reason = next(
-                                generators[best_model]
-                            )
-                            outputs[best_model] = chunk
-                            last_eval_count[best_model] = eval_count
-                            done_reasons[best_model] = done_reason
-                            # Stream updates during completion
-                            yield json.dumps(
-                                {
-                                    "status": "completing_best",
-                                    "model": best_model,
-                                    "partial_output": chunk,
-                                    "tokens": eval_count,
-                                    "done": is_final,
-                                }
-                            )
-                            if done_reason == "stop":
-                                done_flags[best_model] = True
-                        except StopIteration:
-                            done_flags[best_model] = True
-                            break
-                        if eval_count:
-                            tokens_used += eval_count
-                    # Final result after early stopping and completion
+                # If model is exhausted, yield final result and exit
+                if scores:
+                    best_model = max(scores.keys(), key=lambda m: scores[m])
                     yield json.dumps(
                         {
                             "status": "final_result",
-                            "model": best_model,
+                            "reason": "model_exhausted",
+                            "best_model": best_model,
                             "output": outputs[best_model],
                             "score": scores[best_model],
+                            "selectivity": tracking[chosen_model],
                             "tokens": last_eval_count[best_model],
                             "done": True,
-                            "early_stopped": True,
                         }
                     )
-                    return
-            if tokens_used >= total_token_budget:
-                for m in arms:
-                    if not done_flags[m]:
-                        done_reasons[m] = "length"
-                break
-        # Final results at end of all rounds
-        results = []
-        for m in arms:
-            results.append(
-                (
-                    m,
-                    outputs[m].strip(),
-                    scores[m],
-                    last_eval_count[m],
-                    done_flags[m],
-                    done_reasons[m],
-                )
-            )
-        # Sort by score and return the best
-        sorted_results = sorted(results, key=lambda x: x[2], reverse=True)
-        # Find model that completed with "stop" reason
-        best_complete_model = None
-        for r in sorted_results:
-            if r[5] == "stop":  # If this model completed successfully
-                best_complete_model = r
-                break
-        # If we found a model that completed successfully, return it
-        if best_complete_model:
-            model, output, score, tokens_used, done_flag, done_reason = (
-                best_complete_model
-            )
-            yield json.dumps(
-                {
-                    "status": "final_result",
-                    "model": model,
-                    "output": output,
-                    "score": score,
-                    "tokens": tokens_used,
-                    "done": True,
-                    "reason": done_reason,
-                }
-            )
-            complete_response_received = True
-            final_response = json.dumps(
-                {
-                    "status": "final_result",
-                    "model": model,
-                    "output": output,
-                    "score": score,
-                    "tokens": tokens_used,
-                    "done": True,
-                    "reason": done_reason,
-                }
-            )
-        else:
-            # Otherwise return the highest scoring one
-            if sorted_results:
-                model, output, score, tokens_used, done_flag, done_reason = (
-                    sorted_results[0]
-                )
-                yield json.dumps(
-                    {
-                        "status": "final_result",
-                        "model": model,
-                        "output": output,
-                        "score": score,
-                        "tokens": tokens_used,
-                        "done": True,
-                        "reason": "highest_score",
-                    }
-                )
-                complete_response_received = True
-                final_response = json.dumps(
-                    {
-                        "status": "final_result",
-                        "model": model,
-                        "output": output,
-                        "score": score,
-                        "tokens": tokens_used,
-                        "done": True,
-                        "reason": "highest_score",
-                    }
-                )
-            else:
-                yield json.dumps(
-                    {"status": "error", "error": "No results available", "done": True}
-                )
-                complete_response_received = True
-                final_response = json.dumps(
-                    {"status": "error", "error": "No results available", "done": True}
-                )
-    finally:
-        # Restore original values
-        ALPHA = original_alpha
-        BETA = original_beta
-        XPLORE_COEFF = original_xplore_coeff
-        EMBEDDING_MODEL = original_embedding_model
-        MODELS = original_models
-        EARLY_STOPPING_MARGIN_RATIO = original_early_stopping_ratio
-        system_prompt = original_system_prompt
-
-        # If we somehow exited the loop without a complete response, yield a final output
-        if not complete_response_received:
-            yield json.dumps(
-                {
-                    "status": "final_result",
-                    "reason": "generator_completed",
-                    "message": "Generation complete but no final result was explicitly marked",
-                    "done": True,
-                }
-            )
-        elif final_response:
-            # Re-yield the final response to ensure it wasn't missed
-            yield final_response
+                return  # Exit the function completely
+    if scores:
+        best_model = max(scores.keys(), key=lambda m: scores[m])
+        yield json.dumps(
+            {
+                "status": "final_result",
+                "reason": "tokens_exhausted",
+                "best_model": best_model,
+                "output": outputs[best_model],
+                "score": scores[best_model],
+                "selectivity": tracking[chosen_model],
+                "tokens": last_eval_count[best_model],
+                "done": True,
+            }
+        )
+    else:
+        yield json.dumps(
+            {
+                "status": "error",
+                "error": "No results produced",
+                "done": True,
+            }
+        )
+    
+    # Restore original global variables
+    ALPHA = original_alpha
+    BETA = original_beta
+    XPLORE_COEFF = original_xplore_coeff
+    EMBEDDING_MODEL = original_embedding_model
+    MODELS = original_models
+    EARLY_STOPPING_MARGIN_RATIO = original_early_stopping_ratio
+    system_prompt = original_system_prompt

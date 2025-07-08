@@ -27,7 +27,7 @@ async def get_models():
                 continue
 
             # Exclude unwanted models
-            excluded_keywords = ["embed", "9b", "falcon"]
+            excluded_keywords = ["embed", "9b", "falcon","r1"]
             if any(keyword in model_name for keyword in excluded_keywords):
                 continue
 

@@ -23,6 +23,25 @@ BETA = 0.3  # weight for inter-model consensus
 ###############################################################################
 # UTILITY FUNCTIONS
 ###############################################################################
+def estimate_tokens_from_text(text: str) -> int:
+    """
+    Estimate token count from text using word-based approximation.
+    Rule of thumb: 1 token ≈ 0.75 words for most models.
+    """
+    if not text or not text.strip():
+        return 0
+    
+    # Split by whitespace and count words
+    word_count = len(text.split())
+    
+    # Approximate tokens: 1 token ≈ 0.75 words
+    # Add some overhead for special tokens, punctuation, etc.
+    estimated_tokens = int(word_count / 0.75) + 5  # +5 for overhead
+    
+    return max(1, estimated_tokens)  # Ensure at least 1 token
+# Fix 3: Dynamic token redistribution
+def redistribute_tokens(remaining_budget, active_models, current_round):
+    return remaining_budget // len(active_models) if active_models else 0
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
     """
     Compute cosine similarity between two 1-D NumPy arrays.
@@ -47,7 +66,7 @@ def embed_text(txt: str) -> np.ndarray or None:  # type: ignore
 ###############################################################################
 # ASYNC GENERATOR: STREAM PARTIAL OUTPUTS FROM A SINGLE MODEL
 ###############################################################################
-def generate_stream(model_name: str, question: str, num_predict: int, messages=None):
+def generate_stream(model_name: str, question: str, num_predict, messages=None):
     """
     Synchronous generator for streaming partial outputs from a single model.
     Yields: (model_name, partial_output, eval_count, is_final, done_reason)
@@ -58,6 +77,7 @@ def generate_stream(model_name: str, question: str, num_predict: int, messages=N
         num_predict: Maximum number of tokens to predict
         messages: Optional pre-existing conversation history in messages format
     """
+    num_predict = int(num_predict)
     if messages:
         # Use messages format if provided
         response = ollama.chat(
@@ -150,7 +170,7 @@ def stream_program_stepwise(
     if dc is not None:
         EARLY_STOPPING_MARGIN_RATIO = dc
     else:
-        EARLY_STOPPING_MARGIN_RATIO = 1 * math.log2(len(MODELS))
+        EARLY_STOPPING_MARGIN_RATIO = 0.3
 
     # Apply custom embedding model if provided
     if embedding_model is not None:
@@ -204,6 +224,7 @@ def stream_program_stepwise(
     while (
         cumulative_tokens + current_tokens <= max_total_tokens and rounds < max_rounds
     ):
+        
         per_model_predict = max(1, current_tokens)
         # Update on round start
         rounds += 1
@@ -224,6 +245,7 @@ def stream_program_stepwise(
         scores = {m: 0.0 for m in run_these_models}
         done_reasons = {m: None for m in run_these_models}
         last_eval_count = {m: 0 for m in run_these_models}
+        
         active_models = set(run_these_models)
 
         # Create a generator for each model
@@ -298,6 +320,23 @@ def stream_program_stepwise(
             for model in list(active_models):
                 model_response = responses[model]
                 emb = embed_text(model_response)
+                if emb is None:
+                # Handle embedding failure with detailed error info
+                    active_models.discard(model)
+                    yield json.dumps(
+                        {
+                            "status": "model_embedding_failed",
+                            "round": rounds,
+                            "model": model,
+                            "reason": "embedding_generation_failed",
+                            "response_length": len(model_response),
+                            "response_preview": model_response[:200] + "..." if len(model_response) > 200 else model_response,
+                            "response_empty": len(model_response.strip()) == 0,
+                            "embedding_model": EMBEDDING_MODEL,
+                            "error_details": "embed_text() returned None - possible causes: empty response, embedding service unavailable, or invalid characters"
+                        }
+                    )
+                    continue  # Skip to next model
                 if emb is not None:
                     model_embeddings[model] = emb
 
@@ -363,87 +402,82 @@ def stream_program_stepwise(
                             },
                         }
                     )
+            active_scores = {m: scores[m] for m in active_models}
+            completed_models = {m : scores[m] for m in active_models if done_reasons.get(m) == "stop"}
+            if len(active_models) > 1:
+                score_sorted = sorted(active_scores.values())
+                score_values = list(active_scores.values())
+                score_mean = np.mean(score_values)
+                score_std = np.std(score_values) if len(score_values) > 1 else 0.1 
+                adjacent_gaps = [
+                    score_sorted[i + 1] - score_sorted[i]
+                    for i in range(len(score_sorted) - 1)
+                ]
+                median_gap = np.median(adjacent_gaps) if adjacent_gaps else 0.0
+                statistical_gap = score_std * 0.5
 
-                    # Add early stopping check: if a model completed with "stop" and it's the current best
-                    if (
-                        done_reasons.get(model)
-                        == "stop"  # Check if the current model finished
-                        and model
-                        == metrics[
-                            "best_model"
-                        ]  # Check if it's the best one found so far
-                    ):
-                        # Early stop: The best model has finished generating.
-                        yield json.dumps(
-                            {
-                                "status": "early_stopping",
-                                "message": f"Best model ({model}) completed successfully - stopping early.",
-                                "round": rounds,
-                                "best_model": model,
-                                "output": responses[model],
-                                "score": scores[model],
-                                "tokens": last_eval_count[model],
-                            }
-                        )
-                        # Send final result notification
-                        yield json.dumps(
-                            {
-                                "status": "final_result",
-                                "reason": "best_model_completed",
-                                "round": rounds,
-                                "model": model,
-                                "output": responses[model],
-                                "score": scores[model],
-                                "tokens": last_eval_count[model],
-                                "done": True,
-                            }
-                        )
-                        return  # Explicitly stop the generator
-                    # prune worst model if worst than dc
-                    worst_model = min(scores.keys(), key=lambda m: scores[m])
-
-                    std_dev = np.std(list(scores.values()))
-                    if scores[worst_model] > std_dev * EARLY_STOPPING_MARGIN_RATIO:
-
-                        # Prune the worst model
-                        active_models.discard(worst_model)
-                        yield json.dumps(
-                            {
-                                "status": "model_pruned",
-                                "round": rounds,
-                                "model": worst_model,
-                                "reason": "early_stopping",
-                            }
-                        )
-                    # if best model is better than the rest by dc then keep only that generating
-                    if (
-                        scores[metrics["best_model"]]
-                        > EARLY_STOPPING_MARGIN_RATIO * std_dev
-                    ):
-                        # Prune all other models
-                        for m in active_models:
-                            if m != metrics["best_model"]:
-                                active_models.discard(m)
-                                yield json.dumps(
-                                    {
-                                        "status": "model_pruned",
-                                        "round": rounds,
-                                        "model": m,
-                                        "reason": "early_stopping",
-                                    }
-                                )
-
-                else:
-                    # No valid embedding for this model's output
-                    active_models.discard(model)
+                # More robust typically_gap calculation
+                typically_gap = np.mean([
+                    median_gap * 1.5,  # Make median gap more significant
+                    statistical_gap,
+                    score_std * 0.5,   # Additional statistical measure
+                    0.08               # Increased minimum threshold from 0.05 to 0.08
+                ])
+                best_model = max(active_scores.keys(), key=lambda m: active_scores[m])
+                worst_model = min(active_scores.keys(), key=lambda m: active_scores[m])
+                sorted_scores = sorted(active_scores[m] for m in active_models)
+                best_gap = active_scores[best_model] - (
+                    sorted_scores[-2] if len(sorted_scores) > 1 else 0.0
+                )
+                worst_gap = (
+                    sorted_scores[1] if len(sorted_scores) > 1 else 0.0
+                ) - active_scores[worst_model]
+                # Ea rly stopping if best is far ahead and done
+                if (
+                    done_reasons.get(best_model) == "stop"
+                    and best_gap > typically_gap * EARLY_STOPPING_MARGIN_RATIO * 0.8
+                ):
                     yield json.dumps(
                         {
-                            "status": "model_embedding_failed",
+                            "status": "early_stopping",
+                            "message": f"Best model ({best_model}) completed successfully - stopping early.",
                             "round": rounds,
-                            "model": model,
+                            "best_model": best_model,
+                            "output": responses[best_model],
+                            "score": active_scores[best_model],
+                            "tokens": last_eval_count[best_model],
+                            "done": True,
                         }
                     )
-
+                    return
+                # Early stopping if worst is far behind and done
+                # Prune underperformer if gap is big enough
+                if worst_gap > typically_gap * EARLY_STOPPING_MARGIN_RATIO * 0.8 and len(active_models) > 1:
+                    active_models.discard(worst_model)
+                    yield json.dumps(
+                        {
+                            "status": "model_pruned",
+                            "round": rounds,
+                            "model": worst_model,
+                            "reason": "underperformer_pruned",
+                        }
+                    )
+            elif len(active_models) == 1:
+                remaining_model = next(iter(active_models))
+                # Let it finish (run to completion, break only if stop)
+                if done_reasons.get(remaining_model) == "stop":
+                    yield json.dumps(
+                        {
+                            "status": "final_result",
+                            "reason": "single_model_completed",
+                            "best_model": remaining_model,
+                            "output": responses[remaining_model],
+                            "score": scores[remaining_model],
+                            "tokens": last_eval_count[remaining_model],
+                            "done": True,
+                        }
+                    )
+                    return
             # Check if all models are finished with "stop" reason - similar to run_program_stepwise
             if all(done_reasons.get(m) == "stop" for m in run_these_models):
                 # Find best model by score
@@ -503,7 +537,7 @@ def stream_program_stepwise(
         run_these_models = list(active_models)
 
         # If no models left, end
-        if not run_these_models:
+        if len(run_these_models)==0:
             if scores:
                 best_model = max(scores.keys(), key=lambda m: scores[m])
                 yield json.dumps(

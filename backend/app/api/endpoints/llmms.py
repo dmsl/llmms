@@ -43,9 +43,10 @@ def stream_llm_ms_oua(
             "message": "Starting OUA algorithm",
             "config": {
                 "start_tokens": int(
-                    max_tokens / len(models) if models and len(models) > 0 else max_tokens / 4
+                    max_tokens / len(models)
+                    if models and len(models) > 0
+                    else max_tokens / 4
                 ),
-              
                 "alpha": alpha,
                 "beta": beta,
                 "dynamic_margin_coeff": dynamic_margin_coeff,
@@ -65,85 +66,185 @@ def stream_llm_ms_oua(
                 break
 
     stream_ended_with_final_result = False
-    active_models = set(models) if models else set()  # Track active models to handle pruning events safely
+    active_models = set(models) if models else set()  # Track active models
     pruned_models = set()  # Keep track of pruned models explicitly
-  
-    
+    best_model = None  # Track the current best performing model
+    best_score = -1.0  # Track the best score so far
+    best_response = ""  # Track the best response so far
+    current_round = 0  # Track the current round number
+
+    # Create a working copy of models to prevent mutation issues
+    models_working_copy = list(models) if models else []
+
+    # Track which models are pending removal to avoid changing set size during iteration
+    pending_pruning = set()  # Models that will be removed after iteration
 
     # We'll create our own wrapper around the algorithm to inject pruning awareness
     def handle_stream_results():
+        nonlocal best_model, best_score, best_response, current_round, active_models, pruned_models, pending_pruning, models_working_copy
         try:
+            # Create a snapshot of models that won't be modified during iteration
+            # We'll explicitly make a list copy to prevent mutations
+            snapshot_models = list(models_working_copy)
+
             # Create a safe generator to avoid iteration errors
             generator = stream_program_stepwise(
                 question=user_prompt,
-                start_tokens=int(max_tokens / len(models) if models and len(models) > 0 else max_tokens / 4),
-                max_rounds=10,
+                start_tokens=int(
+                    max_tokens / len(snapshot_models)
+                    if snapshot_models and len(snapshot_models) > 0
+                    else max_tokens / 4
+                ),
+                max_rounds=100,
                 max_tokens=max_tokens,
                 custom_system_prompt=system_prompt,
                 alpha=alpha,
                 beta=beta,
                 dc=dynamic_margin_coeff,
-                models=models,
+                models=snapshot_models,  # Use our safe copy
                 embedding_model=embedding_model,
                 messages=messages,  # Pass the full messages array
             )
-            
-            # First yield each result, then track any pruning
+
+            # Keep a local copy of results that need to be processed later
+            buffered_results = []
+
+            # Process results in two phases:
+            # 1. Collect all results and identify pruning events
+            # 2. Apply pruning after all results are collected
             for result in generator:
-                # First update our tracking
-              
-                # Then yield the result
-                yield result
                 try:
                     obj = json.loads(result)
+                    # if "model" in obj and obj["model"] in pruned_models:
+                    #     continue  # Do NOT buffer/yield results for pruned models
+
+                    # Handle model initialization
                     if obj.get("status") == "initialized" and "models" in obj:
-                        active_models = set(obj["models"])
-                        pruned_models = set()
+                        # Reset model tracking on initialization
+                        models_working_copy = list(obj["models"])
+                        active_models.clear()
+                        active_models.update(obj["models"])
+                        pruned_models.clear()
+                        pending_pruning.clear()
+
+                    # Track model scoring for best model identification
+                    if (
+                        obj.get("status") == "model_scored"
+                        and "model" in obj
+                        and "score" in obj
+                    ):
+                        model = obj["model"]
+                        score = obj["score"]
+
+                        # Track best model and score
+                        if score > best_score:
+                            best_model = model
+                            best_score = score
+                            # Check if there's output to save
+                            if "partial_output" in obj:
+                                best_response = obj["partial_output"]
+
+                    # Handle model pruning by marking for later processing
                     if obj.get("status") == "model_pruned" and "model" in obj:
                         model = obj["model"]
+                        if model in active_models and model not in pending_pruning:
+                            pending_pruning.add(model)
+                            # Update the result with accurate model lists
+                            obj_copy = dict(obj)
+                            obj_copy["remaining_models"] = [
+                                m for m in active_models if m not in pending_pruning
+                            ]
+                            obj_copy["pruned_models"] = list(pruned_models) + list(
+                                pending_pruning
+                            )
+                            # Replace the original result with our enhanced version
+                            result = json.dumps(obj_copy)
+
+                    # Store result for processing after iteration
+                    buffered_results.append(result)
+                # Handle JSON parsing errors gracefully
+                    yield result
+                except json.JSONDecodeError:
+                    # If we can't parse it, just add to buffer
+                    buffered_results.append(result)
+                except Exception as e:
+                    logger.warning(f"Error processing result: {e}")
+                    buffered_results.append(result)
+
+            # Phase 2: Apply pending pruning operations
+            # Phase 2: Apply pending pruning operations
+            if pending_pruning:
+                logger.info(
+                    f"Applying {len(pending_pruning)} pending pruning operations"
+                )
+                # Always iterate over a copy, not the original set
+                for model in list(pending_pruning):  # <-- quick fix here
+                    if model in active_models:
+                        active_models.remove(model)
                         pruned_models.add(model)
-                        if model in active_models:
-                            active_models.remove(model)
-                except Exception:
-                    pass
-                
+                    if model in models_working_copy:
+                        models_working_copy.remove(model)
+                pending_pruning.clear()
+
+            # Phase 3: Yield all buffered results
+            for buffered_result in buffered_results:
+                yield buffered_result
+
         except RuntimeError as re:
+            # Even with our precautions, we'll keep this as a fallback
             if "Set changed size during iteration" in str(re):
-                logger.warning("Caught set iteration error. Returning graceful error message.")
+                logger.warning(
+                    "Caught set iteration error despite precautions. Returning graceful error message."
+                )
                 # Include information about which models were pruned in our error
-                yield json.dumps({
-                    "status": "error", 
-                    "error": "Model pruning conflict detected.",
-                    "details": f"Set changed during iteration. Pruned models: {list(pruned_models)}",
-                    "pruned_models": list(pruned_models),
-                    "active_models": list(active_models),
-                    "done": True,
-                    "reason": "pruning_conflict",
-                    "response": "Unfortunately, the response was incomplete due to a technical issue with model pruning."
-                })
+                yield json.dumps(
+                    {
+                        "status": "error",
+                        "error": "Model pruning conflict detected.",
+                        "details": f"Set changed during iteration. Pruned models: {list(pruned_models) + list(pending_pruning)}",
+                        "pruned_models": list(pruned_models) + list(pending_pruning),
+                        "active_models": [
+                            m for m in active_models if m not in pending_pruning
+                        ],
+                        "best_model": best_model,
+                        "best_score": best_score,
+                        "done": True,
+                        "reason": "pruning_conflict",
+                        "response": best_response
+                        or "Unfortunately, the response was incomplete due to a technical issue with model pruning.",
+                    }
+                )
             else:
                 raise re
 
     try:
         # Use our pruning-aware generator wrapper
         for result in handle_stream_results():
-            # Yield the result directly
-            yield result
-            
             # Check if this is a final result
             try:
                 result_obj = json.loads(result)
-                
+
                 # Detect final result conditions
                 if result_obj.get("done", False) and (
-                    result_obj.get("status") in ["final_result", "error"] or
-                    (result_obj.get("status") == "final_result" and
-                     result_obj.get("reason") in ["stop", "all_models_completed", "tokens_or_rounds_exhausted", "pruning_conflict"])
+                    result_obj.get("status") in ["final_result", "error"]
+                    or (
+                        result_obj.get("status") == "final_result"
+                        and result_obj.get("reason")
+                        in [
+                            "stop",
+                            "all_models_completed",
+                            "tokens_or_rounds_exhausted",
+                            "pruning_conflict",
+                        ]
+                    )
                 ):
-                    logger.debug(f"Stream completed with status: {result_obj.get('status')} reason: {result_obj.get('reason', 'unknown')}")
+                    logger.debug(
+                        f"Stream completed with status: {result_obj.get('status')} reason: {result_obj.get('reason', 'unknown')}"
+                    )
                     stream_ended_with_final_result = True
+                    yield result
                     break
-                
+
                 # Don't break for length-limited completions unless it's the final result
                 if (
                     result_obj.get("status") == "final_result"
@@ -152,33 +253,87 @@ def stream_llm_ms_oua(
                 ):
                     logger.debug("Stream completed with length limitation")
                     stream_ended_with_final_result = True
+                    yield result
                     break
-                
+
                 # Detect if all models have been pruned
-                if result_obj.get("status") == "model_pruned" and len(active_models) == 0:
-                    logger.warning("All models have been pruned, ending stream gracefully")
-                    yield json.dumps({
-                        "status": "final_result",
-                        "message": "All models have been pruned, ending generation.",
-                        "response": "Generation incomplete: all models were pruned during processing.",
-                        "done": True,
-                        "reason": "all_models_pruned"
-                    })
+                if (
+                    result_obj.get("status") == "model_pruned"
+                    and len(active_models) == 0
+                ):
+                    logger.warning(
+                        "All models have been pruned, ending stream gracefully"
+                    )
+                    # If we have a best model response, use it even if all models were pruned
+                    final_response = (
+                        best_response
+                        if best_response
+                        else "Generation incomplete: all models were pruned during processing."
+                    )
+                    yield json.dumps(
+                        {
+                            "status": "final_result",
+                            "message": "All models have been pruned, ending generation.",
+                            "response": final_response,
+                            "best_model": best_model,
+                            "best_score": best_score,
+                            "done": True,
+                            "reason": "all_models_pruned",
+                        }
+                    )
                     stream_ended_with_final_result = True
                     break
-                    
+
+                # For all other cases, just yield the result
+                yield result
+
             except json.JSONDecodeError:
                 logger.warning(f"Invalid JSON in OUA stream chunk: {result[:200]}...")
+                yield result
             except Exception as e_inner:
-                logger.warning(f"Error processing OUA stream chunk: {e_inner} - Result: {result[:200]}...")
-        
+                logger.warning(
+                    f"Error processing OUA stream chunk: {e_inner} - Result: {result[:200]}..."
+                )
+                yield result
+
         if not stream_ended_with_final_result:
-            logger.info("OUA stream loop finished without a recognized final_result chunk. Yielding generic completion.")
-            yield json.dumps({"status": "completed_stream_end", "message": "Stream ended.", "done": True, "reason": "loop_completed"})
+            logger.info(
+                "OUA stream loop finished without a recognized final_result chunk. Yielding generic completion."
+            )
+            # Include best model in our generic completion if we have one
+            yield json.dumps(
+                {
+                    "status": "completed_stream_end",
+                    "message": "Stream ended.",
+                    "best_model": best_model,
+                    "best_score": best_score,
+                    "response": (
+                        best_response
+                        if best_response
+                        else "No complete response was generated."
+                    ),
+                    "done": True,
+                    "reason": "loop_completed",
+                }
+            )
 
     except Exception as e:
         logger.error(f"Error in stream_llm_ms_oua: {str(e)}", exc_info=True)
-        yield json.dumps({"status": "error", "error": str(e), "done": True})
+        # Try to include the best model we've seen so far in error responses
+        yield json.dumps(
+            {
+                "status": "error",
+                "error": str(e),
+                "best_model": best_model,
+                "best_score": best_score,
+                "response": (
+                    best_response
+                    if best_response
+                    else "An error occurred during processing."
+                ),
+                "done": True,
+            }
+        )
 
 
 def stream_llm_ms_mab(
@@ -196,7 +351,9 @@ def stream_llm_ms_mab(
     beta = config.get("BETA", 0.3)
     xplore_coeff = config.get("XPLORE_COEFF", 0.3)
     embedding_model = config.get("EMBEDDING_MODEL", "nomic-embed-text")
-    early_stopping_margin_ratio = config.get("DYNAMIC_MARGIN_COEFF", None) # Note: DYNAMIC_MARGIN_COEFF used here
+    early_stopping_margin_ratio = config.get(
+        "DYNAMIC_MARGIN_COEFF", None
+    )  # Note: DYNAMIC_MARGIN_COEFF used here
     models = config.get("MODELS", None)
     # Add initialization message with full configuration
     yield json.dumps(
@@ -228,17 +385,17 @@ def stream_llm_ms_mab(
     stream_ended_with_final_result = False
     active_models = set()  # Track active models to handle pruning events safely
     pruned_models = set()  # Keep track of pruned models explicitly
-    
+
     # Capture the model pruning in our wrapper function
     def track_pruning(models_json):
         try:
             # Process the result to track model pruning
             obj = json.loads(models_json)
-            
+
             # Initialize model set if we're starting
             if obj.get("status") == "initialized" and "models" in obj:
                 active_models.update(obj.get("models", []))
-                
+
             # Handle model pruning
             if obj.get("status") == "model_pruned" and "model" in obj:
                 pruned_model = obj.get("model")
@@ -246,7 +403,7 @@ def stream_llm_ms_mab(
                     active_models.remove(pruned_model)
                     pruned_models.add(pruned_model)
                     logger.info(f"MAB: Tracking pruned model: {pruned_model}")
-            
+
             # Always pass through the original JSON
             return models_json
         except Exception as e:
@@ -260,7 +417,9 @@ def stream_llm_ms_mab(
             from app.metallm.LLM_MS_MAB import stream_llm_ms_mab as mab_function
 
             # Log the configuration for debugging
-            logger.debug(f"MAB config: max_rounds={max_rounds}, tokens={total_token_budget}, models={models}")
+            logger.debug(
+                f"MAB config: max_rounds={max_rounds}, tokens={total_token_budget}, models={models}"
+            )
 
             # Create a generator with the appropriate parameters
             algorithm_generator = mab_function(
@@ -276,28 +435,32 @@ def stream_llm_ms_mab(
                 custom_system_prompt=system_prompt,
                 messages=messages,  # Pass the full messages array
             )
-            
+
             # First yield each result, then track any pruning
             for result in algorithm_generator:
                 # First update our tracking
                 result = track_pruning(result)
                 # Then yield the result
                 yield result
-                
+
         except RuntimeError as re:
             if "Set changed size during iteration" in str(re):
-                logger.warning("Caught set iteration error in MAB. Returning graceful error message.")
+                logger.warning(
+                    "Caught set iteration error in MAB. Returning graceful error message."
+                )
                 # Include information about which models were pruned in our error
-                yield json.dumps({
-                    "status": "error", 
-                    "error": "Model pruning conflict detected in MAB algorithm.",
-                    "details": f"Set changed during iteration. Pruned models: {list(pruned_models)}",
-                    "pruned_models": list(pruned_models),
-                    "active_models": list(active_models),
-                    "done": True,
-                    "reason": "pruning_conflict",
-                    "response": "Unfortunately, the response was incomplete due to a technical issue with model pruning."
-                })
+                yield json.dumps(
+                    {
+                        "status": "error",
+                        "error": "Model pruning conflict detected in MAB algorithm.",
+                        "details": f"Set changed during iteration. Pruned models: {list(pruned_models)}",
+                        "pruned_models": list(pruned_models),
+                        "active_models": list(active_models),
+                        "done": True,
+                        "reason": "pruning_conflict",
+                        "response": "Unfortunately, the response was incomplete due to a technical issue with model pruning.",
+                    }
+                )
             else:
                 raise re
 
@@ -307,25 +470,35 @@ def stream_llm_ms_mab(
             # Process metrics if needed
             try:
                 result_obj = json.loads(result)
-                
+
                 # Add metrics processing if needed
                 if "score" in result_obj and "metrics" not in result_obj:
                     # Create a new dictionary rather than modifying in place
                     new_result_obj = dict(result_obj)
                     new_result_obj["metrics"] = {"score": result_obj["score"]}
                     result = json.dumps(new_result_obj)
-                
+
                 # Detect if this is a final result
                 if result_obj.get("done", False) and (
-                    result_obj.get("status") in ["final_result", "error"] or
-                    (result_obj.get("status") == "final_result" and
-                     result_obj.get("reason") in ["stop", "all_models_completed", "tokens_or_rounds_exhausted", "pruning_conflict"])
+                    result_obj.get("status") in ["final_result", "error"]
+                    or (
+                        result_obj.get("status") == "final_result"
+                        and result_obj.get("reason")
+                        in [
+                            "stop",
+                            "all_models_completed",
+                            "tokens_or_rounds_exhausted",
+                            "pruning_conflict",
+                        ]
+                    )
                 ):
-                    logger.debug(f"MAB stream completed with status: {result_obj.get('status')} reason: {result_obj.get('reason', 'unknown')}")
+                    logger.debug(
+                        f"MAB stream completed with status: {result_obj.get('status')} reason: {result_obj.get('reason', 'unknown')}"
+                    )
                     stream_ended_with_final_result = True
                     yield result
                     break
-                
+
                 # Handle length-limited final results
                 if (
                     result_obj.get("status") == "final_result"
@@ -336,41 +509,63 @@ def stream_llm_ms_mab(
                     stream_ended_with_final_result = True
                     yield result
                     break
-                
+
                 # Detect if all models have been pruned
-                if result_obj.get("status") == "model_pruned" and len(active_models) == 0:
-                    logger.warning("All MAB models have been pruned, ending stream gracefully")
-                    yield json.dumps({
-                        "status": "final_result",
-                        "message": "All models have been pruned, ending generation.",
-                        "response": "Generation incomplete: all models were pruned during processing.",
-                        "done": True,
-                        "reason": "all_models_pruned"
-                    })
+                if (
+                    result_obj.get("status") == "model_pruned"
+                    and len(active_models) == 0
+                ):
+                    logger.warning(
+                        "All MAB models have been pruned, ending stream gracefully"
+                    )
+                    yield json.dumps(
+                        {
+                            "status": "final_result",
+                            "message": "All models have been pruned, ending generation.",
+                            "response": "Generation incomplete: all models were pruned during processing.",
+                            "done": True,
+                            "reason": "all_models_pruned",
+                        }
+                    )
                     stream_ended_with_final_result = True
                     break
-                
+
                 # If no special conditions, just yield the result
                 yield result
-                    
+
             except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON received from MAB, cannot parse: {result[:200]}...")
+                logger.warning(
+                    f"Invalid JSON received from MAB, cannot parse: {result[:200]}..."
+                )
                 # Yield an error message for this specific chunk
-                yield json.dumps({
-                    "status": "error",
-                    "message": "Invalid JSON chunk received from MAB",
-                    "details": f"Problematic data: {result[:50]}...",
-                    "done": False,  # Stream itself is not necessarily done
-                })
+                yield json.dumps(
+                    {
+                        "status": "error",
+                        "message": "Invalid JSON chunk received from MAB",
+                        "details": f"Problematic data: {result[:50]}...",
+                        "done": False,  # Stream itself is not necessarily done
+                    }
+                )
             except Exception as e_inner:
-                logger.warning(f"Error processing MAB stream chunk: {e_inner} - Result: {result[:200]}...")
+                logger.warning(
+                    f"Error processing MAB stream chunk: {e_inner} - Result: {result[:200]}..."
+                )
                 # Just yield the original result if we couldn't process it
                 yield result
-        
+
         # Only yield the completion message if we didn't end with a final result
         if not stream_ended_with_final_result:
-            logger.info("MAB stream loop finished without a recognized final_result chunk. Yielding generic completion.")
-            yield json.dumps({"status": "completed_stream_end", "message": "Stream ended.", "done": True, "reason": "loop_completed"})
+            logger.info(
+                "MAB stream loop finished without a recognized final_result chunk. Yielding generic completion."
+            )
+            yield json.dumps(
+                {
+                    "status": "completed_stream_end",
+                    "message": "Stream ended.",
+                    "done": True,
+                    "reason": "loop_completed",
+                }
+            )
 
     except Exception as e:
         logger.error(f"Error in stream_llm_ms_mab: {str(e)}", exc_info=True)
@@ -387,18 +582,21 @@ async def send_message_llmms(request: Request):
         data = await request.json()
         # Extract messages array, algorithm type, and configuration
         messages = data.get("messages", [])
-        algorithm_type = data.get("algorithm_type", "stepwise") # Default to stepwise (OUA)
+        algorithm_type = data.get(
+            "algorithm_type", "stepwise"
+        )  # Default to stepwise (OUA)
         config = data.get("config", {})
-        
+
         # Use a more robust default system prompt
         default_system_prompt = """You are a concise and direct assistant. Provide brief, to-the-point answers 
 with minimal elaboration. Strive to be factually correct, and explicitly state 
 when you are unsure. Avoid mentioning that you are an AI model or adding 
 unnecessary disclaimers. Focus on clarity, correctness, and relevance above all."""
         system_prompt = data.get("system_prompt", default_system_prompt)
-        if not system_prompt or not system_prompt.strip(): # Ensure it's not empty or just whitespace
+        if (
+            not system_prompt or not system_prompt.strip()
+        ):  # Ensure it's not empty or just whitespace
             system_prompt = default_system_prompt
-
 
         # Check if any messages are available
         if not messages and "message" in data:
@@ -432,24 +630,31 @@ unnecessary disclaimers. Focus on clarity, correctness, and relevance above all.
         else:  # Default to stepwise (OUA)
             logger.info("Using OUA (stepwise) algorithm")
             generator = stream_llm_ms_oua(system_prompt, messages, config)
-            
+
         # Return a streaming response with headers that ensure proper streaming
         return StreamingResponse(
             generator,
-            media_type="application/json", # Ensure correct media type for JSON streaming
+            media_type="application/json",  # Ensure correct media type for JSON streaming
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",  # Helpful for Nginx proxying
-                "Content-Type": "application/json; charset=utf-8", # Explicitly set Content-Type
+                "Content-Type": "application/json; charset=utf-8",  # Explicitly set Content-Type
             },
         )
     except Exception as e:
-        logger.error(f"Critical error in send_message_llmms endpoint: {str(e)}", exc_info=True)
+        logger.error(
+            f"Critical error in send_message_llmms endpoint: {str(e)}", exc_info=True
+        )
         # Return error as a streaming response so the client can handle it properly
         return StreamingResponse(
-            error_stream_generator(f"Server error: {str(e)}"), # Use the async generator
+            error_stream_generator(
+                f"Server error: {str(e)}"
+            ),  # Use the async generator
             status_code=500,
             media_type="application/json",
-            headers={"Cache-Control": "no-cache", "Content-Type": "application/json; charset=utf-8"},
+            headers={
+                "Cache-Control": "no-cache",
+                "Content-Type": "application/json; charset=utf-8",
+            },
         )

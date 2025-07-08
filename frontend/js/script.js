@@ -1,7 +1,7 @@
 const CHAT_PREFIX = 'chat_'; // Prefix for identifying chat sessions in localStorage
 // Define the base URL for the API by decoding a Base64 string
 
-
+let llmMsEnabled = false;
 let chatHistory = [];
 let selectedModel = localStorage.getItem('selectedModel') || 'null';
 let sessionName = null;
@@ -71,6 +71,8 @@ const modelCache = {
     maxAge: 60000 // 1 minute cache
 };
 async function populateModels() {
+    
+
     try {
         // Check if we have a valid cache
         const now = Date.now();
@@ -865,11 +867,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 document.getElementById('user-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+        
         e.preventDefault();
+           if (llmMsEnabled) {console.log('Skipping single model appraoch');
+    return;} // Exit early if LLM-MS is not enabled
         submitRequest();
     }
 });
 document.getElementById('send-button').addEventListener('click', () => {
+        // Check the current page path
+    if (llmMsEnabled) {console.log('Skipping single model appraoch');
+    return;} // Exit early if LLM-MS is not enabled
     submitRequest();
 });
 
@@ -881,12 +889,15 @@ document.getElementById('send-button').addEventListener('click', () => {
 document.getElementById('user-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
         e.preventDefault(); // Prevent the default newline behavior
+           if (llmMsEnabled) {console.log('Skipping single model appraoch');
+    return;} // Exit early if LLM-MS is not enabled
         submitRequest();    // Trigger your send action
     }
 });
 
 document.getElementById('send-button').addEventListener('click', () => {
-
+   if (llmMsEnabled) {console.log('Skipping single model appraoch');
+    return;} // Exit early if LLM-MS is not enabled
     submitRequest();
 });
 
@@ -916,6 +927,8 @@ function updateFileUI(isEnabled) {
  * - Otherwise, sends the message (and file data, if any) to the server.
  */
 async function submitRequest() {
+       if (llmMsEnabled) {console.log('Skipping single model appraoch');
+    return;} // Exit early if LLM-MS is not enabled
     console.log("submitRequest: Starting submission process...");
 
     // Check if a model is selected.
@@ -1377,4 +1390,5 @@ if (isIOS()) {
     window.addEventListener('resize', setVH);
     setVH();
 }
+
 

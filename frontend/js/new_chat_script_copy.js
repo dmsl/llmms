@@ -2117,7 +2117,7 @@ let llmmstoggle = document.getElementById("llm-ms-toggle");
 
 // Check the toggle based on stored preference
 if (llmmstoggle) {
-  llmMsEnabled=  llmmstoggle.checked ;
+  llmmstoggle.checked = llmMsEnabled;
 
   // Set initial model menu based on current mode
   if (llmMsEnabled) {
@@ -3247,5 +3247,3 @@ async function sendMessage() {
   }
   console.log("sendMessage: Submission process completed.");
 }
-
-//get trigger status if enabled to enable the llm ms 

@@ -4,17 +4,18 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <meta name="description" content="ChatUCY">
+    <meta name="description"
+        content="ChatUCY - An AI-powered assistant from University of Cyprus for seamless and engaging conversations with privacy-first approach. Chat with multiple AI models.">
+    <meta name="keywords"
+        content="ChatUCY, AI assistant, LLM, University of Cyprus, privacy-focused chat, conversational AI, large language model">
     <meta name="author" content="ChatUCY">
     <meta http-equiv="cache-control" content="max-age=216000">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>ChatUCY</title>
+    <title>ChatUCY - AI-Powered Conversational Assistant | University of Cyprus</title>
+    <link rel="canonical" href="https://chat.ucy.ac.cy/" />
 
     <!-- Apple Touch Icons -->
-    <link rel="apple-touch-icon" href="/img/ios-icons/touch-icon-iphone.png">
-    <link rel="apple-touch-icon" sizes="76x76" href="/img/ios-icons/touch-icon-ipad.png">
-    <link rel="apple-touch-icon" sizes="120x120" href="/img/ios-icons/touch-icon-iphone-retina.png">
-    <link rel="apple-touch-icon" sizes="152x152" href="/img/ios-icons/touch-icon-ipad-retina.png">
+
     <meta name="apple-mobile-web-app-title" content="ChatUCY">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-transculent">
@@ -35,6 +36,36 @@
     <script src="/js/html5shiv.min.js"></script>
     <script src="/js/respond.min.js"></script>
   <![endif]-->
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "ChatUCY",
+      "url": "https://chat.ucy.ac.cy/",
+      "description": "An AI-powered assistant for seamless and engaging conversations from University of Cyprus",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://chat.ucy.ac.cy/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "ChatUCY",
+      "url": "https://chat.ucy.ac.cy/",
+      "logo": "https://chat.ucy.ac.cy/img/logo.png",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer support",
+        "email": "info@dmsl.cs.ucy.ac.cy"
+      }
+    }
+    </script>
 
     <script>
         // Force HTTPS
@@ -73,19 +104,20 @@
 
     <!-- Header / Landing Section -->
     <header>
-        <div class="container-fluid landing px-3" id="page-top"> <!-- Added px-3 for horizontal padding -->
+        <div class="container-fluid landing px-3" id="page-top">
             <div class="row">
                 <div class="promo">
                     <div class="wrap">
                         <div class="promo-text">
-                            <div class="promo-title">ChatUCY</div>
+                            <h1 class="promo-title">ChatUCY</h1>
                             <p class="lead">An AI-powered assistant for seamless and engaging conversations!</p>
                             <div class="d-flex flex-wrap justify-content-center gap-2">
-                                <a class="promo-button" href="/chat.html">Start a chat!</a>
-                                <a class="promo-button" href="/llmms.html">Multi LLM Chat</a>
-                                <a class="promo-button" href="/privacyllm.html">Private LLM</a>
-
-
+                                <a class="promo-button" href="/chat.html" aria-label="Start a chat with AI">Start a
+                                    chat!</a>
+                                <a class="promo-button" href="/llmms.html" aria-label="Multi AI model chat">Multi LLM
+                                    Chat</a>
+                                <a class="promo-button" href="/privacyllm.html"
+                                    aria-label="Use private AI model">Private LLM</a>
                             </div>
                         </div>
                     </div>
@@ -95,28 +127,28 @@
     </header>
 
     <!-- Features Section -->
-    <section id="features">
+    <section id="features" aria-labelledby="features-heading">
         <div class="container">
             <div class="row text-center">
                 <div class="col-lg-12">
-                    <h2>Features</h2>
+                    <h2 id="features-heading">Key Features</h2>
                     <hr class="cogs-primary">
                 </div>
             </div>
             <div class="row text-center">
                 <div class="col-md-4">
-                    <i class="fa fa-brain fa-3x feature-icon"></i>
+                    <i class="fa fa-brain fa-3x feature-icon" aria-hidden="true"></i>
                     <h3>Smart Conversations</h3>
                     <p>Engage in dynamic, context-aware, and intelligent interactions powered by state-of-the-art AI.
                     </p>
                 </div>
                 <div class="col-md-4">
-                    <i class="fa fa-lock fa-3x feature-icon"></i>
+                    <i class="fa fa-lock fa-3x feature-icon" aria-hidden="true"></i>
                     <h3>Privacy First</h3>
                     <p>Your data is safe. ChatUCY keeps no data to ensure your privacy.</p>
                 </div>
                 <div class="col-md-4">
-                    <i class="fa fa-boxes-stacked fa-3x feature-icon"></i>
+                    <i class="fa fa-boxes-stacked fa-3x feature-icon" aria-hidden="true"></i>
                     <h3>Multiple AI Agents</h3>
                     <p>Choose your favourite AI Model to have a conversation.</p>
                 </div>
@@ -125,18 +157,18 @@
     </section>
 
     <!-- How It Works Section -->
-    <section id="how-works" class="bg-light">
+    <section id="how-works" class="bg-light" aria-labelledby="how-works-heading">
         <div class="container">
             <div class="row text-center">
                 <div class="col-12">
-                    <h2>How It Works</h2>
+                    <h2 id="how-works-heading">How It Works</h2>
                     <hr class="cogs-primary">
                 </div>
             </div>
             <div class="row text-center">
                 <div class="col-12">
-                    <i class="fas fa-comment-dots fa-3x"></i>
-                    <h3>ChatUCY</h3>
+                    <i class="fas fa-comment-dots fa-3x" aria-hidden="true"></i>
+                    <h3>ChatUCY Technology</h3>
                     <p>
                         ChatUCY works by directly forwarding your query to a large language model for processing – all
                         without storing any data. This ensures your privacy while providing fast and intelligent
@@ -148,20 +180,19 @@
         </div>
     </section>
 
-
-
     <!-- About Section -->
-    <section id="about" class="success">
+    <section id="about" class="success" aria-labelledby="about-heading">
         <div class="container">
             <div class="row text-center">
                 <div class="col-lg-12">
-                    <h2>About</h2>
+                    <h2 id="about-heading">About ChatUCY</h2>
                     <hr class="info-light">
                 </div>
             </div>
             <div class="row">
                 <div class="col-lg-8 offset-lg-2">
-                    <p>ChatUCY is an AI chatbot platform developed to assist users across various tasks, enabling smooth
+                    <p>ChatUCY is an AI chatbot platform developed by the University of Cyprus to assist users across
+                        various tasks, enabling smooth
                         and natural interactions. Whether you're seeking information, assistance, or simply engaging in
                         a conversation, ChatUCY is your free-to-use platform.</p>
                 </div>
@@ -170,11 +201,11 @@
     </section>
 
     <!-- Team Section -->
-    <section id="team" class="success">
+    <section id="team" class="success" aria-labelledby="team-heading">
         <div class="container">
             <div class="row text-center">
                 <div class="col-12">
-                    <h2>Contributors</h2>
+                    <h2 id="team-heading">Contributors</h2>
                     <hr class="team-light">
                 </div>
             </div>
@@ -183,61 +214,63 @@
                 <!-- Contributor 1 -->
                 <div class="col-12 col-lg-6 mb-4">
                     <div class="team-member">
-                        <a href="http://www.cs.ucy.ac.cy/~dzeina/" target="_blank">
-                            <div id="tm-dz" class="team-img">
+                        <a href="http://www.cs.ucy.ac.cy/~dzeina/" target="_blank"
+                            aria-label="Profile of Demetris Zeinalipour">
+                            <div id="tm-dz" class="team-img" aria-label="Photo of Demetris Zeinalipour">
                                 <!-- Insert background image or <img> here -->
                             </div>
                         </a>
                         <div class="team-content">
                             <a href="http://www.cs.ucy.ac.cy/~dzeina/" target="_blank">
-                                <h2>Demetris Zeinalipour</h2>
+                                <h3>Demetris Zeinalipour</h3>
                             </a>
-                            <h3>System Architect &amp; Project Leader</h3>
+                            <p>System Architect &amp; Project Leader</p>
                         </div>
                     </div>
                 </div>
                 <!-- Contributor 2 -->
                 <div class="col-12 col-lg-6 mb-4">
                     <div class="team-member">
-                        <a href="https://www.linkedin.com/in/kkrasov/" target="_blank">
-                            <div id="tm-kk" class="team-img"></div>
+                        <a href="https://www.linkedin.com/in/kkrasov/" target="_blank"
+                            aria-label="Profile of Konstantin Krasovitskity">
+                            <div id="tm-kk" class="team-img" aria-label="Photo of Konstantin Krasovitskity"></div>
                         </a>
                         <div class="team-content">
                             <a href="https://www.linkedin.com/in/kkrasov/" target="_blank">
-                                <h2>Konstantin Krasovitskity</h2>
+                                <h3>Konstantin Krasovitskity</h3>
                             </a>
-                            <h3>Platform Developer &amp; System Administrator</h3>
+                            <p>Platform Developer &amp; System Administrator</p>
                         </div>
                     </div>
                 </div>
                 <!-- Contributor 3 -->
                 <div class="col-12 col-lg-6 mb-4">
                     <div class="team-member">
-                        <div id="tm-dp" class="team-img"></div>
+                        <div id="tm-dp" class="team-img" aria-label="Photo of Demetra Paphitou"></div>
                         <div class="team-content">
-                            <h2>Demetra Paphitou</h2>
-                            <h3>Researcher: Features Researcher</h3>
+                            <h3>Demetra Paphitou</h3>
+                            <p>Researcher: Features Researcher</p>
                         </div>
                     </div>
                 </div>
                 <!-- Contributor 4 -->
                 <div class="col-12 col-lg-6 mb-4">
                     <div class="team-member">
-                        <a href="https://www.linkedin.com/in/stelioschristou/" target="_blank">
-                            <div id="tm-sc" class="team-img"></div>
+                        <a href="https://www.linkedin.com/in/stelioschristou/" target="_blank"
+                            aria-label="Profile of Stelios Christou">
+                            <div id="tm-sc" class="team-img" aria-label="Photo of Stelios Christou"></div>
                         </a>
                         <div class="team-content">
                             <a href="https://www.linkedin.com/in/stelioschristou/" target="_blank">
-                                <h2>Stelios Christou</h2>
+                                <h3>Stelios Christou</h3>
                             </a>
-                            <h3>Researcher</h3>
+                            <p>Researcher</p>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </section>
-
 
     <!-- Contact Section -->
     <section id="contact">
@@ -319,16 +352,36 @@
         <div class="footer-above" style="background-color:#222;">
             <div class="container">
                 <div class="row">
-                    <div class="footer-col col-md-4"></div>
+                    <div class="footer-col col-md-4">
+                        <h3 style="color:white;">SOCIAL MEDIA</h3>
+                        <div class="social-links">
+                            <a href="https://twitter.com/dmsl_ucy" target="_blank" aria-label="Twitter" rel="noopener">
+                                <i class="fa fa-twitter" aria-hidden="true"></i>
+                            </a>
+                            <a href="https://www.linkedin.com/company/dmsl-ucy" target="_blank" aria-label="LinkedIn"
+                                rel="noopener">
+                                <i class="fa fa-linkedin" aria-hidden="true"></i>
+                            </a>
+                        </div>
+                    </div>
                     <div class="footer-col col-md-4">
                         <h3 style="color:white;">LOCATION</h3>
                         <p>
-                            <a style="color: white;" target="_blank" href="http://dmsl.cs.ucy.ac.cy/">Data Management
+                            <a style="color: white;" target="_blank" href="http://dmsl.cs.ucy.ac.cy/"
+                                rel="noopener">Data Management
                                 Systems Laboratory</a><br>
                             Department of Computer Science<br>
                             University of Cyprus<br>
                             P.O. Box 20537<br>
                             1678 Nicosia, CYPRUS
+                        </p>
+                    </div>
+                    <div class="footer-col col-md-4">
+                        <h3 style="color:white;">LEGAL</h3>
+                        <p>
+                            <a style="color: white;" href="/privacy-policy.html">Privacy Policy</a><br>
+                            <a style="color: white;" href="/terms-of-service.html">Terms of Service</a><br>
+                            © 2023 University of Cyprus
                         </p>
                     </div>
                 </div>
