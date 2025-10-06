@@ -6,6 +6,41 @@ This guide will help you install LLM-MS (LLM Meta Search) on a fresh Ubuntu serv
 
 ---
 
+## Quick Installation (Recommended)
+
+**For a fully automated installation, use our installation script:**
+
+```bash
+# Clone the repository
+cd ~
+git clone https://github.com/dmsl/llmms.git
+cd llmms
+
+# Make the installer executable
+chmod +x install_llmms.sh
+
+# Run the installer
+./install_llmms.sh
+```
+
+The script will automatically:
+- ✅ Check system requirements
+- ✅ Install all dependencies (Ollama, ChromaDB, Python, Apache)
+- ✅ Download AI models
+- ✅ Configure all services
+- ✅ Verify the installation
+
+**Installation takes 20-30 minutes.**
+
+After installation completes, access LLM-MS at: `http://your-server-ip`
+
+---
+
+## Manual Installation
+
+If you prefer to install manually or the automated script doesn't work, follow these steps:
+
+---
 ## What You'll Install
 
 - **Ollama** - Runs AI models locally
