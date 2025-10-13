@@ -287,6 +287,12 @@ create_fastapi_service() {
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     BACKEND_DIR="$SCRIPT_DIR/backend"
+
+
+    if [ ! -d "$BACKEND_DIR" ]; then
+        BACKEND_DIR="$SCRIPT_DIR"
+    fi
+    
     LAUNCHER="$BACKEND_DIR/start_fastapi.sh"
 
     if [ ! -f "$LAUNCHER" ]; then
