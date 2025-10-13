@@ -285,12 +285,20 @@ setup_llmms() {
     log_success "LLM-MS setup complete (venv located in backend/app/)."
 }
 
+
 create_fastapi_service() {
     log_info "Creating FastAPI service..."
 
-    # This script lives in the repo root (~/llmms)
+    # Detect where the repo root is
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    BACKEND_DIR="$SCRIPT_DIR/backend"
+    # If the script is being executed from inside backend/app, go up twice
+    if [[ "$SCRIPT_DIR" == *"/backend/app"* ]]; then
+        PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+    else
+        PROJECT_ROOT="$SCRIPT_DIR"
+    fi
+
+    BACKEND_DIR="$PROJECT_ROOT/backend"
     APP_DIR="$BACKEND_DIR/app"
     VENV_PATH="$APP_DIR/venv"
     LAUNCHER="$APP_DIR/start_fastapi.sh"
@@ -306,7 +314,7 @@ create_fastapi_service() {
         exit 1
     fi
 
-    # --- Create systemd unit file ---
+    # --- Create systemd service ---
     sudo tee /etc/systemd/system/llmms-api.service > /dev/null <<EOF
 [Unit]
 Description=LLM-MS FastAPI Service
@@ -326,7 +334,6 @@ Environment="PATH=$VENV_PATH/bin:/usr/local/bin:/usr/bin:/bin"
 WantedBy=multi-user.target
 EOF
 
-    # --- Permissions & reload ---
     sudo chmod +x "$LAUNCHER"
     sudo systemctl daemon-reload
     sudo systemctl enable llmms-api
@@ -334,12 +341,10 @@ EOF
 
     sleep 2
 
-    # --- Verify service ---
     if systemctl is-active --quiet llmms-api; then
         log_success "FastAPI service is running successfully!"
     else
-        log_error "FastAPI service failed to start. Check logs:"
-        echo "sudo journalctl -u llmms-api -n 50"
+        log_error "FastAPI service failed to start. Check with: sudo journalctl -u llmms-api -n 50"
         exit 1
     fi
 }
