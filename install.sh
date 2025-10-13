@@ -496,6 +496,7 @@ setup_gpu_driver_vm() {
     DRIVER_VER="550.54.14"
     DRIVER_FILE="NVIDIA-Linux-x86_64-${DRIVER_VER}.run"
     DRIVER_URL="https://us.download.nvidia.com/tesla/${DRIVER_VER}/${DRIVER_FILE}"
+    DRIVER_CACHE_DIR="/opt/nvidia-drivers"
 
     echo -e "\n=========================================================="
     echo "STEP 1: Detecting NVIDIA GPU inside VM"
@@ -513,44 +514,52 @@ setup_gpu_driver_vm() {
     if command -v nvidia-smi &>/dev/null; then
         CURRENT_DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 || echo "unknown")
         if [[ "$CURRENT_DRIVER_VER" == "$DRIVER_VER" ]]; then
-            log_success "NVIDIA driver $DRIVER_VER already installed — skipping installation."
+            log_success "NVIDIA driver ${DRIVER_VER} already installed — skipping download and installation."
             return 0
         else
-            log_warning "Detected NVIDIA driver version $CURRENT_DRIVER_VER (expected $DRIVER_VER). Reinstalling..."
+            log_warning "Detected NVIDIA driver version $CURRENT_DRIVER_VER (expected $DRIVER_VER). Proceeding with reinstall..."
         fi
     fi
 
     echo -e "\n=========================================================="
-    echo "STEP 2: Removing any existing NVIDIA drivers"
+    echo "STEP 2: Preparing system for driver installation"
+    echo "=========================================================="
+    sudo apt-get update -y
+    sudo apt-get install -y linux-headers-$(uname -r) build-essential dkms wget
+
+    echo -e "\n=========================================================="
+    echo "STEP 3: Checking for existing driver installer"
+    echo "=========================================================="
+
+    # Ensure cache directory exists
+    sudo mkdir -p "$DRIVER_CACHE_DIR"
+    sudo chmod 777 "$DRIVER_CACHE_DIR"
+
+    DRIVER_PATH="$DRIVER_CACHE_DIR/$DRIVER_FILE"
+
+    if [ -f "$DRIVER_PATH" ]; then
+        log_success "Using cached NVIDIA driver installer: $DRIVER_PATH"
+    else
+        log_info "Downloading NVIDIA Tesla driver ${DRIVER_VER}..."
+        wget -O "$DRIVER_PATH" -c "$DRIVER_URL" || {
+            log_error "Failed to download driver from $DRIVER_URL"
+            exit 1
+        }
+        log_success "Driver downloaded and saved to cache."
+    fi
+
+    echo -e "\n=========================================================="
+    echo "STEP 4: Removing any existing NVIDIA drivers"
     echo "=========================================================="
     sudo apt-get remove --purge -y '^nvidia-.*' || true
     sudo apt-get autoremove -y && sudo apt-get autoclean -y
     sudo rm -f /usr/bin/nvidia-smi || true
 
     echo -e "\n=========================================================="
-    echo "STEP 3: Installing kernel headers and build tools"
-    echo "=========================================================="
-    sudo apt-get update -y
-    sudo apt-get install -y linux-headers-$(uname -r) build-essential dkms wget
-
-    echo -e "\n=========================================================="
-    echo "STEP 4: Checking for existing driver installer"
-    echo "=========================================================="
-    if [ -f "$DRIVER_FILE" ]; then
-        log_success "Driver installer already exists locally: $DRIVER_FILE"
-    else
-        log_info "Downloading NVIDIA Tesla driver ${DRIVER_VER}..."
-        wget -c "$DRIVER_URL" || {
-            log_error "Failed to download driver from $DRIVER_URL"
-            exit 1
-        }
-    fi
-
-    echo -e "\n=========================================================="
     echo "STEP 5: Installing NVIDIA Tesla driver ${DRIVER_VER}"
     echo "=========================================================="
-    chmod +x "$DRIVER_FILE"
-    sudo bash "$DRIVER_FILE" --silent --no-cc-version-check
+    chmod +x "$DRIVER_PATH"
+    sudo bash "$DRIVER_PATH" --silent --no-cc-version-check
 
     echo -e "\n=========================================================="
     echo "STEP 6: Verifying NVIDIA driver installation"
@@ -563,6 +572,7 @@ setup_gpu_driver_vm() {
         exit 1
     fi
 }
+
 
 
 # Main installation flow
