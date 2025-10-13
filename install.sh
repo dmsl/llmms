@@ -263,6 +263,7 @@ setup_llmms() {
         "python-docx"
         "pillow"
         "openpyxl"
+        "scikit-learn"
     )
 
     for package in "${packages[@]}"; do
