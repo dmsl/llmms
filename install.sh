@@ -145,7 +145,7 @@ install_ollama() {
 download_models() {
     log_info "Downloading AI models (this will take 10-15 minutes)..."
     
-    models=("nomic-embed-text" "llama3.1:8b" "mistral:7b" "qwen2.5:7b")
+    models=("nomic-embed-text" "llama3.1:8b" "mistral:7b" )
     
     for model in "${models[@]}"; do
         log_info "Pulling model: $model"
