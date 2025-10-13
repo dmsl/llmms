@@ -290,8 +290,19 @@ create_fastapi_service() {
     log_info "Creating FastAPI service..."
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    BACKEND_DIR="$SCRIPT_DIR/backend"
-    APP_DIR="$BACKEND_DIR/app"
+    
+    # Determine correct base directories
+    if [ -d "$SCRIPT_DIR/backend/app" ]; then
+        BACKEND_DIR="$SCRIPT_DIR/backend"
+        APP_DIR="$BACKEND_DIR/app"
+    elif [ -d "$SCRIPT_DIR/app" ]; then
+        BACKEND_DIR="$SCRIPT_DIR"
+        APP_DIR="$BACKEND_DIR/app"
+    else
+        log_error "Cannot locate backend/app directory under $SCRIPT_DIR"
+        exit 1
+    fi
+
     LAUNCHER="$APP_DIR/start_fastapi.sh"
     VENV_PATH="$APP_DIR/venv"
 
@@ -333,7 +344,6 @@ EOF
         exit 1
     fi
 }
-
 
 
 # Install and configure Apache
