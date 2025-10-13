@@ -1,52 +1,54 @@
 #!/bin/bash
+# FastAPI launcher for LLM-MS backend (portable, dynamic version)
+set -e  # Exit on error
 
-# Exit on error
-set -e
+# --- Detect dynamic paths ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DESIRED_PROJECT_ROOT="$SCRIPT_DIR"
+DESIRED_VIRTUAL_ENV="$DESIRED_PROJECT_ROOT/venv"
 
-DESIRED_PROJECT_ROOT="/home/konstantinkrasovitskiy/chatucy/backend"
-DESIRED_VIRTUAL_ENV="/home/konstantinkrasovitskiy/venvs/myenv"
-# ---
+# --- Basic config ---
+LOG_LEVEL="info"
+HOST="127.0.0.1"
+PORT="62828"
 
-echo "Starting FastAPI application..."
+echo "=========================================================="
+echo "🚀 Starting FastAPI application (LLM-MS)"
+echo "=========================================================="
 
-# Activate the virtual environment
-echo "Activating virtual environment at: $DESIRED_VIRTUAL_ENV"
-export VIRTUAL_ENV="$DESIRED_VIRTUAL_ENV"
-if [ ! -d "$VIRTUAL_ENV" ]; then
-    echo "Error: Virtual environment directory $VIRTUAL_ENV does not exist!"
+# --- Check venv existence ---
+if [ ! -d "$DESIRED_VIRTUAL_ENV" ]; then
+    echo "❌ Virtual environment not found at: $DESIRED_VIRTUAL_ENV"
+    echo "Run the installer first to create it."
     exit 1
 fi
+
+echo "✅ Activating virtual environment..."
+export VIRTUAL_ENV="$DESIRED_VIRTUAL_ENV"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Set PYTHONPATH so your modules are discovered (project root)
+# --- Set Python path dynamically ---
 export PYTHONPATH="$DESIRED_PROJECT_ROOT"
-echo "PYTHONPATH set to: $PYTHONPATH"
+echo "✅ PYTHONPATH set to: $PYTHONPATH"
 
-# Configure logging to go to standard output (good for Apache capturing)
-export LOG_LEVEL="info"
-
-# Ensure the application directory exists within the desired project root
-if [ ! -d "$DESIRED_PROJECT_ROOT/app" ]; then
-    echo "Error: Application directory '$DESIRED_PROJECT_ROOT/app' does not exist!"
-    exit 1
-fi
-
-# Change directory to the project root
+# --- Move to backend directory ---
 cd "$DESIRED_PROJECT_ROOT"
-echo "Changed directory to: $(pwd)"
+echo "📂 Working directory: $(pwd)"
 
-# Check if the main.py file exists (relative to DESIRED_PROJECT_ROOT)
+# --- Verify app structure ---
 if [ ! -f "app/main.py" ]; then
-    echo "Error: app/main.py not found in $(pwd)!"
+    echo "❌ app/main.py not found in $DESIRED_PROJECT_ROOT"
     exit 1
 fi
 
-# Check if uvicorn is installed
-if ! command -v uvicorn &> /dev/null; then
-    echo "Error: uvicorn is not installed. Please install it with: pip install uvicorn"
+# --- Verify uvicorn ---
+if ! command -v uvicorn &>/dev/null; then
+    echo "❌ uvicorn not installed in venv!"
+    echo "Try: source venv/bin/activate && pip install fastapi uvicorn"
     exit 1
 fi
 
-# Start Uvicorn with the proper module path, ensuring output is captured
-echo "Starting uvicorn server..."
-uvicorn app.main:app --host 127.0.0.1 --port 62828 --reload --log-level $LOG_LEVEL
+# --- Launch FastAPI ---
+echo "✅ Launching Uvicorn..."
+echo "----------------------------------------------------------"
+exec uvicorn app.main:app --host "$HOST" --port "$PORT" --log-level "$LOG_LEVEL"
