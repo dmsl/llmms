@@ -293,7 +293,7 @@ create_fastapi_service() {
         BACKEND_DIR="$SCRIPT_DIR"
     fi
     
-    LAUNCHER="$BACKEND_DIR/start_fastapi.sh"
+    LAUNCHER="$BACKEND_DIR/app/start_fastapi.sh"
 
     if [ ! -f "$LAUNCHER" ]; then
         log_error "Launcher script not found at: $LAUNCHER"
