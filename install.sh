@@ -285,32 +285,28 @@ setup_llmms() {
     log_success "LLM-MS setup complete (venv located in backend/app/)."
 }
 
-
 create_fastapi_service() {
     log_info "Creating FastAPI service..."
 
+    # This script lives in the repo root (~/llmms)
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    # Determine correct base directories
-    if [ -d "$SCRIPT_DIR/backend/app" ]; then
-        BACKEND_DIR="$SCRIPT_DIR/backend"
-        APP_DIR="$BACKEND_DIR/app"
-    elif [ -d "$SCRIPT_DIR/app" ]; then
-        BACKEND_DIR="$SCRIPT_DIR"
-        APP_DIR="$BACKEND_DIR/app"
-    else
-        log_error "Cannot locate backend/app directory under $SCRIPT_DIR"
+    BACKEND_DIR="$SCRIPT_DIR/backend"
+    APP_DIR="$BACKEND_DIR/app"
+    VENV_PATH="$APP_DIR/venv"
+    LAUNCHER="$APP_DIR/start_fastapi.sh"
+
+    # --- Validation ---
+    if [ ! -d "$APP_DIR" ]; then
+        log_error "App directory not found at: $APP_DIR"
         exit 1
     fi
-
-    LAUNCHER="$APP_DIR/start_fastapi.sh"
-    VENV_PATH="$APP_DIR/venv"
 
     if [ ! -f "$LAUNCHER" ]; then
         log_error "Launcher script not found at: $LAUNCHER"
         exit 1
     fi
 
+    # --- Create systemd unit file ---
     sudo tee /etc/systemd/system/llmms-api.service > /dev/null <<EOF
 [Unit]
 Description=LLM-MS FastAPI Service
@@ -330,20 +326,24 @@ Environment="PATH=$VENV_PATH/bin:/usr/local/bin:/usr/bin:/bin"
 WantedBy=multi-user.target
 EOF
 
+    # --- Permissions & reload ---
     sudo chmod +x "$LAUNCHER"
-
     sudo systemctl daemon-reload
     sudo systemctl enable llmms-api
     sudo systemctl restart llmms-api
 
     sleep 2
+
+    # --- Verify service ---
     if systemctl is-active --quiet llmms-api; then
-        log_success "FastAPI service is running successfully."
+        log_success "FastAPI service is running successfully!"
     else
-        log_error "FastAPI service failed to start. Check with: sudo journalctl -u llmms-api -n 50"
+        log_error "FastAPI service failed to start. Check logs:"
+        echo "sudo journalctl -u llmms-api -n 50"
         exit 1
     fi
 }
+
 
 
 # Install and configure Apache
