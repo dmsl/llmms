@@ -17,10 +17,10 @@ git clone https://github.com/dmsl/llmms.git
 cd llmms
 
 # Make the installer executable
-chmod +x install_llmms.sh
+chmod +x install.sh
 
 # Run the installer
-./install_llmms.sh
+./install.sh
 ```
 
 The script will automatically:
