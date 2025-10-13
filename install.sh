@@ -229,7 +229,7 @@ setup_llmms() {
         rm -rf llmms
     fi
     
-    if git clone https://github.com/dmsl/llmms.git; then
+    if git clone git@github.com:dmsl/llmms.git; then
         log_success "Repository cloned"
     else
         log_error "Failed to clone repository"
