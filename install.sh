@@ -14,7 +14,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
-
+HOME_DIR=$(eval echo ~$USER)
+CHROMA_PATH=$(command -v chroma || echo "$HOME_DIR/.local/bin/chroma")
 # Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -193,8 +194,8 @@ After=network.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME
-ExecStart=/usr/local/bin/chroma run --path $HOME/chromadb_data --host 127.0.0.1 --port 8000
+WorkingDirectory=$HOME_DIR
+ExecStart=$CHROMA_PATH run --path $HOME_DIR/chromadb_data --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3
 
@@ -298,9 +299,9 @@ After=network.target ollama.service chromadb.service
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME/llmms/backend
-Environment="PYTHONPATH=$HOME/llmms/backend"
-ExecStart=$HOME/llmms/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 62828
+WorkingDirectory=$HOME_DIR/llmms/backend
+Environment="PYTHONPATH=$HOME_DIR/llmms/backend"
+ExecStart=$HOME_DIR/llmms/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 62828
 Restart=always
 RestartSec=3
 
@@ -345,9 +346,9 @@ install_apache() {
 <VirtualHost *:80>
     ServerName localhost
     
-    DocumentRoot $HOME/llmms/frontend
+    DocumentRoot $HOME_DIR/llmms/frontend
     
-    <Directory $HOME/llmms/frontend>
+    <Directory $HOME_DIR/llmms/frontend>
         Options -Indexes +FollowSymLinks
         AllowOverride All
         Require all granted
@@ -428,15 +429,18 @@ verify_installation() {
 
 # Detect GPU
 detect_gpu() {
+    GPU_DETECTED=""
     log_info "Detecting GPU..."
     
     if command -v nvidia-smi &> /dev/null; then
+        GPU_DETECTED="NVIDIA"
         log_success "NVIDIA GPU detected"
         nvidia-smi --query-gpu=name --format=csv,noheader
         echo ""
         log_info "GPU acceleration is available but not configured."
         log_info "Run the GPU setup section manually from the installation guide."
     elif lspci | grep -i amd | grep -i vga &> /dev/null; then
+        GPU_DETECTED="AMD"
         log_success "AMD GPU detected"
         lspci | grep -i amd | grep -i vga
         echo ""
@@ -475,6 +479,65 @@ print_completion() {
         log_info "GPU detected but not configured. See installation guide for GPU setup."
     fi
 }
+#############################################################
+# GPU Driver Setup (Tesla V100 - VM Installation Only)
+#############################################################
+setup_gpu_driver_vm() {
+    log_info "Initializing NVIDIA Tesla V100 driver setup (VM mode)..."
+
+    DRIVER_VER="550.54.14"
+    DRIVER_FILE="NVIDIA-Linux-x86_64-${DRIVER_VER}.run"
+    DRIVER_URL="https://us.download.nvidia.com/tesla/${DRIVER_VER}/${DRIVER_FILE}"
+
+    echo -e "\n=========================================================="
+    echo "STEP 1: Detecting NVIDIA GPU inside VM"
+    echo "=========================================================="
+
+    if ! lspci | grep -i "NVIDIA" &>/dev/null; then
+        log_error "No NVIDIA GPU detected inside this VM!"
+        log_info "Make sure your host has passed through the GPU using VFIO/IOMMU."
+        exit 1
+    fi
+
+    log_success "NVIDIA GPU detected inside VM:"
+    lspci | grep -i "NVIDIA" | awk '{$1=$1;print}'
+
+    echo -e "\n=========================================================="
+    echo "STEP 2: Removing any existing NVIDIA drivers"
+    echo "=========================================================="
+    sudo apt-get remove --purge -y '^nvidia-.*' || true
+    sudo apt-get autoremove -y && sudo apt-get autoclean -y
+    sudo rm -f /usr/bin/nvidia-smi || true
+
+    echo -e "\n=========================================================="
+    echo "STEP 3: Installing kernel headers and build tools"
+    echo "=========================================================="
+    sudo apt-get update -y
+    sudo apt-get install -y linux-headers-$(uname -r) build-essential dkms wget
+
+    echo -e "\n=========================================================="
+    echo "STEP 4: Downloading and installing NVIDIA Tesla driver ${DRIVER_VER}"
+    echo "=========================================================="
+    if [ ! -f "$DRIVER_FILE" ]; then
+        wget -c "$DRIVER_URL"
+    else
+        log_info "Driver installer already exists locally: $DRIVER_FILE"
+    fi
+
+    chmod +x "$DRIVER_FILE"
+    sudo bash "$DRIVER_FILE" --silent --no-cc-version-check
+
+    echo -e "\n=========================================================="
+    echo "STEP 5: Verifying NVIDIA driver installation"
+    echo "=========================================================="
+    if command -v nvidia-smi &>/dev/null; then
+        nvidia-smi
+        log_success "NVIDIA driver ${DRIVER_VER} installed successfully!"
+    else
+        log_error "NVIDIA driver installation failed!"
+        exit 1
+    fi
+}
 
 # Main installation flow
 main() {
@@ -488,7 +551,7 @@ main() {
     
     log_info "Starting installation process..."
     echo ""
-    
+    setup_gpu_driver_vm  
     check_ubuntu_version
     check_requirements
     
