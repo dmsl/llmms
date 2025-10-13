@@ -489,6 +489,7 @@ print_completion() {
 #############################################################
 # GPU Driver Setup (Tesla V100 - VM Installation Only)
 #############################################################
+
 setup_gpu_driver_vm() {
     log_info "Initializing NVIDIA Tesla V100 driver setup (VM mode)..."
 
@@ -501,13 +502,23 @@ setup_gpu_driver_vm() {
     echo "=========================================================="
 
     if ! lspci | grep -i "NVIDIA" &>/dev/null; then
-        log_error "No NVIDIA GPU detected inside this VM!"
-        log_info "Make sure your host has passed through the GPU using VFIO/IOMMU."
-        exit 1
+        log_warning "No NVIDIA GPU detected inside this VM. Skipping driver setup."
+        return 0
     fi
 
     log_success "NVIDIA GPU detected inside VM:"
     lspci | grep -i "NVIDIA" | awk '{$1=$1;print}'
+
+    # --- Skip if driver version is already installed ---
+    if command -v nvidia-smi &>/dev/null; then
+        CURRENT_DRIVER_VER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 || echo "unknown")
+        if [[ "$CURRENT_DRIVER_VER" == "$DRIVER_VER" ]]; then
+            log_success "NVIDIA driver $DRIVER_VER already installed — skipping installation."
+            return 0
+        else
+            log_warning "Detected NVIDIA driver version $CURRENT_DRIVER_VER (expected $DRIVER_VER). Reinstalling..."
+        fi
+    fi
 
     echo -e "\n=========================================================="
     echo "STEP 2: Removing any existing NVIDIA drivers"
@@ -523,19 +534,26 @@ setup_gpu_driver_vm() {
     sudo apt-get install -y linux-headers-$(uname -r) build-essential dkms wget
 
     echo -e "\n=========================================================="
-    echo "STEP 4: Downloading and installing NVIDIA Tesla driver ${DRIVER_VER}"
+    echo "STEP 4: Checking for existing driver installer"
     echo "=========================================================="
-    if [ ! -f "$DRIVER_FILE" ]; then
-        wget -c "$DRIVER_URL"
+    if [ -f "$DRIVER_FILE" ]; then
+        log_success "Driver installer already exists locally: $DRIVER_FILE"
     else
-        log_info "Driver installer already exists locally: $DRIVER_FILE"
+        log_info "Downloading NVIDIA Tesla driver ${DRIVER_VER}..."
+        wget -c "$DRIVER_URL" || {
+            log_error "Failed to download driver from $DRIVER_URL"
+            exit 1
+        }
     fi
 
+    echo -e "\n=========================================================="
+    echo "STEP 5: Installing NVIDIA Tesla driver ${DRIVER_VER}"
+    echo "=========================================================="
     chmod +x "$DRIVER_FILE"
     sudo bash "$DRIVER_FILE" --silent --no-cc-version-check
 
     echo -e "\n=========================================================="
-    echo "STEP 5: Verifying NVIDIA driver installation"
+    echo "STEP 6: Verifying NVIDIA driver installation"
     echo "=========================================================="
     if command -v nvidia-smi &>/dev/null; then
         nvidia-smi
@@ -545,6 +563,7 @@ setup_gpu_driver_vm() {
         exit 1
     fi
 }
+
 
 # Main installation flow
 main() {
