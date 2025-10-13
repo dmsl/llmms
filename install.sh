@@ -218,26 +218,21 @@ EOF
     fi
 }
 
-# Clone and setup LLM-MS
 setup_llmms() {
-    log_info "Setting up LLM-MS application..."
-    
-    # Clone repository
-    cd ~
-    if [ -d "llmms" ]; then
-        log_warning "llmms directory already exists. Removing old installation..."
-        rm -rf llmms
-    fi
-    
-    if git clone git@github.com:dmsl/llmms.git; then
-        log_success "Repository cloned"
-    else
-        log_error "Failed to clone repository"
+    log_info "Setting up LLM-MS application (using existing repo)..."
+
+    # Detect current directory (this script lives in repo root)
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$SCRIPT_DIR"
+    BACKEND_DIR="$PROJECT_ROOT/backend"
+
+    if [ ! -d "$BACKEND_DIR" ]; then
+        log_error "Backend directory not found at: $BACKEND_DIR"
         exit 1
     fi
-    
-    cd ~/llmms/backend
-    
+
+    cd "$BACKEND_DIR"
+
     # Create virtual environment
     log_info "Creating Python virtual environment..."
     if python3 -m venv venv; then
@@ -246,14 +241,13 @@ setup_llmms() {
         log_error "Failed to create virtual environment"
         exit 1
     fi
-    
-    # Activate virtual environment and install packages
+
+    # Activate and install dependencies
     log_info "Installing Python packages..."
     source venv/bin/activate
-    
+
     pip install --upgrade pip
-    
-    # Install packages with error handling
+
     packages=(
         "fastapi"
         "uvicorn[standard]"
@@ -270,7 +264,7 @@ setup_llmms() {
         "pillow"
         "openpyxl"
     )
-    
+
     for package in "${packages[@]}"; do
         if pip install "$package"; then
             log_success "Installed: $package"
@@ -278,19 +272,28 @@ setup_llmms() {
             log_warning "Failed to install: $package (continuing...)"
         fi
     done
-    
+
     deactivate
-    
+
     # Create uploads directory
     mkdir -p /tmp/uploads
-    
-    log_success "LLM-MS application setup complete"
+
+    log_success "LLM-MS setup complete (existing repo)."
 }
 
-# Create FastAPI service
+
 create_fastapi_service() {
     log_info "Creating FastAPI service..."
-    
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    BACKEND_DIR="$SCRIPT_DIR/backend"
+    LAUNCHER="$BACKEND_DIR/start_fastapi.sh"
+
+    if [ ! -f "$LAUNCHER" ]; then
+        log_error "Launcher script not found at: $LAUNCHER"
+        exit 1
+    fi
+
     sudo tee /etc/systemd/system/llmms-api.service > /dev/null <<EOF
 [Unit]
 Description=LLM-MS FastAPI Service
@@ -299,23 +302,26 @@ After=network.target ollama.service chromadb.service
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME_DIR/llmms/backend
-Environment="PYTHONPATH=$HOME_DIR/llmms/backend"
-ExecStart=$HOME_DIR/llmms/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 62828
+WorkingDirectory=$BACKEND_DIR
+ExecStart=$LAUNCHER
 Restart=always
 RestartSec=3
+Environment="PYTHONPATH=$BACKEND_DIR"
+Environment="PATH=$BACKEND_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
+    sudo chmod +x "$LAUNCHER"
+
     # Start FastAPI service
     sudo systemctl daemon-reload
-    sudo systemctl start llmms-api
     sudo systemctl enable llmms-api
-    
+    sudo systemctl restart llmms-api
+
     sleep 2
-    
+
     if systemctl is-active --quiet llmms-api; then
         log_success "FastAPI service is running"
     else
@@ -324,6 +330,7 @@ EOF
         exit 1
     fi
 }
+
 
 # Install and configure Apache
 install_apache() {
