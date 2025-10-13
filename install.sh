@@ -225,26 +225,29 @@ setup_llmms() {
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_ROOT="$SCRIPT_DIR"
     BACKEND_DIR="$PROJECT_ROOT/backend"
+    APP_DIR="$BACKEND_DIR/app"
+    VENV_PATH="$APP_DIR/venv"
 
-    if [ ! -d "$BACKEND_DIR" ]; then
-        log_error "Backend directory not found at: $BACKEND_DIR"
+    # Verify that backend/app exists
+    if [ ! -d "$APP_DIR" ]; then
+        log_error "Application directory not found at: $APP_DIR"
         exit 1
     fi
 
-    cd "$BACKEND_DIR"
+    cd "$APP_DIR"
 
-    # Create virtual environment
-    log_info "Creating Python virtual environment..."
-    if python3 -m venv venv; then
-        log_success "Virtual environment created"
+    # Create virtual environment inside backend/app/
+    log_info "Creating Python virtual environment at: $VENV_PATH"
+    if [ ! -d "$VENV_PATH" ]; then
+        python3 -m venv "$VENV_PATH"
+        log_success "Virtual environment created in app/"
     else
-        log_error "Failed to create virtual environment"
-        exit 1
+        log_warning "Virtual environment already exists — reusing it"
     fi
 
     # Activate and install dependencies
     log_info "Installing Python packages..."
-    source venv/bin/activate
+    source "$VENV_PATH/bin/activate"
 
     pip install --upgrade pip
 
@@ -279,7 +282,7 @@ setup_llmms() {
     # Create uploads directory
     mkdir -p /tmp/uploads
 
-    log_success "LLM-MS setup complete (existing repo)."
+    log_success "LLM-MS setup complete (venv located in backend/app/)."
 }
 
 
@@ -288,13 +291,9 @@ create_fastapi_service() {
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     BACKEND_DIR="$SCRIPT_DIR/backend"
-
-
-    if [ ! -d "$BACKEND_DIR" ]; then
-        BACKEND_DIR="$SCRIPT_DIR"
-    fi
-    
-    LAUNCHER="$BACKEND_DIR/app/start_fastapi.sh"
+    APP_DIR="$BACKEND_DIR/app"
+    LAUNCHER="$APP_DIR/start_fastapi.sh"
+    VENV_PATH="$APP_DIR/venv"
 
     if [ ! -f "$LAUNCHER" ]; then
         log_error "Launcher script not found at: $LAUNCHER"
@@ -309,12 +308,12 @@ After=network.target ollama.service chromadb.service
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$BACKEND_DIR
+WorkingDirectory=$APP_DIR
 ExecStart=$LAUNCHER
 Restart=always
 RestartSec=3
 Environment="PYTHONPATH=$BACKEND_DIR"
-Environment="PATH=$BACKEND_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=$VENV_PATH/bin:/usr/local/bin:/usr/bin:/bin"
 
 [Install]
 WantedBy=multi-user.target
@@ -322,21 +321,19 @@ EOF
 
     sudo chmod +x "$LAUNCHER"
 
-    # Start FastAPI service
     sudo systemctl daemon-reload
     sudo systemctl enable llmms-api
     sudo systemctl restart llmms-api
 
     sleep 2
-
     if systemctl is-active --quiet llmms-api; then
-        log_success "FastAPI service is running"
+        log_success "FastAPI service is running successfully."
     else
-        log_error "FastAPI service failed to start"
-        log_info "Check logs with: sudo journalctl -u llmms-api -n 50"
+        log_error "FastAPI service failed to start. Check with: sudo journalctl -u llmms-api -n 50"
         exit 1
     fi
 }
+
 
 
 # Install and configure Apache
