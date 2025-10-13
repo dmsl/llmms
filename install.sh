@@ -174,7 +174,7 @@ install_python() {
 install_chromadb() {
     log_info "Installing ChromaDB..."
     
-    if pip3 install chromadb; then
+    if pip3 install chromadb --break-system-packages; then
         log_success "ChromaDB installed"
     else
         log_error "Failed to install ChromaDB"
