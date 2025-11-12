@@ -498,7 +498,7 @@
                         name: `Chat ${this.sessions.length + 1}`,
                         messages: []
                     };
-                    this.sessions.push(newSession);
+                    this.sessions.unshift(newSession); // Add to the beginning of the array
                     this.currentSession = newSession.id;
                     this.messages = [];
                     this.saveSessions();

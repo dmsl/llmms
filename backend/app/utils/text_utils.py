@@ -3,13 +3,16 @@ import json
 import logging
 from bs4 import BeautifulSoup
 from readability.readability import Document
-from flask import current_app as app
 import ollama
 import chromadb
+import logging
+
 
 # Initialize a global ChromaDB client for this module.
-chroma_client = chromadb.HttpClient(host="localhost", port=8000)
-
+try:
+    chroma_client = chromadb.HttpClient(host="localhost", port=8000)
+except Exception as e:
+    logging.warning(f"ChromaDB not reachable — skipping initialization: {e}")
 
 def get_ollama_embedding(text, model="nomic-embed-text"):
     """
@@ -164,6 +167,8 @@ def web_search(user_msg, model, current_token_count=0):
         return "Internal server error occurred"
 
 
+
+
 def summarize_text(text, model="mistral-small"):
     """
     Summarize text using Ollama's chat API in a single call.
@@ -172,15 +177,13 @@ def summarize_text(text, model="mistral-small"):
         response = ollama.chat(
             model=model,
             messages=[
-                {
-                    "role": "system",
-                    "content": "Summarize the following text in bullet points",
-                },
+                {"role": "system", "content": "Summarize the following text in bullet points"},
                 {"role": "user", "content": text},
             ],
         )
         if response and "message" in response:
             return response["message"]["content"]
     except Exception as e:
-        app.logger.error(f"Summarization failed: {str(e)}")
+        logging.error(f"Summarization failed: {str(e)}")
     return ""
+
