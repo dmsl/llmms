@@ -74,53 +74,84 @@
 </head>
 
 <body class="h-screen overflow-hidden bg-white font-sans antialiased" x-data="chatApp()">
+    <!-- Mobile Overlay -->
+    <div 
+        x-show="sidebarOpen"
+        @click="sidebarOpen = false"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:leave="transition ease-in duration-200"
+        class="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden">
+    </div>
+    
     <!-- Main Container -->
-    <div class="flex h-full">
+    <div class="flex h-full overflow-hidden">
         <!-- Sidebar -->
         <aside 
-            :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
-            class="fixed lg:static inset-y-0 left-0 z-50 w-72 lg:w-64 bg-primary-pale border-r border-sidebar-border transform transition-transform duration-300 ease-in-out flex flex-col">
+            :class="sidebarOpen ? 'translate-x-0 lg:w-64' : '-translate-x-full lg:translate-x-0 lg:w-0'"
+            class="fixed lg:relative inset-y-0 left-0 z-40 w-72 bg-primary-pale border-r border-sidebar-border transition-all duration-300 ease-in-out flex flex-col overflow-hidden">
             
-            <!-- Sidebar Header -->
-            <div class="p-4 border-b border-sidebar-border">
-                <h2 class="text-lg font-semibold text-gray-800">Sessions</h2>
-            </div>
-            
-            <!-- Session List -->
-            <div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-                <template x-for="session in sessions" :key="session.id">
-                    <button 
-                        @click="selectSession(session.id)"
-                        :class="currentSession === session.id ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-100'"
-                        class="w-full text-left px-4 py-3 rounded-lg shadow-sm transition-all duration-200">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-medium truncate" x-text="session.name"></span>
-                            <i class="fas fa-comment-dots text-xs opacity-60"></i>
-                        </div>
-                    </button>
-                </template>
-                
-                <!-- Empty state -->
-                <div x-show="sessions.length === 0" class="text-center py-8 text-gray-500">
-                    <i class="fas fa-comments text-3xl mb-2"></i>
-                    <p class="text-sm">No sessions yet</p>
+            <!-- Sidebar Content Wrapper (prevents content from squishing on desktop) -->
+            <div class="w-72 lg:w-64 flex flex-col h-full">
+                <!-- Sidebar Header -->
+                <div class="p-4 border-b border-sidebar-border flex-shrink-0">
+                    <h2 class="text-lg font-semibold text-gray-800 whitespace-nowrap">Sessions</h2>
                 </div>
-            </div>
             
-            <!-- Sidebar Footer -->
-            <div class="p-3 border-t border-sidebar-border space-y-2">
-                <button 
-                    @click="newChat()"
-                    class="w-full bg-gray-800 hover:bg-gray-900 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
-                    <i class="fas fa-plus"></i>
-                    <span>New Chat</span>
-                </button>
-                <button 
-                    @click="clearAllSessions()"
-                    class="w-full bg-transparent hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
-                    <i class="fas fa-trash"></i>
-                    <span>Clear All</span>
-                </button>
+                <!-- Session List -->
+                <div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                    <template x-for="session in sessions" :key="session.id">
+                        <div 
+                            :class="currentSession === session.id ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-100'"
+                            class="w-full rounded-lg shadow-sm transition-all duration-200 group">
+                            <div class="flex items-center px-4 py-3">
+                                <button 
+                                    @click="selectSession(session.id)"
+                                    class="flex-1 text-left flex items-center gap-2">
+                                    <i class="fas fa-comment-dots text-xs opacity-60"></i>
+                                    <span class="text-sm font-medium truncate" x-text="session.name"></span>
+                                </button>
+                                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                        @click="editSessionName(session.id)"
+                                        :class="currentSession === session.id ? 'hover:bg-primary-light' : 'hover:bg-gray-200'"
+                                        class="p-1.5 rounded transition-colors"
+                                        title="Rename session">
+                                        <i class="fas fa-edit text-xs"></i>
+                                    </button>
+                                    <button 
+                                        @click="deleteSession(session.id)"
+                                        :class="currentSession === session.id ? 'hover:bg-red-500' : 'hover:bg-red-100 hover:text-red-600'"
+                                        class="p-1.5 rounded transition-colors"
+                                        title="Delete session">
+                                        <i class="fas fa-trash text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Empty state -->
+                    <div x-show="sessions.length === 0" class="text-center py-8 text-gray-500">
+                        <i class="fas fa-comments text-3xl mb-2"></i>
+                        <p class="text-sm">No sessions yet</p>
+                    </div>
+                </div>
+                
+                <!-- Sidebar Footer -->
+                <div class="p-3 border-t border-sidebar-border space-y-2 flex-shrink-0">
+                    <button 
+                        @click="newChat()"
+                        class="w-full bg-gray-800 hover:bg-gray-900 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                        <i class="fas fa-plus"></i>
+                        <span>New Chat</span>
+                    </button>
+                    <button 
+                        @click="clearAllSessions()"
+                        class="w-full bg-transparent hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                        <i class="fas fa-trash"></i>
+                        <span>Clear All</span>
+                    </button>
+                </div>
             </div>
         </aside>
         
@@ -128,11 +159,12 @@
         <main class="flex-1 flex flex-col h-full relative">
             <!-- Header -->
             <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
-                <!-- Left: Menu Toggle -->
+                <!-- Left: Menu Toggle (always shows hamburger icon) -->
                 <button 
                     @click="sidebarOpen = !sidebarOpen"
-                    class="lg:hidden text-primary hover:bg-primary-pale p-2 rounded-lg transition-colors">
-                    <i class="fas fa-bars text-xl"></i>
+                    class="bg-primary-pale text-primary hover:bg-primary-light w-10 h-10 rounded-lg transition-all duration-200 flex items-center justify-center font-bold text-lg flex-shrink-0"
+                    title="Toggle sidebar">
+                    <i class="fas fa-bars"></i>
                 </button>
                 
                 <!-- Center: Title -->
@@ -142,19 +174,19 @@
                 
                 <!-- Right: Logos & Menu -->
                 <div class="flex items-center gap-3">
-                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block">
-                        <img src="/img/ucy_logo.png" alt="UCY" class="h-full object-contain">
+                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="UCY">
+                        <img src="../img/ucy_logo.png" alt="UCY" class="h-full object-contain" onerror="this.style.display='none'">
                     </a>
-                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block">
-                        <img src="/img/dmsllogobig.png" alt="DMSL" class="h-full object-contain">
+                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="DMSL">
+                        <img src="../img/dmsllogobig.png" alt="DMSL" class="h-full object-contain" onerror="this.style.display='none'">
                     </a>
                     
                     <!-- Navigation Dropdown -->
                     <div class="relative" x-data="{ open: false }">
                         <button 
                             @click="open = !open"
-                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors">
-                            <img src="/img/chatucy_logo.png" alt="ChatUCY" class="h-6">
+                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center" title="Menu">
+                            <img src="../img/chatucy_logo.png" alt="ChatUCY" class="h-6 object-contain" onerror="this.innerHTML='☰'">
                         </button>
                         <div 
                             x-show="open"
@@ -210,7 +242,7 @@
             </div>
             
             <!-- Input Area -->
-            <div class="absolute bottom-0 left-0 right-0 bg-primary-pale border-t border-sidebar-border p-4 shadow-lg backdrop-blur-sm">
+            <div class="absolute bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md p-4 shadow-lg">
                 <div class="max-w-4xl mx-auto">
                     <!-- File info display -->
                     <div x-show="uploadedFile" class="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
@@ -297,24 +329,96 @@
         </main>
     </div>
     
+    <!-- Modal for Edit/Delete Session -->
+    <div 
+        x-show="modal.show"
+        @click="modal.show = false"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        style="display: none;">
+        <div 
+            @click.stop
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0 scale-95"
+            x-transition:enter-end="opacity-100 scale-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100 scale-100"
+            x-transition:leave-end="opacity-0 scale-95"
+            class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            
+            <!-- Edit Session Modal -->
+            <template x-if="modal.type === 'edit'">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Rename Session</h3>
+                    <input 
+                        x-model="modal.value"
+                        @keydown.enter="confirmModal()"
+                        type="text"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none text-gray-800"
+                        placeholder="Enter session name">
+                    <div class="flex gap-3 mt-6">
+                        <button 
+                            @click="modal.show = false"
+                            class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
+                            Cancel
+                        </button>
+                        <button 
+                            @click="confirmModal()"
+                            class="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors">
+                            Rename
+                        </button>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Delete Session Modal -->
+            <template x-if="modal.type === 'delete'">
+                <div>
+                    <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2 text-center">Delete Session?</h3>
+                    <p class="text-gray-600 text-sm mb-6 text-center">This action cannot be undone. All messages in this session will be permanently deleted.</p>
+                    <div class="flex gap-3">
+                        <button 
+                            @click="modal.show = false"
+                            class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
+                            Cancel
+                        </button>
+                        <button 
+                            @click="confirmModal()"
+                            class="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+    
     <!-- PDF.js Module Import -->
     <script type="module">
-        import * as pdfjsLib from "/js/browser-rag/pdf.mjs";
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "/js/browser-rag/pdf.worker.mjs";
+        import * as pdfjsLib from "../js/browser-rag/pdf.mjs";
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "../js/browser-rag/pdf.worker.mjs";
         window.pdfjsLib = pdfjsLib;
         console.log("Local PDF.js imported and attached to window.pdfjsLib");
     </script>
     
     <!-- Browser RAG Scripts -->
-    <script src="/js/browser-rag/indexed-db-vector-store.js"></script>
-    <script src="/js/browser-rag/browser-retriever.js"></script>
-    <script src="/js/browser-rag/script-rag.js"></script>
+    <script src="../js/browser-rag/indexed-db-vector-store.js"></script>
+    <script src="../js/browser-rag/browser-retriever.js"></script>
+    <script src="../js/browser-rag/script-rag.js"></script>
     
     <!-- Alpine.js Component -->
     <script>
         function chatApp() {
             return {
-                sidebarOpen: false,
+                sidebarOpen: typeof window !== 'undefined' && window.innerWidth >= 1024, // Open on desktop (lg breakpoint)
                 userInput: '',
                 messages: [],
                 sessions: [],
@@ -325,8 +429,21 @@
                 localRagEnabled: false,
                 uploadedFile: null,
                 uploadedFileName: '',
+                modal: {
+                    show: false,
+                    type: '', // 'edit' or 'delete'
+                    value: '',
+                    sessionId: null
+                },
                 
                 async init() {
+                    // Handle window resize to adjust sidebar visibility
+                    window.addEventListener('resize', () => {
+                        if (window.innerWidth >= 1024) {
+                            this.sidebarOpen = true; // Keep sidebar open on desktop
+                        }
+                    });
+                    
                     // Load sessions from sessionStorage
                     const savedSessions = sessionStorage.getItem('chat_sessions');
                     if (savedSessions) {
@@ -355,7 +472,11 @@
                 
                 async loadModels() {
                     try {
-                        const response = await fetch('/get_models');
+                        // Try to load models from backend API
+                        const response = await fetch('/api/get_models');
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
                         const data = await response.json();
                         if (data.models && Array.isArray(data.models)) {
                             this.availableModels = data.models.map(m => m.name || m);
@@ -364,7 +485,10 @@
                             }
                         }
                     } catch (error) {
-                        console.error('Error loading models:', error);
+                        console.warn('Could not load models from backend:', error);
+                        // Fallback to common models if backend is not available
+                        this.availableModels = ['llama2', 'mistral', 'neural-chat', 'dolphin-mixtral'];
+                        this.selectedModel = this.availableModels[0];
                     }
                 },
                 
@@ -387,6 +511,55 @@
                         this.messages = session.messages;
                     }
                     this.sidebarOpen = false;
+                },
+                
+                editSessionName(sessionId) {
+                    const session = this.sessions.find(s => s.id === sessionId);
+                    if (session) {
+                        this.modal = {
+                            show: true,
+                            type: 'edit',
+                            value: session.name,
+                            sessionId: sessionId
+                        };
+                    }
+                },
+                
+                deleteSession(sessionId) {
+                    this.modal = {
+                        show: true,
+                        type: 'delete',
+                        value: '',
+                        sessionId: sessionId
+                    };
+                },
+                
+                confirmModal() {
+                    if (this.modal.type === 'edit') {
+                        const session = this.sessions.find(s => s.id === this.modal.sessionId);
+                        if (session && this.modal.value.trim()) {
+                            session.name = this.modal.value.trim();
+                            this.saveSessions();
+                        }
+                    } else if (this.modal.type === 'delete') {
+                        const index = this.sessions.findIndex(s => s.id === this.modal.sessionId);
+                        if (index !== -1) {
+                            this.sessions.splice(index, 1);
+                            
+                            // If we deleted the current session, switch to another or create new
+                            if (this.currentSession === this.modal.sessionId) {
+                                if (this.sessions.length > 0) {
+                                    this.selectSession(this.sessions[0].id);
+                                } else {
+                                    this.newChat();
+                                }
+                            }
+                            
+                            this.saveSessions();
+                        }
+                    }
+                    
+                    this.modal.show = false;
                 },
                 
                 clearAllSessions() {
@@ -499,6 +672,10 @@
                             body: JSON.stringify(payload)
                         });
                         
+                        if (!response.ok) {
+                            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                        }
+                        
                         const reader = response.body.getReader();
                         const decoder = new TextDecoder();
                         let assistantMessage = {
@@ -533,7 +710,7 @@
                         this.messages.push({
                             id: Date.now() + 2,
                             role: 'assistant',
-                            content: 'Error: Unable to get response. Please try again.'
+                            content: `Error: ${error.message}. Please ensure the backend API is running at http://localhost:62828`
                         });
                     } finally {
                         this.isLoading = false;
