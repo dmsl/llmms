@@ -1,0 +1,16 @@
+{
+  "name": "llmms-frontend",
+  "version": "2.0.0",
+  "description": "LLM Meta Search - Modern Frontend",
+  "scripts": {
+    "dev": "echo 'Development mode: Open html/llmms-modern.html in browser'",
+    "build:css": "tailwindcss -i ./src/input.css -o ./dist/output.css --minify",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./dist/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  },
+  "dependencies": {
+    "alpinejs": "^3.13.0"
+  }
+}

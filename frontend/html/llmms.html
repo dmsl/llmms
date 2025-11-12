@@ -1,642 +1,592 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <title>Chat UCY</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <link rel="stylesheet" href="/css/bootstrap.css">
-    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/output.css">
-    <link rel="stylesheet" href="/css/freelancer.css">
-    <link rel="stylesheet" href="/css/sporthere.css">
-    <link rel="stylesheet" href="/css/index.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/css/chat.css?v=1.0">
-    <!-- Our responsive CSS -->
-    <!-- <link rel="stylesheet" href="/css/responsive.css"> -->
-
-    <!-- Add these scripts in the head section, before your main script.js is loaded -->
-    <!-- TensorFlow.js Core and Universal Sentence Encoder
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script> -->
-
-    <!-- PDF.js for PDF parsing -->
-    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script> -->
-
-    <!-- Mammoth.js for DOCX parsing
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script> -->
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Chat UCY - LLM Meta Search</title>
+    
+    <!-- Alpine.js for reactivity (15KB) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind CSS via CDN (production: use built version) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Tailwind configuration with your color palette
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#6a42c2',
+                            light: '#8b6dd4',
+                            dark: '#4a2c82',
+                            pale: '#f2f0f6'
+                        },
+                        sidebar: {
+                            DEFAULT: '#f2f0f6',
+                            border: 'rgba(106, 66, 194, 0.2)'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Font Awesome for icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Custom minimal CSS -->
+    <style>
+        /* Smooth scrollbar styling */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(106, 66, 194, 0.3);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(106, 66, 194, 0.5);
+        }
+        
+        /* Hide scrollbar but keep functionality */
+        .scrollbar-hidden::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hidden {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        
+        /* Smooth transitions */
+        * {
+            transition-property: background-color, border-color, color, fill, stroke;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 150ms;
+        }
+    </style>
 </head>
 
-<body>
-    <div class="relative flex h-full w-full flex-col overflow-hidden">
-        <!-- Main container -->
-        <div id="main-container" class="relative flex h-full w-full flex-row overflow-hidden">
-            <!-- Sidebar (now on the left) -->
-            <div id="sidebar" class="vh-screen bg-secondary bg-opacity-10 flex flex-col fixed-sidebar collapsed">
-                <div class="p-3">
-                    <h2 class="text-sm mb-0">Sessions</h2>
-                </div>
-                <div id="session-list" class="flex-grow p-3 overflow-auto">
-                    <!-- Dynamic session list -->
-                </div>
-                <div class="p-3" style="bottom: 0;">
-                    <button id="new-chat" class="btn btn-dark w-full">
-                        <i class="fa fa-plus me-2"></i> New Chat
+<body class="h-screen overflow-hidden bg-white font-sans antialiased" x-data="chatApp()">
+    <!-- Main Container -->
+    <div class="flex h-full">
+        <!-- Sidebar -->
+        <aside 
+            :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
+            class="fixed lg:static inset-y-0 left-0 z-50 w-72 lg:w-64 bg-primary-pale border-r border-sidebar-border transform transition-transform duration-300 ease-in-out flex flex-col">
+            
+            <!-- Sidebar Header -->
+            <div class="p-4 border-b border-sidebar-border">
+                <h2 class="text-lg font-semibold text-gray-800">Sessions</h2>
+            </div>
+            
+            <!-- Session List -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                <template x-for="session in sessions" :key="session.id">
+                    <button 
+                        @click="selectSession(session.id)"
+                        :class="currentSession === session.id ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-100'"
+                        class="w-full text-left px-4 py-3 rounded-lg shadow-sm transition-all duration-200">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium truncate" x-text="session.name"></span>
+                            <i class="fas fa-comment-dots text-xs opacity-60"></i>
+                        </div>
                     </button>
-                    <button id="clear-all-chats" class="btn btn-dark w-full mt-1">
-                        <i class=" fa fa-trash me-2"></i> Clear All Sessions
-                    </button>
+                </template>
+                
+                <!-- Empty state -->
+                <div x-show="sessions.length === 0" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-comments text-3xl mb-2"></i>
+                    <p class="text-sm">No sessions yet</p>
                 </div>
             </div>
-            <!-- End Sidebar -->
-
-            <!-- Chat area (right side) -->
-            <div id="rightside" class="relative flex h-full max-w-full flex-1 flex-col overflow-hidden">
-                <!-- Header -->
-                <div class="py-3 px-4 flex items-center justify-between shadow-none w-full header"
-                    style="max-height: 10vh; height: 10vh;">
-                    <!-- Move right buttons to the left -->
-                    <div class="flex items-center">
-                        <button id="toggle-sidebar" class="btn btn-secondary p-2">
-                            <i class="fa fa-bars"></i>
+            
+            <!-- Sidebar Footer -->
+            <div class="p-3 border-t border-sidebar-border space-y-2">
+                <button 
+                    @click="newChat()"
+                    class="w-full bg-gray-800 hover:bg-gray-900 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-plus"></i>
+                    <span>New Chat</span>
+                </button>
+                <button 
+                    @click="clearAllSessions()"
+                    class="w-full bg-transparent hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-trash"></i>
+                    <span>Clear All</span>
+                </button>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col h-full relative">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
+                <!-- Left: Menu Toggle -->
+                <button 
+                    @click="sidebarOpen = !sidebarOpen"
+                    class="lg:hidden text-primary hover:bg-primary-pale p-2 rounded-lg transition-colors">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                
+                <!-- Center: Title (optional) -->
+                <div class="flex-1 lg:ml-0 ml-4">
+                    <h1 class="text-lg font-semibold text-gray-800 hidden sm:block">LLM Meta Search</h1>
+                </div>
+                
+                <!-- Right: Logos & Menu -->
+                <div class="flex items-center gap-3">
+                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block">
+                        <img src="/img/ucy_logo.png" alt="UCY" class="h-full object-contain">
+                    </a>
+                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block">
+                        <img src="/img/dmsllogobig.png" alt="DMSL" class="h-full object-contain">
+                    </a>
+                    
+                    <!-- Navigation Dropdown -->
+                    <div class="relative" x-data="{ open: false }">
+                        <button 
+                            @click="open = !open"
+                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors">
+                            <img src="/img/chatucy_logo.png" alt="ChatUCY" class="h-6">
                         </button>
+                        <div 
+                            x-show="open"
+                            @click.away="open = false"
+                            x-transition
+                            class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                            <div class="px-4 py-2 text-sm text-gray-500 border-b border-gray-200">v1.2</div>
+                            <a href="/" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-home"></i> Home
+                            </a>
+                            <a href="/privacy" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-lock"></i> Privacy
+                            </a>
+                            <a href="/terms" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-file-text"></i> Terms
+                            </a>
+                        </div>
                     </div>
-                    <!-- Move logos to the right -->
-                    <div class="flex items-center gap-2" style="height: 6vh; max-height: 6vh;">
-                        <div class="h-full">
-                            <a href="https://www.ucy.ac.cy/" target="_blank" class="block h-full">
-                                <img src="/img/ucy_logo.png" class="img-fluid p-2" alt="UCY Logo"
-                                    style="max-height: 100%; object-fit: contain;">
-                            </a>
+                </div>
+            </header>
+            
+            <!-- Chat Area -->
+            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 py-6" id="chat-history">
+                <div class="max-w-4xl mx-auto space-y-4 pb-32">
+                    <template x-for="message in messages" :key="message.id">
+                        <div 
+                            :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
+                            class="flex">
+                            <div 
+                                :class="message.role === 'user' 
+                                    ? 'bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl' 
+                                    : 'bg-gray-100 text-gray-800 rounded-tl-2xl rounded-tr-2xl rounded-br-2xl'"
+                                class="max-w-[80%] px-4 py-3 shadow-sm">
+                                <p class="text-sm whitespace-pre-wrap" x-html="message.content"></p>
+                                <template x-if="message.model">
+                                    <div class="text-xs opacity-70 mt-2" x-text="'Model: ' + message.model"></div>
+                                </template>
+                            </div>
                         </div>
-                        <div class="h-full">
-                            <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="block h-full">
-                                <img src="/img/dmsllogobig.png" class="img-fluid p-2" alt="DMSL Logo"
-                                    style="max-height: 100%; object-fit: contain;">
-                            </a>
+                    </template>
+                    
+                    <!-- Loading indicator -->
+                    <div x-show="isLoading" class="flex justify-start">
+                        <div class="bg-gray-100 rounded-2xl px-4 py-3 shadow-sm">
+                            <div class="flex gap-1">
+                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                            </div>
                         </div>
-
-                        <!-- Navigation dropdown (moved to right side) -->
-                        <div class="tw-dropdown ml-2 dropdown">
-                            <button class="tw-btn tw-btn-outline p-2 rounded border border-gray-300 hover:bg-gray-100"
-                                type="button" id="navLinks" data-bs-toggle="dropdown" aria-expanded="false">
-                                <img src="/img/chatucy_logo.png" alt="ChatUCY Logo" class="img-fluid"
-                                    style="max-height: 30px; margin: 0 auto;">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="absolute bottom-0 left-0 right-0 bg-primary-pale border-t border-sidebar-border p-4 shadow-lg backdrop-blur-sm">
+                <div class="max-w-4xl mx-auto">
+                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-3">
+                        <!-- Main Input Row -->
+                        <div class="flex gap-2 items-end">
+                            <textarea 
+                                x-model="userInput"
+                                @keydown.enter.prevent="handleEnter($event)"
+                                placeholder="Type your message here..."
+                                rows="1"
+                                class="flex-1 resize-none border-none outline-none text-gray-800 text-sm max-h-32 overflow-y-auto scrollbar-hidden"
+                                style="min-height: 2.5rem;"></textarea>
+                            
+                            <button 
+                                @click="sendMessage()"
+                                :disabled="!userInput.trim() || isLoading"
+                                :class="userInput.trim() && !isLoading ? 'bg-primary hover:bg-primary-dark' : 'bg-gray-300 cursor-not-allowed'"
+                                class="w-10 h-10 rounded-full text-white flex items-center justify-center transition-colors flex-shrink-0">
+                                <i class="fas fa-paper-plane"></i>
                             </button>
-                            <ul class="tw-dropdown-menu dropdown-menu dropdown-menu-end" aria-labelledby="navLinks">
-                                <li class="px-1 py-1 text-center">
-                                    <div class="d-flex align-items-center justify-content-center">
-
-                                        <span class="ms-1" style="font-size: 0.8em;">v1.2</span>
-                                    </div>
-                                </li>
-                                <li>
-                                    <hr class="dropdown-divider">
-                                </li>
-                                <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/"><i class="fa fa-home me-2"></i>Home</a></li>
-                                <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/privacy"><i class="fa fa-lock me-2"></i>Privacy</a></li>
-                                <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/terms"><i class="fa fa-file-text me-2"></i>Terms</a></li>
-                            </ul>
                         </div>
-                    </div>
-                </div>
-                <!-- End Header -->
-
-                <!-- Chat Area -->
-
-                <div id="content" class="flex flex-col flex-grow">
-                    <div id="chat-container" class="flex flex-col flex-grow" style="position: relative;">
-                        <!-- Chat History: take all remaining space -->
-                        <div id="chat-history" class="flex-grow overflow-auto">
-                            <!-- Dynamic chat messages -->
-                        </div>
-
-                        <!-- End Input Area -->
-                    </div>
-                    <!-- Input Area: directly inside chat-container -->
-                    <div class="chat-input-container flex items-center space-x-2 fixed-bottom-bg">
-                        <textarea id="user-input" placeholder="Type your message here..." rows="1"
-                            class="flex-grow"></textarea>
-                        <div id='misc'>
-                            <div id='modeldropdown' class="dropdown ">
-                                <button id='modelbutton' class="btn btn-secondary dropdown-toggle selectmodel"
-                                    type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    LLM-MS-OUA
+                        
+                        <!-- Bottom Controls -->
+                        <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200">
+                            <!-- Model Selector -->
+                            <div class="relative" x-data="{ open: false }">
+                                <button 
+                                    @click="open = !open"
+                                    class="px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center gap-2">
+                                    <span x-text="selectedModel"></span>
+                                    <i class="fas fa-chevron-down text-xs"></i>
                                 </button>
-                                <ul id='modelmenu' class="dropdown-menu">
-                                    <!-- Model list will be populated dynamically -->
-                                    <li><a class="dropdown-item" href="#">Loading models...</a></li>
-                                </ul>
-                            </div>
-                            <input type="file" id="file-input" class="hidden" accept=".pdf, .txt, image/*">
-                            <div class="relative">
-                                <i id="upload-button" class="fa fa-paperclip chat-icon" title="Attach File"
-                                    aria-hidden="true"></i>
-                                <span class="sr-only">Attach File</span>
-                            </div>
-
-                            <!-- Updated toggle and settings button with better encapsulation -->
-                            <div class="llm-settings-control-group d-flex align-items-center mx-1 ">
-                                <div class="d-flex align-items-center me-1">
-                                    <div class="form-check form-switch mb-0">
-                                        <input class="form-check-input " type="checkbox" id="llm-ms-toggle" checked
-                                            onchange="toggleLlmMs(this.checked)">
-                                        <label class="form-check-label small d-flex align-items-center"
-                                            for="llm-ms-toggle">
-
-                                            <span class="d-none d-sm-inline">LLM-MS</span>
-                                        </label>
-                                    </div>
+                                <div 
+                                    x-show="open"
+                                    @click.away="open = false"
+                                    x-transition
+                                    class="absolute bottom-full mb-2 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50 min-w-[200px]">
+                                    <div class="px-3 py-1 text-xs font-semibold text-gray-500">Meta LLM Selection</div>
+                                    <button 
+                                        @click="selectModel('LLM-MS-OUA'); open = false"
+                                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
+                                        LLM-MS-OUA
+                                    </button>
+                                    <button 
+                                        @click="selectModel('LLM-MS-MAB'); open = false"
+                                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
+                                        LLM-MS-MAB
+                                    </button>
                                 </div>
-                                <button id="advanced-settings-button" class="btn btn-outline-secondary btn-sm active"
-                                    data-bs-toggle="modal" data-bs-target="#advancedSettingsModal"
-                                    style="background-color: rgba(40, 167, 69, 0.2);">
-                                    <i class="fa fa-sliders me-1" id="settings-icon" style="color: #28a745;"></i><span
-                                        class="d-none d-sm-inline">Settings</span>
+                            </div>
+                            
+                            <!-- File Upload -->
+                            <button 
+                                @click="$refs.fileInput.click()"
+                                class="w-10 h-10 rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center justify-center">
+                                <i class="fas fa-paperclip"></i>
+                            </button>
+                            <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
+                            
+                            <!-- LLM-MS Toggle -->
+                            <div class="flex items-center gap-2 ml-auto">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox"
+                                        x-model="llmMsEnabled"
+                                        class="w-4 h-4 text-primary rounded focus:ring-primary">
+                                    <span class="text-sm text-gray-700">LLM-MS</span>
+                                </label>
+                                
+                                <!-- Settings Button -->
+                                <button 
+                                    @click="settingsOpen = true"
+                                    :class="llmMsEnabled ? 'text-green-600 bg-green-50' : 'text-gray-600 bg-gray-50'"
+                                    class="w-10 h-10 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center">
+                                    <i class="fas fa-sliders"></i>
                                 </button>
-                            </div>
-
-                            <script>
-                                function toggleLlmMs(isOn) {
-                                    const settingsIcon = document.getElementById('settings-icon');
-                                    const settingsButton = document.getElementById('advanced-settings-button');
-                                    const controlGroup = document.querySelector('.llm-settings-control-group');
-                                    const modelButton = document.getElementById('modelbutton');
-
-                                    // Update visual styles based on state
-                                    if (isOn) {
-                                        // LLM-MS is ON
-                                        settingsIcon.style.color = '#28a745';
-                                        settingsButton.style.backgroundColor = 'rgba(40, 167, 69, 0.2)';
-                                        settingsButton.classList.add('active');
-                                        controlGroup.style.borderColor = '#28a745';
-
-                                        // Restore LLM-MS model selection from settings
-                                        const llmMsConfig = sessionStorage.getItem('llmMsConfig');
-                                        if (llmMsConfig) {
-                                            const config = JSON.parse(llmMsConfig);
-                                            const algorithmType = config.ALGORITHM_TYPE || 'stepwise';
-                                            const algorithmIndicator = algorithmType === 'stepwise' ? 'OUA' : 'MAB';
-                                            modelButton.textContent = `LLM-MS-${algorithmIndicator}`;
-                                        } else {
-                                            modelButton.textContent = 'LLM-MS-OUA';
-                                        }
-
-                                        // Enable settings button
-                                        settingsButton.disabled = false;
-                                    } else {
-                                        // LLM-MS is OFF
-                                        settingsIcon.style.color = '#6c757d';
-                                        settingsButton.style.backgroundColor = '';
-                                        settingsButton.classList.remove('active');
-                                        controlGroup.style.borderColor = '#ced4da';
-
-                                        // When LLM-MS is off, use current selected model from dropdown
-                                        const selectedModel = sessionStorage.getItem('selectedModel') || 'Default Model';
-                                        modelButton.textContent = selectedModel;
-
-                                        // Disable settings button
-                                        settingsButton.disabled = true;
-                                    }
-
-                                    // Store the LLM-MS state
-                                    sessionStorage.setItem('llmMsEnabled', isOn);
-
-                                    // Also dispatch an event for other components to react
-                                    document.dispatchEvent(new CustomEvent('llmMsToggled', {
-                                        detail: { enabled: isOn }
-                                    }));
-                                }
-
-                                // Initialize the toggle state on page load
-                                document.addEventListener('DOMContentLoaded', function () {
-                                    const llmMsToggle = document.getElementById('llm-ms-toggle');
-                                    // Initialize from saved state or default to checked (ON)
-                                    const savedState = sessionStorage.getItem('llmMsEnabled');
-                                    const isEnabled = savedState !== null ? savedState === 'true' : true;
-
-                                    // Set the toggle to match saved state
-                                    llmMsToggle.checked = isEnabled;
-
-                                    // Apply the correct visual state on load
-                                    toggleLlmMs(isEnabled);
-                                });
-                            </script>
-
-                            <!-- Add file info container -->
-                            <div id="file-info-container" class="d-none">
-                                <span id="file-name" class="file-name d-flex align-items-center"></span>
-                            </div>
-
-                            <div class="send-button" id="send-button">
-                                <i class="fa fa-arrow-up" aria-hidden="true"></i>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <!-- End Chat Area -->
             </div>
-            <!-- End Chat Area (right side) -->
-        </div>
-        <!-- End Main container -->
+        </main>
     </div>
-
-    <!-- Advanced LLM Settings Modal -->
-    <div class="modal fade" id="advancedSettingsModal" tabindex="-1" aria-labelledby="advancedSettingsModalLabel"
-        aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header bg-light">
-                    <h5 class="modal-title" id="advancedSettingsModalLabel">LLM-MS Settings</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    
+    <!-- Settings Modal -->
+    <div 
+        x-show="settingsOpen"
+        @click.self="settingsOpen = false"
+        x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div 
+            x-show="settingsOpen"
+            x-transition:enter="transition ease-out duration-300"
+            x-transition:enter-start="opacity-0 scale-95"
+            x-transition:enter-end="opacity-100 scale-100"
+            x-transition:leave="transition ease-in duration-200"
+            x-transition:leave-start="opacity-100 scale-100"
+            x-transition:leave-end="opacity-0 scale-95"
+            class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto custom-scrollbar">
+            <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                <h3 class="text-xl font-semibold text-gray-800">Advanced Settings</h3>
+                <button @click="settingsOpen = false" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="p-6 space-y-6">
+                <!-- Algorithm Type -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Algorithm Type</label>
+                    <select x-model="config.algorithmType" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                        <option value="stepwise">OUA (Overperformers-Underperformers)</option>
+                        <option value="mab">MAB (Multi-Armed Bandit)</option>
+                    </select>
                 </div>
-                <div class="modal-body">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <div class="card h-100">
-                                <div class="card-header bg-light">
-                                    <h6 class="mb-0">Base Options</h6>
-                                </div>
-                                <div class="card-body">
-
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>LLM-MS Algorithms</strong></label>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="algorithmType"
-                                                id="algorithmStepwise" value="stepwise" checked>
-                                            <label class="form-check-label" for="algorithmStepwise">
-                                                Overperformes Underperformers Algorithm (OUA)
-                                            </label>
-                                            <small hidden class="form-text text-muted d-block">
-                                                Gradually increases token allocation in rounds.
-                                            </small>
-                                        </div>
-                                        <div class="form-check mt-2">
-                                            <input class="form-check-input" type="radio" name="algorithmType"
-                                                id="algorithmMAB" value="mab">
-                                            <label class="form-check-label" for="algorithmMAB">
-                                                Multi-Armed Bandit (MAB)
-                                            </label>
-                                            <small hidden class="form-text text-muted d-block">
-                                                Uses UCB to dynamically select the best model.
-                                            </small>
-                                        </div>
-                                    </div>
-
-
-
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>Query Mode</strong></label>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="queryMode"
-                                                id="interactiveMode" value="interactive" checked>
-                                            <label class="form-check-label" for="interactiveMode">
-                                                Interactive Mode
-                                            </label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="queryMode"
-                                                id="staticMode" value="static">
-                                            <label class="form-check-label" for="staticMode">
-                                                Static Mode
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    <div id="staticQueryContainer" class="mb-3 d-none">
-                                        <label for="preloadedQuery" class="form-label">Select Preloaded Query</label>
-                                        <select class="form-select" id="preloadedQuery">
-                                            <option value="What happens to you if you eat watermelon seeds?">What
-                                                happens to you if you eat watermelon seeds?</option>
-                                            <option value="Who are you not allowed to marry in the UK?">Who are you not
-                                                allowed to marry in the UK?</option>
-                                            <option
-                                                value="What are some people from America who won a Nobel Prize for Physics?">
-                                                What are some people from America who won a Nobel Prize for Physics?
-                                            </option>
-                                            <option value="What happens if you wake a sleepwalker?">What happens if you
-                                                wake a sleepwalker?</option>
-                                        </select>
-                                    </div>
-
-                                    <!-- Replace the "Available Models" section with a placeholder for the dropdown -->
-                                    <div class="mb-3">
-                                        <label class="form-label">Available Models</label>
-                                        <div id="models-dropdown-container">
-                                            <!-- Model dropdown will be inserted here dynamically -->
-                                            <div class="d-flex align-items-center">
-                                                <span class="spinner-border spinner-border-sm me-2" role="status"
-                                                    aria-hidden="true"></span>
-                                                <span>Loading available models...</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="mb-3">
-                                        <label class="form-label">Embedding Model</label>
-                                        <select class="form-select" id="embeddingModel">
-                                            <option value="nomic-embed-text" selected>nomic-embed-text</option>
-                                            <option value="mxbai-embed-large">mxbai-embed-large</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card h-100">
-                                <div class="card-header bg-light">
-                                    <h6 class="mb-0">Tuning Parameters</h6>
-                                </div>
-                                <div class="card-body">
-                                    <div class="mb-3">
-                                        <label for="tokenAllocation" class="form-label">Max Token Budget</label>
-                                        <input type="range" class="form-range" id="tokenAllocation" min="100" max="2048"
-                                            step="64" value="1024">
-                                        <div class="d-flex justify-content-between">
-                                            <small>100</small>
-                                            <small id="tokenValue">1024</small>
-                                            <small>2048</small>
-                                        </div>
-                                    </div>
-
-
-                                    <!-- <div class="mb-3">
-                                        <label for="startTokens" class="form-label">Starting Token Budget</label>
-                                        <input type="number" class="form-control" id="startTokens" min="16" max="256"
-                                            step="16" value="64">
-                                    </div> -->
-
-                                    <!-- <div class="mb-3">
-                                        <label for="maxRounds" class="form-label">Max Rounds</label>
-                                        <input type="number" class="form-control" id="maxRounds" min="1" max="20"
-                                            step="1" value="10">
-                                    </div> -->
-
-                                    <div class="mb-3">
-                                        <label for="selectionCriteria" class="form-label">Selection Criteria
-                                            Weight</label>
-                                        <div class="input-group mb-2">
-                                            <span class="input-group-text">Question Similarity (Alpha)</span>
-                                            <input type="number" class="form-control" id="alphaWeight" min="0" max="1"
-                                                step="0.1" value="0.7">
-                                        </div>
-                                        <div class="input-group mb-2">
-                                            <span class="input-group-text">Inter-Model Consensus (Beta)</span>
-                                            <input type="number" class="form-control" id="betaWeight" min="0" max="1"
-                                                step="0.1" value="0.3">
-                                        </div>
-                                        <div id="dynamicMarginContainer" class="mb-3">
-                                            <label for="dynamicMarginCoeff" class="form-label">Dynamic Margin
-                                                Coefficient</label>
-                                            <input type="number" class="form-control" id="dynamicMarginCoeff" min="0.5"
-                                                max="5" step="0.1" value="1.0">
-                                        </div>
-
-                                    </div>
-                                    <div id="mabSettingsContainer" class="mb-3 d-none">
-                                        <label for="xploreCoeff" class="form-label">Exploration Coefficient
-                                            (UCB)</label>
-                                        <input type="range" class="form-range" id="xploreCoeff" min="0.1" max="1.0"
-                                            step="0.1" value="0.3">
-                                        <div class="d-flex justify-content-between">
-                                            <small>0.1 (Exploit)</small>
-                                            <small id="xploreCoeffValue">0.3</small>
-                                            <small>1.0 (Explore)</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                
+                <!-- Token Budget -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Token Budget: <span class="text-primary font-semibold" x-text="config.maxTokens"></span>
+                    </label>
+                    <input 
+                        type="range" 
+                        x-model.number="config.maxTokens"
+                        min="256" 
+                        max="4096" 
+                        step="128"
+                        class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+                </div>
+                
+                <!-- Alpha/Beta Weights -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Alpha (Question Sim): <span class="text-primary font-semibold" x-text="config.alpha.toFixed(2)"></span>
+                        </label>
+                        <input 
+                            type="range" 
+                            x-model.number="config.alpha"
+                            min="0" 
+                            max="1" 
+                            step="0.05"
+                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
                     </div>
-
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Beta (Consensus): <span class="text-primary font-semibold" x-text="config.beta.toFixed(2)"></span>
+                        </label>
+                        <input 
+                            type="range" 
+                            x-model.number="config.beta"
+                            min="0" 
+                            max="1" 
+                            step="0.05"
+                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="saveAdvancedSettings">Apply Settings</button>
+                
+                <!-- Save Button -->
+                <div class="pt-4 border-t border-gray-200">
+                    <button 
+                        @click="saveSettings(); settingsOpen = false"
+                        class="w-full bg-primary hover:bg-primary-dark text-white py-3 rounded-lg font-medium transition-colors">
+                        Save Settings
+                    </button>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- jQuery and other libraries -->
-    <!-- Import Marked.js for Markdown parsing -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="/js/jquery-1.11.0.js"></script>
-    <script src="/js/bootstrap.bundle.js"></script>
-    <script src="/js/jquery.easing.min.js"></script>
-
-    <!-- Changed version number to v=1.1 to ensure browser gets the latest code -->
-    <script src="/js/llmms.js?v=1.1"></script>
-    <script src="/js/jquery.easing.min.js?v=1"></script>
-    <script src="/js/classie.js?v=1"></script>
-    <script src="/js/jqBootstrapValidation.js?v=1"></script>
-    <script src="/js/contact_me.js?v=1"></script>
-    <script src="/js/freelancer.js?v=1"></script>
-    <script src="https://kit.fontawesome.com/502aa52b51.js" crossorigin="anonymous"></script>
-    <!-- Load our document processing modules -->
-    <script src="/js/responsive.js?v=1"></script>
-
-    <!-- Advanced Settings Modal Script -->
+    
+    <!-- Alpine.js Component -->
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            // Set default model button text
-            document.getElementById('modelbutton').textContent = "LLM-MS-OUA";
-
-            // Token allocation slider
-            const tokenSlider = document.getElementById('tokenAllocation');
-            const tokenValue = document.getElementById('tokenValue');
-
-            tokenSlider.addEventListener('input', function () {
-                tokenValue.textContent = this.value;
-            });
-
-            // MAB exploration coefficient slider
-            const xploreCoeffSlider = document.getElementById('xploreCoeff');
-            const xploreCoeffValue = document.getElementById('xploreCoeffValue');
-
-            if (xploreCoeffSlider) {
-                xploreCoeffSlider.addEventListener('input', function () {
-                    xploreCoeffValue.textContent = this.value;
-                });
-            }
-
-            // Handle alpha and beta weights to ensure they always sum to 1.0
-            const alphaWeightInput = document.getElementById('alphaWeight');
-            const betaWeightInput = document.getElementById('betaWeight');
-
-            // Add event listener to alpha weight input
-            alphaWeightInput.addEventListener('input', function () {
-                let alphaValue = parseFloat(this.value);
-                // Ensure alpha is between 0 and 1
-                alphaValue = Math.max(0, Math.min(1, alphaValue));
-                this.value = alphaValue.toFixed(1);
-                // Update beta to be 1 - alpha
-                betaWeightInput.value = (1 - alphaValue).toFixed(1);
-            });
-
-            // Add event listener to beta weight input
-            betaWeightInput.addEventListener('input', function () {
-                let betaValue = parseFloat(this.value);
-                // Ensure beta is between 0 and 1
-                betaValue = Math.max(0, Math.min(1, betaValue));
-                this.value = betaValue.toFixed(1);
-                // Update alpha to be 1 - beta
-                alphaWeightInput.value = (1 - betaValue).toFixed(1);
-            });
-
-            // Algorithm type toggle
-            const algorithmStepwise = document.getElementById('algorithmStepwise');
-            const algorithmMAB = document.getElementById('algorithmMAB');
-            const mabSettingsContainer = document.getElementById('mabSettingsContainer');
-            const dynamicMarginContainer = document.getElementById('dynamicMarginContainer');
-
-            algorithmStepwise.addEventListener('change', function () {
-                if (this.checked) {
-                    dynamicMarginContainer.classList.remove('d-none');
-                    mabSettingsContainer.classList.add('d-none');
-                }
-            });
-
-            algorithmMAB.addEventListener('change', function () {
-                if (this.checked) {
-                    mabSettingsContainer.classList.remove('d-none');
-                    dynamicMarginContainer.classList.add('d-none');
-                }
-            });
-
-            // Query mode toggle
-            const interactiveMode = document.getElementById('interactiveMode');
-            const staticMode = document.getElementById('staticMode');
-            const staticQueryContainer = document.getElementById('staticQueryContainer');
-            const preloadedQuery = document.getElementById('preloadedQuery');
-            const userInput = document.getElementById('user-input');
-
-            // Add event listener to update input box when preloaded query changes
-            preloadedQuery.addEventListener('change', function () {
-                userInput.value = this.value;
-            });
-
-            interactiveMode.addEventListener('change', function () {
-                if (this.checked) {
-                    staticQueryContainer.classList.add('d-none');
-                    // Clear the user input when switching to interactive mode
-                    userInput.value = '';
-                }
-            });
-
-            staticMode.addEventListener('change', function () {
-                if (this.checked) {
-                    staticQueryContainer.classList.remove('d-none');
-                    // Set the user input to the selected preloaded query
-                    userInput.value = preloadedQuery.value;
-                }
-            });
-
-            // Save settings
-            document.getElementById('saveAdvancedSettings').addEventListener('click', function () {
-                // Check which algorithm is selected
-                const algorithmType = document.querySelector('input[name="algorithmType"]:checked').value;
-
-                // Collect settings
-                const settings = {
-                    algorithmType: algorithmType,
-                    queryMode: document.querySelector('input[name="queryMode"]:checked').value,
-                    preloadedQuery: document.getElementById('preloadedQuery').value,
-                    models: {},
-                    tokenAllocation: parseInt(document.getElementById('tokenAllocation').value),
-                    // startTokens: parseInt(document.getElementById('startTokens').value),
-                    // maxRounds: parseInt(document.getElementById('maxRounds').value),
-                    weights: {
-                        alpha: parseFloat(document.getElementById('alphaWeight').value),
-                        beta: parseFloat(document.getElementById('betaWeight').value),
-                    },
-                    earlyStoppingParams: {
-                        dynamicMarginCoeff: parseFloat(document.getElementById('dynamicMarginCoeff').value)
-                    },
-                    mabParams: {
-                        xploreCoeff: parseFloat(document.getElementById('xploreCoeff').value)
-                    },
-                    otherParams: {
-                        embeddingModel: document.getElementById('embeddingModel').value
-                    },
-                };
-
-                console.log('Advanced LLM-MS Settings:', settings);
-
-                // Get active models as array from dynamic checkboxes
-                const activeModels = [];
-                const modelSettings = {};
-                const modelCheckboxes = document.querySelectorAll('.model-checkbox');
-
-                if (modelCheckboxes.length > 0) {
-                    modelCheckboxes.forEach(checkbox => {
-                        if (checkbox.checked) {
-                            const modelId = checkbox.getAttribute('data-model-id');
-                            if (modelId) {
-                                const baseModelName = modelId.split(':')[0];
-                                activeModels.push(baseModelName);
-                                modelSettings[baseModelName] = true;
-                            }
+        function chatApp() {
+            return {
+                sidebarOpen: false,
+                settingsOpen: false,
+                userInput: '',
+                messages: [],
+                sessions: [],
+                currentSession: null,
+                isLoading: false,
+                selectedModel: 'LLM-MS-OUA',
+                llmMsEnabled: true,
+                config: {
+                    algorithmType: 'stepwise',
+                    maxTokens: 1024,
+                    alpha: 0.7,
+                    beta: 0.3,
+                    dynamicMarginCoeff: 0.5
+                },
+                
+                init() {
+                    // Load from sessionStorage
+                    const savedSessions = sessionStorage.getItem('sessions');
+                    if (savedSessions) {
+                        this.sessions = JSON.parse(savedSessions);
+                    } else {
+                        this.newChat();
+                    }
+                    
+                    const savedConfig = sessionStorage.getItem('llmMsConfig');
+                    if (savedConfig) {
+                        this.config = { ...this.config, ...JSON.parse(savedConfig) };
+                    }
+                    
+                    // Auto-resize textarea
+                    this.$watch('userInput', () => {
+                        const textarea = document.querySelector('textarea');
+                        if (textarea) {
+                            textarea.style.height = 'auto';
+                            textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px';
                         }
                     });
-                } else {
-                    // Fallback to legacy checkboxes
-                    if (document.getElementById('modelLlama') && document.getElementById('modelLlama').checked) {
-                        activeModels.push("llama3.1");
-                        modelSettings.llama = true;
+                },
+                
+                newChat() {
+                    const newSession = {
+                        id: Date.now(),
+                        name: `Chat ${this.sessions.length + 1}`,
+                        messages: []
+                    };
+                    this.sessions.push(newSession);
+                    this.currentSession = newSession.id;
+                    this.messages = [];
+                    this.saveSessions();
+                },
+                
+                selectSession(sessionId) {
+                    this.currentSession = sessionId;
+                    const session = this.sessions.find(s => s.id === sessionId);
+                    if (session) {
+                        this.messages = session.messages;
                     }
-                    if (document.getElementById('modelMistral') && document.getElementById('modelMistral').checked) {
-                        activeModels.push("mistral");
-                        modelSettings.mistral = true;
+                    this.sidebarOpen = false;
+                },
+                
+                clearAllSessions() {
+                    if (confirm('Are you sure you want to clear all sessions?')) {
+                        this.sessions = [];
+                        this.messages = [];
+                        this.currentSession = null;
+                        sessionStorage.removeItem('sessions');
+                        this.newChat();
                     }
-                    if (document.getElementById('modelQwen') && document.getElementById('modelQwen').checked) {
-                        activeModels.push("qwen2.5");
-                        modelSettings.qwen = true;
+                },
+                
+                selectModel(model) {
+                    this.selectedModel = model;
+                    this.config.algorithmType = model === 'LLM-MS-OUA' ? 'stepwise' : 'mab';
+                },
+                
+                handleEnter(event) {
+                    if (!event.shiftKey) {
+                        this.sendMessage();
                     }
+                },
+                
+                async sendMessage() {
+                    if (!this.userInput.trim() || this.isLoading) return;
+                    
+                    const userMessage = {
+                        id: Date.now(),
+                        role: 'user',
+                        content: this.userInput.trim()
+                    };
+                    
+                    this.messages.push(userMessage);
+                    this.userInput = '';
+                    this.isLoading = true;
+                    
+                    // Scroll to bottom
+                    this.$nextTick(() => {
+                        const chatHistory = document.getElementById('chat-history');
+                        chatHistory.scrollTop = chatHistory.scrollHeight;
+                    });
+                    
+                    try {
+                        // Prepare API call
+                        const endpoint = this.llmMsEnabled ? '/api/send_message_llmms' : '/api/send_message';
+                        const payload = this.llmMsEnabled ? {
+                            messages: this.messages.map(m => ({ role: m.role, content: m.content })),
+                            algorithm_type: this.config.algorithmType,
+                            config: {
+                                MAX_TOKENS: this.config.maxTokens,
+                                ALPHA: this.config.alpha,
+                                BETA: this.config.beta,
+                                DYNAMIC_MARGIN_COEFF: this.config.dynamicMarginCoeff,
+                                MODELS: ['llama3.1', 'mistral', 'qwen2.5'],
+                                EMBEDDING_MODEL: 'nomic-embed-text'
+                            }
+                        } : {
+                            model: this.selectedModel,
+                            messages: this.messages.map(m => ({ role: m.role, content: m.content }))
+                        };
+                        
+                        const response = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let assistantMessage = {
+                            id: Date.now() + 1,
+                            role: 'assistant',
+                            content: '',
+                            model: this.selectedModel
+                        };
+                        this.messages.push(assistantMessage);
+                        
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            
+                            const chunk = decoder.decode(value);
+                            const lines = chunk.split('\n').filter(line => line.trim());
+                            
+                            for (const line of lines) {
+                                try {
+                                    if (this.llmMsEnabled) {
+                                        const data = JSON.parse(line);
+                                        if (data.status === 'final_result' && data.output) {
+                                            assistantMessage.content = data.output;
+                                            assistantMessage.model = data.model || this.selectedModel;
+                                        } else if (data.status === 'model_progress' && data.partial_output) {
+                                            assistantMessage.content = data.partial_output;
+                                        }
+                                    } else {
+                                        assistantMessage.content += line;
+                                    }
+                                } catch (e) {
+                                    if (!this.llmMsEnabled) {
+                                        assistantMessage.content += line;
+                                    }
+                                }
+                            }
+                            
+                            // Auto-scroll
+                            this.$nextTick(() => {
+                                const chatHistory = document.getElementById('chat-history');
+                                chatHistory.scrollTop = chatHistory.scrollHeight;
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Error sending message:', error);
+                        this.messages.push({
+                            id: Date.now() + 2,
+                            role: 'assistant',
+                            content: 'Error: Unable to get response. Please try again.'
+                        });
+                    } finally {
+                        this.isLoading = false;
+                        this.saveSessions();
+                    }
+                },
+                
+                handleFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (file) {
+                        console.log('File selected:', file.name);
+                        // Implement file upload logic here
+                    }
+                },
+                
+                saveSettings() {
+                    sessionStorage.setItem('llmMsConfig', JSON.stringify(this.config));
+                },
+                
+                saveSessions() {
+                    const session = this.sessions.find(s => s.id === this.currentSession);
+                    if (session) {
+                        session.messages = this.messages;
+                    }
+                    sessionStorage.setItem('sessions', JSON.stringify(this.sessions));
                 }
-
-                // Update the settings object with the collected model settings
-                settings.models = modelSettings;
-
-                // Update session storage with LLM-MS configuration
-                sessionStorage.setItem('llmMsConfig', JSON.stringify({
-                    ALGORITHM_TYPE: settings.algorithmType,
-                    MODELS: activeModels,
-                    EMBEDDING_MODEL: settings.otherParams.embeddingModel,
-                    DYNAMIC_MARGIN_COEFF: settings.earlyStoppingParams.dynamicMarginCoeff,
-                    // START_TOKENS: settings.startTokens,
-                    // MAX_ROUNDS: settings.maxRounds,
-                    MAX_TOKENS: settings.tokenAllocation,
-                    XPLORE_COEFF: settings.mabParams.xploreCoeff,
-                    ALPHA: settings.weights.alpha,
-                    BETA: settings.weights.beta
-                }));
-
-                // Store settings object in session storage
-                sessionStorage.setItem('settings', JSON.stringify(settings));
-
-                // Close the modal
-                const modal = bootstrap.Modal.getInstance(document.getElementById('advancedSettingsModal'));
-                modal.hide();
-
-                // Update algorithm indicator
-                const algorithmIndicator = settings.algorithmType === 'stepwise' ? 'OUA' : 'MAB';
-
-                // Update the model button text to reflect LLM-MS is active with algorithm type
-                document.getElementById('modelbutton').textContent = `LLM-MS (${algorithmIndicator})`;
-
-                // If static mode is selected, make sure the input box has the preloaded query
-                if (settings.queryMode === 'static') {
-                    userInput.value = settings.preloadedQuery;
-                }
-            });
-        });
+            }
+        }
     </script>
 </body>
-
 </html>

@@ -1,212 +1,567 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <title>Chat UCY</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <link rel="stylesheet" href="/css/bootstrap.css">
-    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/output.css">
-    <link rel="stylesheet" href="/css/freelancer.css">
-    <link rel="stylesheet" href="/css/sporthere.css">
-    <link rel="stylesheet" href="/css/index.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/css/chat.css?v=1.0">
-    <!-- Our responsive CSS -->
-    <!-- <link rel="stylesheet" href="/css/responsive.css"> -->
-
-    <!-- Add these scripts in the head section, before your main script.js is loaded -->
-    <!-- TensorFlow.js Core and Universal Sentence Encoder -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Chat UCY - Standard Chat</title>
+    
+    <!-- Alpine.js for reactivity (15KB) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Tailwind configuration with your color palette
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#6a42c2',
+                            light: '#8b6dd4',
+                            dark: '#4a2c82',
+                            pale: '#f2f0f6'
+                        },
+                        sidebar: {
+                            DEFAULT: '#f2f0f6',
+                            border: 'rgba(106, 66, 194, 0.2)'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Font Awesome for icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- TensorFlow.js for embeddings -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script>
-
-    <!-- PDF.js for PDF parsing -->
-    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script> -->
-
+    
     <!-- Mammoth.js for DOCX parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script>
-
-
-
+    
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(106, 66, 194, 0.3);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(106, 66, 194, 0.5);
+        }
+        
+        .scrollbar-hidden::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hidden {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        
+        * {
+            transition-property: background-color, border-color, color, fill, stroke;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 150ms;
+        }
+    </style>
 </head>
 
-<body>
-    <div class="relative flex h-full w-full flex-col overflow-hidden">
-        <!-- Main container -->
-        <div id="main-container" class="relative flex h-full w-full flex-row overflow-hidden">
-            <!-- Sidebar (now on the left) -->
-            <div id="sidebar" class="vh-screen bg-secondary bg-opacity-10 flex flex-col fixed-sidebar collapsed">
-                <div class="p-3">
-                    <h2 class="text-sm mb-0">Sessions</h2>
-                </div>
-                <div id="session-list" class="flex-grow p-3 overflow-auto">
-                    <!-- Dynamic session list -->
-                </div>
-                <div class="p-3" style="bottom: 0;">
-                    <button id="new-chat" class="btn btn-dark w-full">
-                        <i class="fa fa-plus me-2"></i> New Chat
+<body class="h-screen overflow-hidden bg-white font-sans antialiased" x-data="chatApp()">
+    <!-- Main Container -->
+    <div class="flex h-full">
+        <!-- Sidebar -->
+        <aside 
+            :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
+            class="fixed lg:static inset-y-0 left-0 z-50 w-72 lg:w-64 bg-primary-pale border-r border-sidebar-border transform transition-transform duration-300 ease-in-out flex flex-col">
+            
+            <!-- Sidebar Header -->
+            <div class="p-4 border-b border-sidebar-border">
+                <h2 class="text-lg font-semibold text-gray-800">Sessions</h2>
+            </div>
+            
+            <!-- Session List -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                <template x-for="session in sessions" :key="session.id">
+                    <button 
+                        @click="selectSession(session.id)"
+                        :class="currentSession === session.id ? 'bg-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-100'"
+                        class="w-full text-left px-4 py-3 rounded-lg shadow-sm transition-all duration-200">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium truncate" x-text="session.name"></span>
+                            <i class="fas fa-comment-dots text-xs opacity-60"></i>
+                        </div>
                     </button>
-                    <button id="clear-all-chats" class="btn btn-dark w-full mt-1">
-                        <i class=" fa fa-trash me-2"></i> Clear All Sessions
-                    </button>
+                </template>
+                
+                <!-- Empty state -->
+                <div x-show="sessions.length === 0" class="text-center py-8 text-gray-500">
+                    <i class="fas fa-comments text-3xl mb-2"></i>
+                    <p class="text-sm">No sessions yet</p>
                 </div>
             </div>
-            <!-- End Sidebar -->
-
-            <!-- Chat area (right side) -->
-            <div id="rightside" class="relative flex h-full max-w-full flex-1 flex-col overflow-hidden">
-                <!-- Header -->
-                <div class="py-3 px-4 flex items-center justify-between shadow-none w-full header"
-                    style="max-height: 10vh; height: 10vh;">
-                    <!-- Move right buttons to the left -->
-                    <div class="flex items-center">
-                        <button id="toggle-sidebar" class="btn btn-secondary p-2">
-                            <i class="fa fa-bars"></i>
+            
+            <!-- Sidebar Footer -->
+            <div class="p-3 border-t border-sidebar-border space-y-2">
+                <button 
+                    @click="newChat()"
+                    class="w-full bg-gray-800 hover:bg-gray-900 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-plus"></i>
+                    <span>New Chat</span>
+                </button>
+                <button 
+                    @click="clearAllSessions()"
+                    class="w-full bg-transparent hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-trash"></i>
+                    <span>Clear All</span>
+                </button>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col h-full relative">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
+                <!-- Left: Menu Toggle -->
+                <button 
+                    @click="sidebarOpen = !sidebarOpen"
+                    class="lg:hidden text-primary hover:bg-primary-pale p-2 rounded-lg transition-colors">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                
+                <!-- Center: Title -->
+                <div class="flex-1 lg:ml-0 ml-4">
+                    <h1 class="text-lg font-semibold text-gray-800 hidden sm:block">Chat UCY</h1>
+                </div>
+                
+                <!-- Right: Logos & Menu -->
+                <div class="flex items-center gap-3">
+                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block">
+                        <img src="/img/ucy_logo.png" alt="UCY" class="h-full object-contain">
+                    </a>
+                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block">
+                        <img src="/img/dmsllogobig.png" alt="DMSL" class="h-full object-contain">
+                    </a>
+                    
+                    <!-- Navigation Dropdown -->
+                    <div class="relative" x-data="{ open: false }">
+                        <button 
+                            @click="open = !open"
+                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors">
+                            <img src="/img/chatucy_logo.png" alt="ChatUCY" class="h-6">
+                        </button>
+                        <div 
+                            x-show="open"
+                            @click.away="open = false"
+                            x-transition
+                            class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                            <div class="px-4 py-2 text-sm text-gray-500 border-b border-gray-200">v1.2</div>
+                            <a href="/" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-home"></i> Home
+                            </a>
+                            <a href="/privacy" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-lock"></i> Privacy
+                            </a>
+                            <a href="/terms" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-file-text"></i> Terms
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Chat Area -->
+            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 py-6" id="chat-history">
+                <div class="max-w-4xl mx-auto space-y-4 pb-32">
+                    <template x-for="message in messages" :key="message.id">
+                        <div 
+                            :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
+                            class="flex">
+                            <div 
+                                :class="message.role === 'user' 
+                                    ? 'bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl' 
+                                    : 'bg-gray-100 text-gray-800 rounded-tl-2xl rounded-tr-2xl rounded-br-2xl'"
+                                class="max-w-[80%] px-4 py-3 shadow-sm">
+                                <p class="text-sm whitespace-pre-wrap" x-html="message.content"></p>
+                                <template x-if="message.model">
+                                    <div class="text-xs opacity-70 mt-2" x-text="'Model: ' + message.model"></div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Loading indicator -->
+                    <div x-show="isLoading" class="flex justify-start">
+                        <div class="bg-gray-100 rounded-2xl px-4 py-3 shadow-sm">
+                            <div class="flex gap-1">
+                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="absolute bottom-0 left-0 right-0 bg-primary-pale border-t border-sidebar-border p-4 shadow-lg backdrop-blur-sm">
+                <div class="max-w-4xl mx-auto">
+                    <!-- File info display -->
+                    <div x-show="uploadedFile" class="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-file text-primary"></i>
+                            <span class="text-sm text-gray-700" x-text="uploadedFileName"></span>
+                        </div>
+                        <button @click="clearFile()" class="text-gray-500 hover:text-red-600">
+                            <i class="fas fa-times"></i>
                         </button>
                     </div>
-                    <!-- Move logos to the right -->
-                    <div class="flex items-center gap-2" style="height: 6vh; max-height: 6vh;">
-                        <div class="h-full">
-                            <a href="https://www.ucy.ac.cy/" target="_blank" class="block h-full">
-                                <img src="/img/ucy_logo.png" class="img-fluid p-2" alt="UCY Logo"
-                                    style="max-height: 100%; object-fit: contain;">
-                            </a>
-                        </div>
-                        <div class="h-full">
-                            <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="block h-full">
-                                <img src="/img/dmsllogobig.png" class="img-fluid p-2" alt="DMSL Logo"
-                                    style="max-height: 100%; object-fit: contain;">
-                            </a>
-                        </div>
-
-                        <!-- Navigation dropdown (moved to right side) -->
-                        <div class="tw-dropdown ml-2 dropdown">
-                            <button class="tw-btn tw-btn-outline p-2 rounded border border-gray-300 hover:bg-gray-100"
-                                type="button" id="navLinks" data-bs-toggle="dropdown" aria-expanded="false">
-                                <img src="/img/chatucy_logo.png" alt="ChatUCY Logo" class="img-fluid"
-                                    style="max-height: 30px; margin: 0 auto;">
+                    
+                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-3">
+                        <!-- Main Input Row -->
+                        <div class="flex gap-2 items-end">
+                            <textarea 
+                                x-model="userInput"
+                                @keydown.enter.prevent="handleEnter($event)"
+                                placeholder="Type your message here..."
+                                rows="1"
+                                class="flex-1 resize-none border-none outline-none text-gray-800 text-sm max-h-32 overflow-y-auto scrollbar-hidden"
+                                style="min-height: 2.5rem;"></textarea>
+                            
+                            <button 
+                                @click="sendMessage()"
+                                :disabled="!userInput.trim() || isLoading"
+                                :class="userInput.trim() && !isLoading ? 'bg-primary hover:bg-primary-dark' : 'bg-gray-300 cursor-not-allowed'"
+                                class="w-10 h-10 rounded-full text-white flex items-center justify-center transition-colors flex-shrink-0">
+                                <i class="fas fa-paper-plane"></i>
                             </button>
-                            <ul class="tw-dropdown-menu dropdown-menu dropdown-menu-end" aria-labelledby="navLinks">
-                                <li class="px-1 py-1 text-center">
-                                    <div class="d-flex align-items-center justify-content-center">
-
-                                        <span class="ms-1" style="font-size: 0.8em;">v1.2</span>
-                                    </div>
-                                </li>
-                                <li>
-                                    <hr class="dropdown-divider">
-                                </li>
-                                <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/index.html"><i class="fa fa-home me-2"></i>Home</a></li>
-                                <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/privacy_llm.html"><i class="fa fa-lock me-2"></i>Privacy</a></li>
-                                <li><a class="dropdown-item tw-dropdown-item px-3 py-2 hover:bg-gray-100 block"
-                                        href="/terms.html"><i class="fa fa-file-text me-2"></i>Terms</a></li>
-                            </ul>
                         </div>
-                    </div>
-                </div>
-                <!-- End Header -->
-
-                <!-- Chat Area -->
-
-                <div id="content" class="flex flex-col flex-grow">
-                    <div id="chat-container" class="flex flex-col flex-grow" style="position: relative;">
-                        <!-- Chat History: take all remaining space -->
-                        <div id="chat-history" class="flex-grow overflow-auto">
-                            <!-- Dynamic chat messages -->
-                        </div>
-
-                        <!-- End Input Area -->
-                    </div>
-                    <!-- Input Area: directly inside chat-container -->
-                    <div class="chat-input-container flex items-center space-x-2 fixed-bottom-bg">
-                        <textarea id="user-input" placeholder="Type your message here..." rows="1"
-                            class="flex-grow"></textarea>
-                        <div id='misc'>
-                            <div id='modeldropdown' class="dropdown ">
-                                <button id='modelbutton' class="btn btn-secondary dropdown-toggle selectmodel"
-                                    type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    Select Model
+                        
+                        <!-- Bottom Controls -->
+                        <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200">
+                            <!-- Model Selector -->
+                            <div class="relative" x-data="{ open: false }">
+                                <button 
+                                    @click="open = !open"
+                                    class="px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center gap-2">
+                                    <span x-text="selectedModel"></span>
+                                    <i class="fas fa-chevron-down text-xs"></i>
                                 </button>
-                                <ul id='modelmenu' class="dropdown-menu">
-                                    <!-- Dynamic model list -->
-                                </ul>
+                                <div 
+                                    x-show="open"
+                                    @click.away="open = false"
+                                    x-transition
+                                    class="absolute bottom-full mb-2 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50 min-w-[200px] max-h-64 overflow-y-auto custom-scrollbar">
+                                    <div class="px-3 py-1 text-xs font-semibold text-gray-500">Available Models</div>
+                                    <template x-for="model in availableModels" :key="model">
+                                        <button 
+                                            @click="selectModel(model); open = false"
+                                            class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
+                                            <span x-text="model"></span>
+                                        </button>
+                                    </template>
+                                    <div x-show="availableModels.length === 0" class="px-3 py-2 text-sm text-gray-500">
+                                        Loading models...
+                                    </div>
+                                </div>
                             </div>
-                            <input type="file" id="file-input" class="hidden" accept=".pdf, .txt, image/*">
-                            <div class="relative">
-                                <i id="upload-button" class="fa fa-paperclip chat-icon" title="Attach File"
-                                    aria-hidden="true"></i>
-                                <span class="sr-only">Attach File</span>
-                            </div>
-
-                            <!-- Radio button for RAG instead of icon -->
-                            <div class="relative d-flex align-items-center mx-2">
-                                <input type="checkbox" id="rag-toggle" class="form-check-input me-1"
-                                    title="Toggle Local RAG">
-                                <label for="rag-toggle" class="form-check-label small text-muted">Local RAG</label>
-                            </div>
-
-                            <!-- Add file info container -->
-                            <div id="file-info-container" class="d-none">
-                                <span id="file-name" class="file-name d-flex align-items-center"></span>
-                            </div>
-
-                            <div class="send-button" id="send-button">
-                                <i class="fa fa-arrow-up" aria-hidden="true"></i>
+                            
+                            <!-- File Upload -->
+                            <button 
+                                @click="$refs.fileInput.click()"
+                                class="w-10 h-10 rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center justify-center">
+                                <i class="fas fa-paperclip"></i>
+                            </button>
+                            <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
+                            
+                            <!-- Local RAG Toggle -->
+                            <div class="flex items-center gap-2 ml-auto">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox"
+                                        x-model="localRagEnabled"
+                                        class="w-4 h-4 text-primary rounded focus:ring-primary">
+                                    <span class="text-sm text-gray-700">Local RAG</span>
+                                </label>
                             </div>
                         </div>
-
-                        <!-- <i id="websearch-button" class="fa fa-globe chat-icon" title="Web Search" style="display: none;"
-                            aria-hidden="true"></i>
-                        <span class="sr-only">Web Search</span> -->
-
-
                     </div>
                 </div>
-
-                <!-- End Chat Area -->
             </div>
-            <!-- End Chat Area (right side) -->
-        </div>
-        <!-- End Main container -->
+        </main>
     </div>
-
-    <!-- jQuery and other libraries -->
-    <!-- Import Marked.js for Markdown parsing -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="/js/jquery-1.11.0.js"></script>
-    <script src="/js/bootstrap.bundle.js"></script>
-    <script src="/js/jquery.easing.min.js"></script>
-
-    <!-- Import PDF.js as a module and expose it globally -->
+    
+    <!-- PDF.js Module Import -->
     <script type="module">
-        // Import the display layer module from your local PDF.js build
         import * as pdfjsLib from "/js/browser-rag/pdf.mjs";
-        // Set the worker source to your local PDF.js worker module
         pdfjsLib.GlobalWorkerOptions.workerSrc = "/js/browser-rag/pdf.worker.mjs";
-        // Expose the PDF.js library to the global scope so that your non‑module scripts can use it
         window.pdfjsLib = pdfjsLib;
         console.log("Local PDF.js imported and attached to window.pdfjsLib");
     </script>
-
-    <script src="/js/jquery.easing.min.js?v=1"></script>
-    <script src="/js/classie.js?v=1"></script>
-    <script src="/js/jqBootstrapValidation.js?v=1"></script>
-    <script src="/js/contact_me.js?v=1"></script>
-    <script src="/js/freelancer.js?v=1"></script>
-    <script src="https://kit.fontawesome.com/502aa52b51.js" crossorigin="anonymous"></script>
-    <!-- Load our document processing modules -->
-    <script src="/js/script.js?v=1"></script>
-    <script src="/js/responsive.js?v=1"></script>
-
-    <!-- Browser RAG Implementation -->
-    <script src="/js/browser-rag/indexed-db-vector-store.js?v=1"></script>
-    <script src="/js/browser-rag/browser-retriever.js?v=1"></script>
-    <script src="/js/browser-rag/script-rag.js?v=1"></script>
-
-
-
+    
+    <!-- Browser RAG Scripts -->
+    <script src="/js/browser-rag/indexed-db-vector-store.js"></script>
+    <script src="/js/browser-rag/browser-retriever.js"></script>
+    <script src="/js/browser-rag/script-rag.js"></script>
+    
+    <!-- Alpine.js Component -->
+    <script>
+        function chatApp() {
+            return {
+                sidebarOpen: false,
+                userInput: '',
+                messages: [],
+                sessions: [],
+                currentSession: null,
+                isLoading: false,
+                selectedModel: 'Select Model',
+                availableModels: [],
+                localRagEnabled: false,
+                uploadedFile: null,
+                uploadedFileName: '',
+                
+                async init() {
+                    // Load sessions from sessionStorage
+                    const savedSessions = sessionStorage.getItem('chat_sessions');
+                    if (savedSessions) {
+                        this.sessions = JSON.parse(savedSessions);
+                        if (this.sessions.length > 0) {
+                            this.selectSession(this.sessions[0].id);
+                        } else {
+                            this.newChat();
+                        }
+                    } else {
+                        this.newChat();
+                    }
+                    
+                    // Load available models
+                    await this.loadModels();
+                    
+                    // Auto-resize textarea
+                    this.$watch('userInput', () => {
+                        const textarea = document.querySelector('textarea');
+                        if (textarea) {
+                            textarea.style.height = 'auto';
+                            textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px';
+                        }
+                    });
+                },
+                
+                async loadModels() {
+                    try {
+                        const response = await fetch('/get_models');
+                        const data = await response.json();
+                        if (data.models && Array.isArray(data.models)) {
+                            this.availableModels = data.models.map(m => m.name || m);
+                            if (this.availableModels.length > 0) {
+                                this.selectedModel = this.availableModels[0];
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error loading models:', error);
+                    }
+                },
+                
+                newChat() {
+                    const newSession = {
+                        id: Date.now(),
+                        name: `Chat ${this.sessions.length + 1}`,
+                        messages: []
+                    };
+                    this.sessions.push(newSession);
+                    this.currentSession = newSession.id;
+                    this.messages = [];
+                    this.saveSessions();
+                },
+                
+                selectSession(sessionId) {
+                    this.currentSession = sessionId;
+                    const session = this.sessions.find(s => s.id === sessionId);
+                    if (session) {
+                        this.messages = session.messages;
+                    }
+                    this.sidebarOpen = false;
+                },
+                
+                clearAllSessions() {
+                    if (confirm('Are you sure you want to clear all sessions?')) {
+                        this.sessions = [];
+                        this.messages = [];
+                        this.currentSession = null;
+                        sessionStorage.removeItem('chat_sessions');
+                        this.newChat();
+                    }
+                },
+                
+                selectModel(model) {
+                    this.selectedModel = model;
+                },
+                
+                handleEnter(event) {
+                    if (!event.shiftKey) {
+                        this.sendMessage();
+                    }
+                },
+                
+                async handleFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.uploadedFile = file;
+                        this.uploadedFileName = file.name;
+                        console.log('File selected:', file.name);
+                        
+                        // If Local RAG is enabled, process the file
+                        if (this.localRagEnabled && window.processFileForRAG) {
+                            try {
+                                await window.processFileForRAG(file);
+                                console.log('File processed for Local RAG');
+                            } catch (error) {
+                                console.error('Error processing file for RAG:', error);
+                            }
+                        }
+                    }
+                },
+                
+                clearFile() {
+                    this.uploadedFile = null;
+                    this.uploadedFileName = '';
+                    if (this.$refs.fileInput) {
+                        this.$refs.fileInput.value = '';
+                    }
+                },
+                
+                async sendMessage() {
+                    if (!this.userInput.trim() || this.isLoading) return;
+                    
+                    const userMessage = {
+                        id: Date.now(),
+                        role: 'user',
+                        content: this.userInput.trim()
+                    };
+                    
+                    this.messages.push(userMessage);
+                    const query = this.userInput.trim();
+                    this.userInput = '';
+                    this.isLoading = true;
+                    
+                    // Scroll to bottom
+                    this.$nextTick(() => {
+                        const chatHistory = document.getElementById('chat-history');
+                        chatHistory.scrollTop = chatHistory.scrollHeight;
+                    });
+                    
+                    try {
+                        let endpoint = '/api/send_message';
+                        let payload = {
+                            model: this.selectedModel,
+                            messages: this.messages.map(m => ({ role: m.role, content: m.content }))
+                        };
+                        
+                        // If file is uploaded and Local RAG is enabled
+                        if (this.uploadedFile && this.localRagEnabled) {
+                            endpoint = '/api/local_rag_chain';
+                            
+                            // Get relevant context from browser-side RAG
+                            let context = '';
+                            if (window.retrieveRelevantText) {
+                                context = await window.retrieveRelevantText(query, 3);
+                            }
+                            
+                            payload = {
+                                model: this.selectedModel,
+                                query: query,
+                                context: context
+                            };
+                        } else if (this.uploadedFile) {
+                            // Server-side RAG with file upload
+                            endpoint = '/api/rag_chain';
+                            
+                            // Convert file to base64
+                            const base64 = await this.fileToBase64(this.uploadedFile);
+                            
+                            payload = {
+                                model: this.selectedModel,
+                                query: query,
+                                file_data: base64,
+                                file_name: this.uploadedFileName
+                            };
+                        }
+                        
+                        const response = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let assistantMessage = {
+                            id: Date.now() + 1,
+                            role: 'assistant',
+                            content: '',
+                            model: this.selectedModel
+                        };
+                        this.messages.push(assistantMessage);
+                        
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            
+                            const chunk = decoder.decode(value);
+                            assistantMessage.content += chunk;
+                            
+                            // Auto-scroll
+                            this.$nextTick(() => {
+                                const chatHistory = document.getElementById('chat-history');
+                                chatHistory.scrollTop = chatHistory.scrollHeight;
+                            });
+                        }
+                        
+                        // Parse markdown if marked.js is available
+                        if (window.marked) {
+                            assistantMessage.content = marked.parse(assistantMessage.content);
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error sending message:', error);
+                        this.messages.push({
+                            id: Date.now() + 2,
+                            role: 'assistant',
+                            content: 'Error: Unable to get response. Please try again.'
+                        });
+                    } finally {
+                        this.isLoading = false;
+                        this.saveSessions();
+                    }
+                },
+                
+                fileToBase64(file) {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const base64 = reader.result.split(',')[1];
+                            resolve(base64);
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+                },
+                
+                saveSessions() {
+                    const session = this.sessions.find(s => s.id === this.currentSession);
+                    if (session) {
+                        session.messages = this.messages;
+                    }
+                    sessionStorage.setItem('chat_sessions', JSON.stringify(this.sessions));
+                }
+            }
+        }
+    </script>
 </body>
-
 </html>
