@@ -48,9 +48,11 @@ ALLOWED_EXTENSIONS = {'pdf', 'txt', 'docx', 'md', 'jpg', 'jpeg', 'png'}
 app = FastAPI(title="ChatUCY API")
 
 # Set up CORS middleware (adjust origins as needed)
+# For production, replace "*" with specific origins
+allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,  # Use ["https://yourdomain.ucy.ac.cy"] for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

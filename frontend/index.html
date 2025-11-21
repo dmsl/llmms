@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="description" content="ChatUCY Desktop - AI-powered assistant from University of Cyprus">
+    <meta name="author" content="ChatUCY">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>ChatUCY Desktop - AI Coding Agent</title>
+    
+    <link rel="icon" type="image/png" href="/img/logo.png">
+    
+    <!-- Bootstrap Core CSS -->
+    <link rel="stylesheet" href="/css/bootstrap.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/freelancer.css">
+    <link rel="stylesheet" href="/css/sporthere.css">
+    <link rel="stylesheet" href="/css/index.css">
+    <link rel="stylesheet" href="/css/output.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/css/chat.css">
+    
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #main-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <h2>Loading ChatUCY Desktop...</h2>
+        <p>Please wait...</p>
+    </div>
+    <iframe id="main-frame" src="/html/chat.html" style="display:none;"></iframe>
+    
+    <script>
+        // Show the iframe once loaded
+        document.getElementById('main-frame').onload = function() {
+            document.getElementById('loading').style.display = 'none';
+            this.style.display = 'block';
+        };
+        
+        // Tauri API integration (if needed)
+        if (window.__TAURI__) {
+            console.log('Running in Tauri desktop app');
+        }
+    </script>
+</body>
+</html>

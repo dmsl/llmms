@@ -1,16 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 use uuid::Uuid;
 
 // MCP Bridge process state
 struct McpBridgeState {
-    process: Mutex<Option<Child>>,
     tools: Mutex<Vec<McpTool>>,
     connected: Mutex<bool>,
 }
@@ -65,7 +61,7 @@ fn init_config(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Connect to MCP server via Node bridge
 #[tauri::command]
-async fn mcp_connect(url: String, state: State<'_, McpBridgeState>) -> Result<McpConnectResult, String> {
+async fn mcp_connect(_url: String, state: State<'_, McpBridgeState>) -> Result<McpConnectResult, String> {
     // For now, we'll return mock data
     // In production, this would spawn the Node.js bridge process
     
@@ -194,7 +190,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(McpBridgeState {
-            process: Mutex::new(None),
             tools: Mutex::new(Vec::new()),
             connected: Mutex::new(false),
         })
