@@ -15,27 +15,34 @@ router = APIRouter()
 async def get_models():
     try:
         # List available models via ollama
-        models = ollama.list().get("models", [])
+        models_response = ollama.list()
+        models = models_response.get("models", [])
+        
         if not models:
             return JSONResponse({"error": "No models found"}, status_code=404)
 
         formatted_models = []
         for model in models:
-            # Safely extract the model name
-            model_name = getattr(model, "model", None)
+            # Extract the model name from dict
+            if isinstance(model, dict):
+                model_name = model.get("name") or model.get("model")
+            else:
+                model_name = getattr(model, "model", None) or getattr(model, "name", None)
+            
             if not model_name:
                 continue
 
             # Exclude unwanted models
             excluded_keywords = ["embed", "9b", "falcon"]
-            if any(keyword in model_name for keyword in excluded_keywords):
+            if any(keyword in model_name.lower() for keyword in excluded_keywords):
                 continue
 
             try:
                 # Get model details and determine context length
                 model_details = ollama.show(model_name)
                 context_length = get_context_length(model_details)
-            except Exception:
+            except Exception as e:
+                print(f"Error getting details for {model_name}: {e}")
                 context_length = -1
 
             # Format model name for display
@@ -52,6 +59,7 @@ async def get_models():
 
         return JSONResponse({"models": formatted_models}, status_code=200)
     except Exception as e:
+        print(f"Error in get_models: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

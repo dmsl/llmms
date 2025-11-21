@@ -124,7 +124,6 @@ try:
         app.include_router(rag_chain.router)
         app.include_router(manage_history.router)
         app.include_router(model.router)
-
         app.include_router(llmms.router)
         logger.info("Successfully included all additional API routers")
     except ImportError as e:
@@ -141,6 +140,32 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500, content={"error": "Internal server error", "message": str(exc)}
     )
+
+
+# Add a health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return JSONResponse({"status": "healthy", "service": "ChatUCY API"})
+
+
+# Add a test endpoint to check Ollama connection
+@app.get("/api/test_ollama")
+async def test_ollama():
+    """Test Ollama daemon connection"""
+    try:
+        import ollama
+        models = ollama.list()
+        return JSONResponse({
+            "status": "connected",
+            "models_count": len(models.get("models", [])),
+            "models": models.get("models", [])
+        })
+    except Exception as e:
+        return JSONResponse({
+            "status": "error",
+            "error": str(e)
+        }, status_code=500)
 
 
 # Run the app with an ASGI server such as uvicorn

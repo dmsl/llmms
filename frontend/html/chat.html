@@ -209,41 +209,38 @@
             </header>
             
             <!-- Chat Area -->
-            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 py-6" id="chat-history">
-                <div class="max-w-4xl mx-auto space-y-4 pb-32">
+            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 py-6 md:px-8 md:py-8 lg:px-12 lg:py-10" id="chat-history">
+                <div class="w-full mx-auto space-y-4 pb-40">
                     <template x-for="message in messages" :key="message.id">
                         <div 
                             :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
-                            class="flex">
+                            class="flex items-start gap-3">
+                            <!-- Assistant Icon -->
+                            <template x-if="message.role === 'assistant'">
+                                <div class="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-white border-2 border-gray-200 flex items-center justify-center">
+                                    <img 
+                                        :src="getModelIcon(message.model)" 
+                                        :alt="message.model"
+                                        class="w-full h-full object-cover"
+                                        onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'fas fa-robot text-primary\'></i>'">
+                                </div>
+                            </template>
+                            
                             <div 
                                 :class="message.role === 'user' 
                                     ? 'bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl' 
                                     : 'bg-gray-100 text-gray-800 rounded-tl-2xl rounded-tr-2xl rounded-br-2xl'"
                                 class="max-w-[80%] px-4 py-3 shadow-sm">
-                                <p class="text-sm whitespace-pre-wrap" x-html="message.content"></p>
-                                <template x-if="message.model">
-                                    <div class="text-xs opacity-70 mt-2" x-text="'Model: ' + message.model"></div>
-                                </template>
+                                <div class="text-lg prose prose-lg max-w-none" x-html="message.content"></div>
                             </div>
                         </div>
                     </template>
-                    
-                    <!-- Loading indicator -->
-                    <div x-show="isLoading" class="flex justify-start">
-                        <div class="bg-gray-100 rounded-2xl px-4 py-3 shadow-sm">
-                            <div class="flex gap-1">
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
-                                <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
             
             <!-- Input Area -->
-            <div class="absolute bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md p-4 shadow-lg">
-                <div class="max-w-4xl mx-auto">
+            <div class="absolute bottom-0 left-0 right-0 p-4">
+                <div class="max-w-6xl mx-auto backdrop-blur-md bg-white/30 rounded-2xl p-4">
                     <!-- File info display -->
                     <div x-show="uploadedFile" class="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
                         <div class="flex items-center gap-2">
@@ -282,7 +279,7 @@
                                 <button 
                                     @click="open = !open"
                                     class="px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center gap-2">
-                                    <span x-text="selectedModel"></span>
+                                    <span x-text="getSelectedModelName()"></span>
                                     <i class="fas fa-chevron-down text-xs"></i>
                                 </button>
                                 <div 
@@ -291,11 +288,11 @@
                                     x-transition
                                     class="absolute bottom-full mb-2 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50 min-w-[200px] max-h-64 overflow-y-auto custom-scrollbar">
                                     <div class="px-3 py-1 text-xs font-semibold text-gray-500">Available Models</div>
-                                    <template x-for="model in availableModels" :key="model">
+                                    <template x-for="model in availableModels" :key="model.id">
                                         <button 
-                                            @click="selectModel(model); open = false"
+                                            @click="selectModel(model.id); open = false"
                                             class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
-                                            <span x-text="model"></span>
+                                            <span x-text="model.displayName"></span>
                                         </button>
                                     </template>
                                     <div x-show="availableModels.length === 0" class="px-3 py-2 text-sm text-gray-500">
@@ -460,6 +457,11 @@
                     // Load available models
                     await this.loadModels();
                     
+                    // Scroll to bottom after loading session
+                    this.$nextTick(() => {
+                        this.scrollToBottom();
+                    });
+                    
                     // Auto-resize textarea
                     this.$watch('userInput', () => {
                         const textarea = document.querySelector('textarea');
@@ -468,6 +470,13 @@
                             textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px';
                         }
                     });
+                },
+                
+                scrollToBottom() {
+                    const chatHistory = document.getElementById('chat-history');
+                    if (chatHistory) {
+                        chatHistory.scrollTop = chatHistory.scrollHeight;
+                    }
                 },
                 
                 async loadModels() {
@@ -479,16 +488,26 @@
                         }
                         const data = await response.json();
                         if (data.models && Array.isArray(data.models)) {
-                            this.availableModels = data.models.map(m => m.name || m);
+                            // Store full model objects to access both id and display name
+                            this.availableModels = data.models.map(m => ({
+                                id: m.id || m.name || m,
+                                displayName: this.formatModelName(m.id || m.name || m),
+                                context_length: m.context_length || -1
+                            }));
                             if (this.availableModels.length > 0) {
-                                this.selectedModel = this.availableModels[0];
+                                this.selectedModel = this.availableModels[0].id;
                             }
                         }
                     } catch (error) {
                         console.warn('Could not load models from backend:', error);
                         // Fallback to common models if backend is not available
-                        this.availableModels = ['llama2', 'mistral', 'neural-chat', 'dolphin-mixtral'];
-                        this.selectedModel = this.availableModels[0];
+                        this.availableModels = [
+                            { id: 'llama2', displayName: 'Llama2', context_length: -1 },
+                            { id: 'mistral', displayName: 'Mistral', context_length: -1 },
+                            { id: 'neural-chat', displayName: 'Neural Chat', context_length: -1 },
+                            { id: 'dolphin-mixtral', displayName: 'Dolphin Mixtral', context_length: -1 }
+                        ];
+                        this.selectedModel = this.availableModels[0].id;
                     }
                 },
                 
@@ -510,7 +529,15 @@
                     if (session) {
                         this.messages = session.messages;
                     }
-                    this.sidebarOpen = false;
+                    // Close sidebar only on mobile (below lg breakpoint)
+                    if (window.innerWidth < 1024) {
+                        this.sidebarOpen = false;
+                    }
+                    
+                    // Scroll to bottom when session is loaded
+                    this.$nextTick(() => {
+                        this.scrollToBottom();
+                    });
                 },
                 
                 editSessionName(sessionId) {
@@ -572,8 +599,38 @@
                     }
                 },
                 
-                selectModel(model) {
-                    this.selectedModel = model;
+                selectModel(modelId) {
+                    this.selectedModel = modelId;
+                },
+                
+                getSelectedModelName() {
+                    const model = this.availableModels.find(m => m.id === this.selectedModel);
+                    return model ? model.displayName : this.formatModelName(this.selectedModel) || 'Select Model';
+                },
+                
+                formatModelName(modelId) {
+                    if (!modelId) return 'Select Model';
+                    
+                    // Remove version tag (e.g., "phi3:latest" -> "phi3")
+                    let name = modelId.split(':')[0];
+                    
+                    // Split by hyphens and underscores
+                    name = name.replace(/[-_]/g, ' ');
+                    
+                    // Capitalize each word
+                    name = name.split(' ').map(word => 
+                        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                    ).join(' ');
+                    
+                    // Add version if it exists
+                    if (modelId.includes(':')) {
+                        const version = modelId.split(':')[1];
+                        if (version !== 'latest') {
+                            name += ` (${version})`;
+                        }
+                    }
+                    
+                    return name;
                 },
                 
                 handleEnter(event) {
@@ -625,8 +682,7 @@
                     
                     // Scroll to bottom
                     this.$nextTick(() => {
-                        const chatHistory = document.getElementById('chat-history');
-                        chatHistory.scrollTop = chatHistory.scrollHeight;
+                        this.scrollToBottom();
                     });
                     
                     try {
@@ -686,24 +742,33 @@
                         };
                         this.messages.push(assistantMessage);
                         
+                        let rawContent = '';  // Store raw markdown content
+                        const messageIndex = this.messages.length - 1;  // Store the index
+                        
                         while (true) {
                             const { done, value } = await reader.read();
                             if (done) break;
                             
                             const chunk = decoder.decode(value);
-                            assistantMessage.content += chunk;
+                            rawContent += chunk;
+                            
+                            // Parse markdown in real-time if marked.js is available
+                            if (window.marked) {
+                                this.messages[messageIndex].content = marked.parse(rawContent);
+                            } else {
+                                this.messages[messageIndex].content = rawContent;
+                            }
                             
                             // Auto-scroll
                             this.$nextTick(() => {
-                                const chatHistory = document.getElementById('chat-history');
-                                chatHistory.scrollTop = chatHistory.scrollHeight;
+                                this.scrollToBottom();
                             });
                         }
                         
-                        // Parse markdown if marked.js is available
-                        if (window.marked) {
-                            assistantMessage.content = marked.parse(assistantMessage.content);
-                        }
+                        // Final scroll to bottom
+                        this.$nextTick(() => {
+                            this.scrollToBottom();
+                        });
                         
                     } catch (error) {
                         console.error('Error sending message:', error);
@@ -715,6 +780,7 @@
                     } finally {
                         this.isLoading = false;
                         this.saveSessions();
+                        console.log('Message complete, isLoading:', this.isLoading);
                     }
                 },
                 
@@ -736,6 +802,22 @@
                         session.messages = this.messages;
                     }
                     sessionStorage.setItem('chat_sessions', JSON.stringify(this.sessions));
+                },
+                
+                getModelIcon(modelName) {
+                    if (!modelName) return '../img/chatucy_logo.png';
+                    
+                    const model = modelName.toLowerCase();
+                    
+                    // Map model names to icons
+                    if (model.includes('llama')) return '../img/llama.png';
+                    if (model.includes('mistral')) return '../img/mistral.jpg';
+                    if (model.includes('qwen')) return '../img/qwen.png';
+                    if (model.includes('gemma')) return '../img/gemma.png';
+                    if (model.includes('deepseek')) return '../img/deepseek.png';
+                    
+                    // Default icon
+                    return '../img/chatucy_logo.png';
                 }
             }
         }
