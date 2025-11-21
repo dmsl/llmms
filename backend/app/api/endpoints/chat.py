@@ -32,7 +32,13 @@ async def send_message(request: Request, file: Optional[UploadFile] = File(None)
             model = form.get("model")
             messages_str = form.get("messages", "[]")
             try:
-                message_history = json.loads(messages_str)
+                raw_messages = json.loads(messages_str)
+                # Flatten nested message structure
+                for item in raw_messages:
+                    if isinstance(item, list):
+                        message_history.extend(item)
+                    elif isinstance(item, dict):
+                        message_history.append(item)
             except Exception as e:
                 logger.error(f"Error parsing messages from form: {str(e)}")
                 message_history = []
@@ -57,13 +63,34 @@ async def send_message(request: Request, file: Optional[UploadFile] = File(None)
             # Regular chat without file upload; expecting JSON body
             data = await request.json()
             model = data.get("model")
-            message_history = data.get("messages", [])
+            raw_messages = data.get("messages", [])
+            
+            # Properly flatten and validate message structure
+            message_history = []
+            for item in raw_messages:
+                if isinstance(item, list):
+                    # If item is a list, extend with its contents
+                    message_history.extend(item)
+                elif isinstance(item, dict):
+                    # Check if it's a hiddenHistory object or regular message
+                    if 'role' in item and 'content' in item:
+                        # Regular message format
+                        message_history.append(item)
+                    else:
+                        # Might be hiddenHistory object - extract messages from it
+                        for key, value in item.items():
+                            if isinstance(value, dict) and 'role' in value and 'content' in value:
+                                message_history.append(value)
+                            elif isinstance(value, list):
+                                message_history.extend([msg for msg in value if isinstance(msg, dict) and 'role' in msg])
+            
             user_message = (
                 message_history[-1].get("content", "") if message_history else ""
             )
             websearch = data.get("websearch", False)
 
             logger.info(f"Processing regular chat with model: {model}")
+            logger.info(f"Processed {len(message_history)} messages")
 
             # Optionally add web search results if requested
             if websearch:

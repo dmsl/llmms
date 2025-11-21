@@ -1,0 +1,14 @@
+{
+  "name": "mcp-bridge",
+  "version": "1.0.0",
+  "description": "Node.js bridge for MCP client connections",
+  "type": "module",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ws": "^8.14.0"
+  }
+}

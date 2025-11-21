@@ -1,0 +1,39 @@
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "url": "ws://localhost:8765",
+      "enabled": true,
+      "description": "File system operations - read/write files in your project"
+    },
+    {
+      "name": "git",
+      "url": "ws://localhost:8766",
+      "enabled": false,
+      "description": "Git operations - commit, branch, push, etc."
+    },
+    {
+      "name": "python",
+      "url": "ws://localhost:8767",
+      "enabled": false,
+      "description": "Python execution sandbox for data analysis"
+    }
+  ],
+  "permissions": {
+    "auto_approve_read": true,
+    "auto_approve_write": false,
+    "restricted_paths": [
+      "/etc",
+      "/sys",
+      "/proc",
+      "~/.ssh",
+      "~/.aws",
+      "~/.config"
+    ],
+    "allowed_project_roots": []
+  },
+  "session": {
+    "auto_reconnect": true,
+    "save_tool_history": true
+  }
+}

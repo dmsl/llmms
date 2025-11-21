@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ChatUCY Desktop",
+  "version": "1.0.0",
+  "identifier": "cy.ac.ucy.dmsl.chatucy",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "ChatUCY Desktop - AI Coding Agent",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/default-mcp-config.json"
+    ],
+    "publisher": "DMSL - University of Cyprus",
+    "copyright": "Copyright © 2025 DMSL, University of Cyprus",
+    "category": "Education",
+    "shortDescription": "AI Coding Agent with local MCP tool support",
+    "longDescription": "ChatUCY Desktop is a native application that connects students' local MCP servers with the university's Ollama server for secure AI-assisted coding.",
+    "homepage": "https://dmsl.cs.ucy.ac.cy",
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      },
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
+  }
+}

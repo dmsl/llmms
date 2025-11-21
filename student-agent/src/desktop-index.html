@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ChatUCY Desktop - AI Coding Agent</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <link rel="stylesheet" href="/css/bootstrap.css">
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/output.css">
+    <link rel="stylesheet" href="/css/freelancer.css">
+    <link rel="stylesheet" href="/css/sporthere.css">
+    <link rel="stylesheet" href="/css/index.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/css/chat.css?v=1.0">
+    
+    <!-- MCP Desktop Integration Styles -->
+    <style>
+        .mcp-controls {
+            padding: 10px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .mcp-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }
+        .mcp-status.connected {
+            background: #d1f0d1;
+            color: #2d5e2d;
+        }
+        .mcp-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .mcp-tool-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .tool-item {
+            padding: 8px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .permission-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 9999;
+            max-width: 500px;
+            width: 90%;
+        }
+        .permission-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 9998;
+        }
+    </style>
+</head>
+<body>
+    <!-- MCP Controls Panel -->
+    <div class="mcp-controls">
+        <div class="container-fluid">
+            <div class="row align-items-center">
+                <div class="col-auto">
+                    <span class="mcp-status disconnected" id="mcp-status">
+                        <i class="fa fa-circle"></i>
+                        <span id="mcp-status-text">MCP: Disconnected</span>
+                    </span>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-sm btn-primary" id="mcp-connect-btn">
+                        <i class="fa fa-plug me-1"></i> Connect MCP Server
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-sm btn-outline-secondary" id="mcp-tools-btn" disabled>
+                        <i class="fa fa-wrench me-1"></i> Tools (<span id="tool-count">0</span>)
+                    </button>
+                </div>
+                <div class="col">
+                    <small class="text-muted" id="mcp-session-info"></small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Original Chat Interface -->
+    <div class="relative flex h-full w-full flex-col overflow-hidden">
+        <div id="main-container" class="relative flex h-full w-full flex-row overflow-hidden">
+            <!-- Include your existing chat interface here -->
+            <iframe src="/html/new_chat.html" id="chat-iframe" style="width: 100%; height: calc(100vh - 50px); border: none;"></iframe>
+        </div>
+    </div>
+
+    <!-- MCP Tools Modal -->
+    <div class="modal fade" id="mcpToolsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Available MCP Tools</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mcp-tool-list" id="mcp-tool-list">
+                        <!-- Tools will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MCP Connection Modal -->
+    <div class="modal fade" id="mcpConnectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Connect MCP Server</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">MCP Server URL</label>
+                        <input type="text" class="form-control" id="mcp-url-input" 
+                               placeholder="ws://localhost:8765" value="ws://localhost:8765">
+                        <small class="form-text text-muted">
+                            Enter the WebSocket URL of your local MCP server
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="mcp-connect-confirm">Connect</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Permission Request Modal (Dynamic) -->
+    <div id="permission-modal-container"></div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/js/jquery-1.11.0.js"></script>
+    <script src="/js/bootstrap.bundle.js"></script>
+    
+    <!-- MCP Desktop Integration Script -->
+    <script type="module" src="/js/mcp-desktop-integration.js"></script>
+</body>
+</html>

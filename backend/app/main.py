@@ -118,18 +118,15 @@ try:
             manage_history,
             model,
             llmms,
-           
+            mcp_agent,
         )
 
         app.include_router(chat.router)
         app.include_router(rag_chain.router)
         app.include_router(manage_history.router)
         app.include_router(model.router)
-   
-
-    
-
         app.include_router(llmms.router)
+        app.include_router(mcp_agent.router)
         logger.info("Successfully included all additional API routers")
     except ImportError as e:
         logger.warning(f"Some additional API routers could not be imported: {str(e)}")

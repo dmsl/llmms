@@ -55,7 +55,7 @@ def get_context_length(model_details):
     )
     if context_length:
         return context_length
-    return 2048
+    return 8096
 
 
 def get_max_context_tokens(model_name):
