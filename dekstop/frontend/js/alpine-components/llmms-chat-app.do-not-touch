@@ -1,0 +1,210 @@
+// Alpine.js Component for llmms.html (LLM Meta Search)
+function chatApp() {
+    return {
+        sidebarOpen: false,
+        settingsOpen: false,
+        userInput: '',
+        messages: [],
+        sessions: [],
+        currentSession: null,
+        isLoading: false,
+        selectedModel: 'LLM-MS-OUA',
+        llmMsEnabled: true,
+        config: {
+            algorithmType: 'stepwise',
+            maxTokens: 1024,
+            alpha: 0.7,
+            beta: 0.3,
+            dynamicMarginCoeff: 0.5
+        },
+        
+        init() {
+            // Load from sessionStorage
+            const savedSessions = sessionStorage.getItem('sessions');
+            if (savedSessions) {
+                this.sessions = JSON.parse(savedSessions);
+            } else {
+                this.newChat();
+            }
+            
+            const savedConfig = sessionStorage.getItem('llmMsConfig');
+            if (savedConfig) {
+                this.config = { ...this.config, ...JSON.parse(savedConfig) };
+            }
+            
+            // Auto-resize textarea
+            this.$watch('userInput', () => {
+                const textarea = document.querySelector('textarea');
+                if (textarea) {
+                    textarea.style.height = 'auto';
+                    textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px';
+                }
+            });
+        },
+        
+        newChat() {
+            const newSession = {
+                id: Date.now(),
+                name: `Chat ${this.sessions.length + 1}`,
+                messages: []
+            };
+            this.sessions.push(newSession);
+            this.currentSession = newSession.id;
+            this.messages = [];
+            this.saveSessions();
+        },
+        
+        selectSession(sessionId) {
+            this.currentSession = sessionId;
+            const session = this.sessions.find(s => s.id === sessionId);
+            if (session) {
+                this.messages = session.messages;
+            }
+            this.sidebarOpen = false;
+        },
+        
+        clearAllSessions() {
+            if (confirm('Are you sure you want to clear all sessions?')) {
+                this.sessions = [];
+                this.messages = [];
+                this.currentSession = null;
+                sessionStorage.removeItem('sessions');
+                this.newChat();
+            }
+        },
+        
+        selectModel(model) {
+            this.selectedModel = model;
+            this.config.algorithmType = model === 'LLM-MS-OUA' ? 'stepwise' : 'mab';
+        },
+        
+        handleEnter(event) {
+            if (!event.shiftKey) {
+                this.sendMessage();
+            }
+        },
+        
+        async sendMessage() {
+            if (!this.userInput.trim() || this.isLoading) return;
+            
+            const userMessage = {
+                id: Date.now(),
+                role: 'user',
+                content: this.userInput.trim()
+            };
+            
+            this.messages.push(userMessage);
+            this.userInput = '';
+            this.isLoading = true;
+            
+            // Scroll to bottom
+            this.$nextTick(() => {
+                const chatHistory = document.getElementById('chat-history');
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            });
+            
+            try {
+                // Prepare API call
+                const endpoint = this.llmMsEnabled ? '/api/send_message_llmms' : '/api/send_message';
+                const payload = this.llmMsEnabled ? {
+                    messages: this.messages.map(m => ({ role: m.role, content: m.content })),
+                    algorithm_type: this.config.algorithmType,
+                    config: {
+                        MAX_TOKENS: this.config.maxTokens,
+                        ALPHA: this.config.alpha,
+                        BETA: this.config.beta,
+                        DYNAMIC_MARGIN_COEFF: this.config.dynamicMarginCoeff,
+                        MODELS: ['llama3.1', 'mistral', 'qwen2.5'],
+                        EMBEDDING_MODEL: 'nomic-embed-text'
+                    }
+                } : {
+                    model: this.selectedModel,
+                    messages: this.messages.map(m => ({ role: m.role, content: m.content }))
+                };
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantMessage = {
+                    id: Date.now() + 1,
+                    role: 'assistant',
+                    content: '',
+                    model: this.selectedModel
+                };
+                this.messages.push(assistantMessage);
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n').filter(line => line.trim());
+                    
+                    for (const line of lines) {
+                        try {
+                            if (this.llmMsEnabled) {
+                                const data = JSON.parse(line);
+                                if (data.status === 'final_result' && data.output) {
+                                    assistantMessage.content = data.output;
+                                    assistantMessage.model = data.model || this.selectedModel;
+                                } else if (data.status === 'model_progress' && data.partial_output) {
+                                    assistantMessage.content = data.partial_output;
+                                }
+                            } else {
+                                assistantMessage.content += line;
+                            }
+                        } catch (e) {
+                            if (!this.llmMsEnabled) {
+                                assistantMessage.content += line;
+                            }
+                        }
+                    }
+                    
+                    // Auto-scroll
+                    this.$nextTick(() => {
+                        const chatHistory = document.getElementById('chat-history');
+                        chatHistory.scrollTop = chatHistory.scrollHeight;
+                    });
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                this.messages.push({
+                    id: Date.now() + 2,
+                    role: 'assistant',
+                    content: 'Error: Unable to get response. Please try again.'
+                });
+            } finally {
+                this.isLoading = false;
+                this.saveSessions();
+            }
+        },
+        
+        handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                console.log('File selected:', file.name);
+                // Implement file upload logic here
+            }
+        },
+        
+        saveSettings() {
+            sessionStorage.setItem('llmMsConfig', JSON.stringify(this.config));
+        },
+        
+        saveSessions() {
+            const session = this.sessions.find(s => s.id === this.currentSession);
+            if (session) {
+                session.messages = this.messages;
+            }
+            sessionStorage.setItem('sessions', JSON.stringify(this.sessions));
+        }
+    }
+}
+
+// Export for ES module import
+export default chatApp;

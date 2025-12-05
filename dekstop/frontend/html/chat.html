@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Chat UCY</title>
+    
+    <!-- Tailwind CSS - Local compiled version -->
+    <link href="../dist/output.css" rel="stylesheet">
+    
+    <!-- Alpine.js from CDN for Electron compatibility -->
+    <!-- Component registration happens BEFORE Alpine starts -->
+    <script type="module">
+        import Alpine from "https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/module.esm.js";
+        import chatAppComponent from '../js/alpine-components/chat-app.js';
+        
+        window.Alpine = Alpine;
+        Alpine.data('chatApp', chatAppComponent);
+        Alpine.start();
+    </script>
+    
+    <!-- Font Awesome for icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- TensorFlow.js for embeddings -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script>
+    
+    <!-- Mammoth.js for DOCX parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script>
+    
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(106, 66, 194, 0.3);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(106, 66, 194, 0.5);
+        }
+        
+        .scrollbar-hidden::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hidden {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        
+        * {
+            transition-property: background-color, border-color, color, fill, stroke;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 150ms;
+        }
+        
+        /* Message fade-in animation */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message-animate {
+            animation: fadeInUp 0.3s ease-out forwards;
+        }
+        
+        /* Button hover scale */
+        .btn-hover-scale:hover {
+            transform: scale(1.05);
+        }
+        
+        /* Session item smooth hover */
+        .session-item {
+            position: relative;
+        }
+        
+        .session-item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(106, 66, 194, 0.05) 0%, transparent 100%);
+            border-radius: 0.5rem;
+            opacity: 0;
+            transition: opacity 150ms ease-out;
+            pointer-events: none;
+        }
+        
+        .session-item:hover::before {
+            opacity: 1;
+        }
+        
+        /* Input focus depth */
+        .input-focus:focus {
+            box-shadow: 0 0 0 3px rgba(106, 66, 194, 0.1), 0 0 0 1px rgba(106, 66, 194, 0.5);
+        }
+        
+        /* Smooth backdrop blur */
+        .backdrop-blur-md {
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+
+<body class="h-screen overflow-hidden bg-white font-sans antialiased" x-data="chatApp()">
+    <!-- Mobile Overlay -->
+    <div 
+        x-show="sidebarOpen"
+        @click="sidebarOpen = false"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:leave="transition ease-in duration-200"
+        class="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden">
+    </div>
+    
+    <!-- Main Container -->
+    <div class="flex h-full overflow-hidden">
+        <!-- Sidebar -->
+        <aside 
+            :class="sidebarOpen ? 'translate-x-0 lg:w-64' : '-translate-x-full lg:translate-x-0 lg:w-0'"
+            class="fixed lg:relative inset-y-0 left-0 z-40 w-72 bg-primary-pale border-r border-sidebar-border transition-all duration-300 ease-in-out flex flex-col overflow-hidden">
+            
+            <!-- Sidebar Content Wrapper (prevents content from squishing on desktop) -->
+            <div class="w-72 lg:w-64 flex flex-col h-full">
+                <!-- Sidebar Header -->
+                <div class="p-4 border-b border-sidebar-border flex-shrink-0">
+                    <h2 class="text-lg font-semibold text-gray-800 whitespace-nowrap">Sessions</h2>
+                </div>
+            
+                <!-- Session List -->
+                <div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                    <template x-for="session in sessions" :key="session.id">
+                        <div 
+                            :class="currentSession === session.id ? 'bg-primary text-white shadow-md' : 'bg-white text-gray-700 shadow-sm'"
+                            class="w-full rounded-lg transition-all duration-200 group session-item hover:shadow-md">
+                            <div class="flex items-center px-4 py-3">
+                                <button 
+                                    @click="selectSession(session.id)"
+                                    class="flex-1 text-left flex items-center gap-2">
+                                    <i class="fas fa-comment-dots text-xs opacity-60"></i>
+                                    <span class="text-sm font-medium truncate" x-text="session.name"></span>
+                                </button>
+                                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                        @click="editSessionName(session.id)"
+                                        :class="currentSession === session.id ? 'hover:bg-primary-light' : 'hover:bg-gray-200'"
+                                        class="p-1.5 rounded transition-colors btn-hover-scale opacity-60 hover:opacity-100"
+                                        title="Rename session">
+                                        <i class="fas fa-edit text-xs"></i>
+                                    </button>
+                                    <button 
+                                        @click="deleteSession(session.id)"
+                                        :class="currentSession === session.id ? 'hover:bg-red-500' : 'hover:bg-red-100 hover:text-red-600'"
+                                        class="p-1.5 rounded transition-colors btn-hover-scale opacity-60 hover:opacity-100"
+                                        title="Delete session">
+                                        <i class="fas fa-trash text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Empty state -->
+                    <div x-show="sessions.length === 0" class="text-center py-8 text-gray-500">
+                        <i class="fas fa-comments text-3xl mb-2"></i>
+                        <p class="text-sm">No sessions yet</p>
+                    </div>
+                </div>
+                
+                <!-- Sidebar Footer -->
+                <div class="p-3 border-t border-sidebar-border space-y-2 flex-shrink-0">
+                    <!-- MCP Tools Panel (Desktop only) -->
+                    <button id="mcp-tools-panel" style="display:none;" @click="mcpConfigModal.show = true; mcpConfigModal.activeTab = 'tools'" class="w-full mb-4 p-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs text-left transition-colors">
+                       <div class="font-semibold mb-2 flex items-center gap-2">
+                           <i class="fas fa-plug text-green-400"></i>
+                           <span>MCP Tools</span>
+                       </div>
+                       <div id="mcp-tools-list" class="space-y-2 max-h-32 overflow-y-auto scrollbar-hidden text-xs"></div>
+                    </button>
+                    
+                    <button 
+                        @click="newChat()"
+                        class="w-full bg-gray-800 hover:bg-gray-900 text-white px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 hover:shadow-md btn-hover-scale">
+                        <i class="fas fa-plus"></i>
+                        <span>New Chat</span>
+                    </button>
+                    <button 
+                        @click="clearAllSessions()"
+                        class="w-full bg-transparent hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 hover:shadow-md btn-hover-scale">
+                        <i class="fas fa-trash"></i>
+                        <span>Clear All</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col h-full relative">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center justify-between shadow-sm">
+                <!-- Left: Menu Toggle (always shows hamburger icon) -->
+                <button 
+                    @click="sidebarOpen = !sidebarOpen"
+                    class="bg-primary-pale text-primary hover:bg-primary-light w-10 h-10 rounded-lg transition-all duration-200 flex items-center justify-center font-bold text-lg flex-shrink-0 btn-hover-scale"
+                    title="Toggle sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                
+                <!-- Center: Title -->
+                <div class="flex-1 lg:ml-0 ml-4">
+                    <h1 class="text-base font-600 text-gray-900 hidden sm:block tracking-tight">Chat UCY</h1>
+                </div>
+                
+                <!-- Right: Logos & Menu -->
+                <div class="flex items-center gap-3">
+                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="UCY">
+                        <img src="../img/ucy_logo.png" alt="UCY" class="h-full object-contain" onerror="this.style.display='none'">
+                    </a>
+                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="DMSL">
+                        <img src="../img/dmsllogobig.png" alt="DMSL" class="h-full object-contain" onerror="this.style.display='none'">
+                    </a>
+                    
+                    <!-- Navigation Dropdown -->
+                    <div class="relative" x-data="{ open: false }">
+                        <button 
+                            @click="open = !open"
+                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center btn-hover-scale" title="Menu">
+                            <img src="../img/chatucy_logo.png" alt="ChatUCY" class="h-6 object-contain" onerror="this.innerHTML='☰'">
+                        </button>
+                        <div 
+                            x-show="open"
+                            @click.away="open = false"
+                            x-transition
+                            class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                            <div class="px-4 py-2 text-sm text-gray-500 border-b border-gray-200">v1.2</div>
+                            <a href="/" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-home"></i> Home
+                            </a>
+                            <a href="/privacy" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-lock"></i> Privacy
+                            </a>
+                            <a href="/terms" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-file-text"></i> Terms
+                            </a>
+                            <div class="border-t border-gray-200 my-2"></div>
+                            <!-- MCP Config Button (Desktop only) -->
+                            <button id="open-config-btn" style="display:none;" @click="open = false; mcpConfigModal.show = true; mcpConfigModal.activeTab = 'servers'; mcpConfigModal.loadServers()" class="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-cog"></i> MCP Config
+                            </button>
+                            <!-- MCP Connect Button (Desktop only) -->
+                            <button id="mcp-connect-btn" style="display:none;" @click="open = false" class="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                <i class="fas fa-plug"></i> Connect MCP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Chat Area -->
+            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 py-5 md:px-8 md:py-6 lg:px-12 lg:py-8" id="chat-history">
+                <div class="w-full mx-auto space-y-3 pb-40">
+                    <template x-for="message in messages" :key="message.id">
+                        <div 
+                            :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
+                            class="flex items-start gap-3 message-animate">
+                            <!-- Assistant Icon -->
+                            <template x-if="message.role === 'assistant'">
+                                <div class="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-white border-2 border-gray-200 flex items-center justify-center">
+                                    <img 
+                                        :src="getModelIcon(message.model)" 
+                                        :alt="message.model"
+                                        class="w-full h-full object-cover"
+                                        onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'fas fa-robot text-primary\'></i>'">
+                                </div>
+                            </template>
+                            
+                            <div 
+                                :class="message.role === 'user' 
+                                    ? 'bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl shadow-md' 
+                                    : 'bg-gray-100 text-gray-800 rounded-tl-2xl rounded-tr-2xl rounded-br-2xl shadow-sm'"
+                                class="max-w-[80%] px-4 py-3">
+                                <div class="text-base prose prose-sm max-w-none leading-relaxed" x-html="message.content"></div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="absolute bottom-0 left-0 right-0 p-4">
+                <div class="max-w-6xl mx-auto backdrop-blur-md bg-white/30 rounded-2xl p-4">
+                    <!-- File info display -->
+                    <div x-show="uploadedFile" class="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-file text-primary"></i>
+                            <span class="text-sm text-gray-700" x-text="uploadedFileName"></span>
+                        </div>
+                        <button @click="clearFile()" class="text-gray-500 hover:text-red-600">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200 border-opacity-80 p-3">
+                        <!-- Main Input Row -->
+                        <div class="flex gap-2 items-end">
+                            <textarea 
+                                x-model="userInput"
+                                @keydown.enter.prevent="handleEnter($event)"
+                                placeholder="Type your message here..."
+                                rows="1"
+                                class="flex-1 resize-none border-none outline-none text-gray-800 text-sm max-h-32 overflow-y-auto scrollbar-hidden input-focus placeholder-gray-400"
+                                style="min-height: 2.5rem;"></textarea>
+                            
+                            <button 
+                                @click="sendMessage()"
+                                :disabled="!userInput.trim() || isLoading"
+                                :class="userInput.trim() && !isLoading ? 'bg-primary hover:bg-primary-dark shadow-md hover:shadow-lg' : 'bg-gray-300 cursor-not-allowed opacity-60'"
+                                class="w-10 h-10 rounded-full text-white flex items-center justify-center transition-all flex-shrink-0 btn-hover-scale">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Bottom Controls -->
+                        <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200">
+                            <!-- Model Selector -->
+                            <div class="relative" x-data="{ open: false }">
+                                <button 
+                                    @click="open = !open"
+                                    class="px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center gap-2 font-medium btn-hover-scale">
+                                    <span x-text="getSelectedModelName()"></span>
+                                    <i class="fas fa-chevron-down text-xs"></i>
+                                </button>
+                                <div 
+                                    x-show="open"
+                                    @click.away="open = false"
+                                    x-transition
+                                    class="absolute bottom-full mb-2 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50 min-w-[200px] max-h-64 overflow-y-auto custom-scrollbar">
+                                    <div class="px-3 py-1 text-xs font-semibold text-gray-500">Available Models</div>
+                                    <template x-for="model in availableModels" :key="model.id">
+                                        <button 
+                                            @click="selectModel(model.id); open = false"
+                                            class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
+                                            <span x-text="model.displayName"></span>
+                                        </button>
+                                    </template>
+                                    <div x-show="availableModels.length === 0" class="px-3 py-2 text-sm text-gray-500">
+                                        Loading models...
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- File Upload -->
+                            <button 
+                                @click="$refs.fileInput.click()"
+                                class="w-10 h-10 rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center justify-center btn-hover-scale">
+                                <i class="fas fa-paperclip"></i>
+                            </button>
+                            <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
+                            
+                            <!-- Local RAG Toggle -->
+                            <div class="flex items-center gap-2 ml-auto">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox"
+                                        x-model="localRagEnabled"
+                                        class="w-4 h-4 text-primary rounded focus:ring-primary">
+                                    <span class="text-sm text-gray-700">Local RAG</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- Modal for Edit/Delete Session -->
+    <div 
+        x-show="modal.show"
+        @click="modal.show = false"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        style="display: none;">
+        <div 
+            @click.stop
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0 scale-95"
+            x-transition:enter-end="opacity-100 scale-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100 scale-100"
+            x-transition:leave-end="opacity-0 scale-95"
+            class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            
+            <!-- Edit Session Modal -->
+            <template x-if="modal.type === 'edit'">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Rename Session</h3>
+                    <input 
+                        x-model="modal.value"
+                        @keydown.enter="confirmModal()"
+                        type="text"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none text-gray-800"
+                        placeholder="Enter session name">
+                    <div class="flex gap-3 mt-6">
+                        <button 
+                            @click="modal.show = false"
+                            class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
+                            Cancel
+                        </button>
+                        <button 
+                            @click="confirmModal()"
+                            class="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors">
+                            Rename
+                        </button>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Delete Session Modal -->
+            <template x-if="modal.type === 'delete'">
+                <div>
+                    <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2 text-center">Delete Session?</h3>
+                    <p class="text-gray-600 text-sm mb-6 text-center">This action cannot be undone. All messages in this session will be permanently deleted.</p>
+                    <div class="flex gap-3">
+                        <button 
+                            @click="modal.show = false"
+                            class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
+                            Cancel
+                        </button>
+                        <button 
+                            @click="confirmModal()"
+                            class="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+    
+    <!-- PDF.js Module Import -->
+    <script type="module">
+        import * as pdfjsLib from "../js/browser-rag/pdf.mjs";
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "../js/browser-rag/pdf.worker.mjs";
+        window.pdfjsLib = pdfjsLib;
+        console.log("Local PDF.js imported and attached to window.pdfjsLib");
+    </script>
+    
+    <!-- Browser RAG Scripts -->
+    <script src="../js/browser-rag/indexed-db-vector-store.js"></script>
+    <script src="../js/browser-rag/browser-retriever.js"></script>
+    <script src="../js/browser-rag/script-rag.js"></script>
+    
+    <!-- MCP Browser Client for Web Mode (Remote MCP servers only) -->
+    <script src="../js/mcp-browser-client.js"></script>
+    <script src="../js/mcp-config-manager.js"></script>
+    
+    <!-- Agent Integration (Electron + Web unified interface) -->
+    <script type="module">
+        import { askAgent } from '../js/agent-integration.js';
+        window.askAgent = askAgent;
+    </script>
+    
+    <!-- MCP Connect Script -->
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        if (window.desktop?.isElectron) {
+          const btn = document.getElementById("mcp-connect-btn");
+          const cfgBtn = document.getElementById("open-config-btn");
+          if (btn) btn.style.display = "inline-block";
+          if (cfgBtn) cfgBtn.style.display = "inline-block";
+        }
+      });
+    </script>
+    
+    <!-- Config Button Script -->
+    <script type="module">
+      import { showOpenConfigButton, initializeAutoMCP } from "../js/config.js";
+      document.addEventListener("DOMContentLoaded", () => {
+        const cfgBtn = document.getElementById("open-config-btn");
+        const panel = document.getElementById("mcp-tools-panel");
+        
+        if (window.desktop?.isElectron) {
+          if (cfgBtn) {
+            cfgBtn.style.display = "inline-block";
+          }
+          if (panel) {
+            panel.style.display = "block";
+          }
+        }
+        
+        showOpenConfigButton();
+        initializeAutoMCP();
+      });
+    </script>
+    
+    <!-- Tool Registry Script -->
+    <script type="module">
+      import { registerTools, toggleTool, getRegistry } from "../js/tool-registry.js";
+
+      const panel = document.getElementById("mcp-tools-panel");
+      const list = document.getElementById("mcp-tools-list");
+
+      window.addEventListener("mcp-tools", (event) => {
+         const { serverUrl, tools } = event.detail;
+         registerTools(serverUrl, tools);
+         renderTools();
+      });
+
+      function renderTools() {
+         const reg = getRegistry();
+         list.innerHTML = "";
+         for (const serverUrl in reg) {
+            const server = reg[serverUrl];
+            list.innerHTML += `<div style="margin-top:8px;"><strong>${serverUrl}</strong></div>`;
+            for (const tool of server.tools) {
+               list.innerHTML += `
+                  <div style="margin-left:10px;">
+                     <input type="checkbox" ${tool.enabled ? "checked" : ""} data-server="${serverUrl}" data-tool="${tool.name}" style="margin-right:4px;">
+                     <span style="word-break:break-word;">${tool.name}</span>
+                  </div>
+               `;
+            }
+         }
+         list.querySelectorAll("input").forEach(input => {
+            input.addEventListener("change", (e) => {
+               toggleTool(e.target.dataset.server, e.target.dataset.tool);
+            });
+         });
+      }
+    </script>
+    
+    <!-- MCP Config Modal -->
+    <div 
+        id="mcp-config-modal"
+        x-show="mcpConfigModal.show"
+        @click="mcpConfigModal.show = false"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        style="display: none;">
+        <div 
+            @click.stop
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0 scale-95"
+            x-transition:enter-end="opacity-100 scale-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100 scale-100"
+            x-transition:leave-end="opacity-0 scale-95"
+            class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
+            
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-cog text-primary"></i>
+                    MCP Configuration
+                </h3>
+                <button @click="mcpConfigModal.show = false" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <!-- Tabs -->
+            <div class="flex gap-2 mb-6 border-b border-gray-200">
+                <button 
+                    @click="mcpConfigModal.activeTab = 'servers'"
+                    :class="mcpConfigModal.activeTab === 'servers' ? 'border-b-2 border-primary text-primary' : 'text-gray-600 hover:text-gray-800'"
+                    class="px-4 py-2 font-medium transition-colors">
+                    Servers
+                </button>
+                <button 
+                    @click="mcpConfigModal.activeTab = 'tools'"
+                    :class="mcpConfigModal.activeTab === 'tools' ? 'border-b-2 border-primary text-primary' : 'text-gray-600 hover:text-gray-800'"
+                    class="px-4 py-2 font-medium transition-colors">
+                    Tools
+                </button>
+            </div>
+            
+            <!-- Servers Tab -->
+            <template x-if="mcpConfigModal.activeTab === 'servers'">
+                <div>
+                    <!-- Add Server Button (Web mode only) -->
+                    <div x-show="!window.desktop?.isElectron" class="mb-4">
+                        <button 
+                            @click="mcpConfigModal.newServerForm.show = !mcpConfigModal.newServerForm.show"
+                            class="w-full bg-primary hover:bg-primary-dark text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                            <i class="fas fa-plus mr-2"></i>Add Remote MCP Server
+                        </button>
+                    </div>
+                    
+                    <!-- Add Server Form (Web mode) -->
+                    <div x-show="mcpConfigModal.newServerForm.show && !window.desktop?.isElectron" class="mb-6 p-4 bg-gray-50 border border-gray-300 rounded-lg">
+                        <h3 class="font-semibold mb-3">Add New Server</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Server Name</label>
+                                <input 
+                                    type="text" 
+                                    x-model="mcpConfigModal.newServerForm.name"
+                                    placeholder="e.g., my-mcp-server"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">WebSocket URL</label>
+                                <input 
+                                    type="text" 
+                                    x-model="mcpConfigModal.newServerForm.url"
+                                    placeholder="wss://example.com/mcp"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                            </div>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="mcpConfigModal.newServerForm.autoConnect" class="w-4 h-4 text-primary rounded">
+                                <span class="text-sm text-gray-700">Auto-connect on page load</span>
+                            </label>
+                            <div x-show="mcpConfigModal.newServerForm.error" class="text-red-600 text-sm" x-text="mcpConfigModal.newServerForm.error"></div>
+                            <div class="flex gap-2">
+                                <button 
+                                    @click="mcpConfigModal.addWebServer()"
+                                    class="flex-1 bg-primary hover:bg-primary-dark text-white py-2 px-4 rounded-lg">
+                                    Add Server
+                                </button>
+                                <button 
+                                    @click="mcpConfigModal.newServerForm.show = false; mcpConfigModal.newServerForm.error = ''"
+                                    class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 px-4 rounded-lg">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <template x-for="(server, idx) in mcpConfigModal.servers" :key="idx">
+                            <div class="border border-gray-300 rounded-lg p-4">
+                                <div class="flex items-start justify-between gap-4 mb-3">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <label class="flex items-center gap-2">
+                                                <input type="checkbox" x-model="server.autoConnect" class="w-4 h-4 text-primary rounded" disabled>
+                                                <span class="font-medium text-gray-700">Auto-connect</span>
+                                            </label>
+                                        </div>
+                                        <div class="text-sm text-gray-600">
+                                            <span x-text="server.name"></span>
+                                            <span x-show="server.type" class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs" x-text="'(' + server.type + ')'"></span>
+                                        </div>
+                                        <template x-if="server.url">
+                                            <div class="text-xs text-gray-500 mt-1 break-all" x-text="server.url"></div>
+                                        </template>
+                                    </div>
+                                    <button 
+                                        @click="window.desktop?.isElectron ? mcpConfigModal.servers.splice(idx, 1) : mcpConfigModal.removeWebServer(server.name)"
+                                        class="text-red-600 hover:text-red-700 p-1">
+                                        <i class="fas fa-trash text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <div x-show="mcpConfigModal.servers.length === 0" class="text-center py-8 text-gray-500">
+                        <i class="fas fa-server text-2xl mb-2"></i>
+                        <p>No MCP servers configured</p>
+                        <p x-show="!window.desktop?.isElectron" class="text-sm mt-2">Click "Add Remote MCP Server" to get started</p>
+                    </div>
+                    
+                    <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+                        <p class="font-semibold mb-2">Configured Servers:</p>
+                        <p x-text="'Total: ' + mcpConfigModal.servers.length"></p>
+                        <p x-show="!window.desktop?.isElectron" class="text-xs mt-2 text-blue-700">Web mode: Remote servers only (WebSocket)</p>
+                        <p x-show="window.desktop?.isElectron" class="text-xs mt-2 text-blue-700">Desktop mode: Local + Remote servers</p>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Tools Tab -->
+            <template x-if="mcpConfigModal.activeTab === 'tools'">
+                <div>
+                    <!-- Tools organized by server -->
+                    <div class="space-y-6">
+                        <template x-for="(server, serverName) in mcpConfigModal.toolsByServer" :key="serverName">
+                            <div class="border border-gray-300 rounded-lg p-4 bg-gray-50">
+                                <!-- Server header -->
+                                <div class="flex items-center gap-2 mb-4 pb-3 border-b border-gray-300">
+                                    <div class="flex-1">
+                                        <h4 class="font-semibold text-gray-800" x-text="serverName"></h4>
+                                        <p class="text-xs text-gray-600 capitalize" x-text="'Type: ' + (server.type || 'unknown')"></p>
+                                    </div>
+                                    <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium" x-text="(server.tools?.length || 0) + ' tools'"></span>
+                                </div>
+                                
+                                <!-- Tools list for this server -->
+                                <div class="space-y-2">
+                                    <template x-for="(tool, idx) in server.tools" :key="idx">
+                                        <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-white cursor-pointer transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                x-model="tool.enabled"
+                                                @change="mcpConfigModal.onToolToggle(tool)"
+                                                class="w-4 h-4 text-primary rounded mt-0.5 flex-shrink-0">
+                                            <div class="flex-1 min-w-0">
+                                                <div class="font-medium text-gray-800 break-words" x-text="tool.name"></div>
+                                                <div class="text-xs text-gray-600 mt-1 line-clamp-2" x-text="tool.description || 'No description available'"></div>
+                                            </div>
+                                        </label>
+                                    </template>
+                                </div>
+                                
+                                <!-- Empty state for this server -->
+                                <div x-show="!server.tools || server.tools.length === 0" class="text-center py-4 text-gray-500 text-sm">
+                                    <i class="fas fa-exclamation-circle mb-1"></i>
+                                    <p>No tools available for this server</p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <!-- Empty state when no servers -->
+                    <div x-show="Object.keys(mcpConfigModal.toolsByServer).length === 0" class="text-center py-8 text-gray-500">
+                        <i class="fas fa-plug text-2xl mb-2"></i>
+                        <p>No tools available</p>
+                        <p class="text-xs mt-2">Connect to MCP servers in the <strong>Servers</strong> tab to access their tools</p>
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Footer -->
+            <div class="flex gap-3 mt-8 pt-6 border-t border-gray-200">
+                <button 
+                    @click="mcpConfigModal.show = false"
+                    class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
+                    Close
+                </button>
+                <button 
+                    @click="mcpConfigModal.openConfigFile()"
+                    class="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-folder-open"></i>
+                    Open Config File
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Write Permission Modal -->
+    <div class="modal fade" id="writeConfirmModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Confirm File Write</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p id="write-path" class="text-muted mb-3"></p>
+            <p class="text-sm text-gray-600 mb-2">Preview:</p>
+            <pre id="write-preview" style="max-height:150px; overflow:auto; background-color:#f5f5f5; padding:10px; border-radius:4px;"></pre>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="denyWrite" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" id="allowWrite" class="btn btn-primary">Allow Write</button>
+          </div>
+        </div>
+      </div>
+    </div>
+</body>
+</html>

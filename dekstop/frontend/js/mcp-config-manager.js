@@ -1,0 +1,209 @@
+/**
+ * MCP Configuration Manager for Web Browser
+ * Manages remote MCP server configurations using localStorage
+ * Web alternative to Electron's mcp.json file
+ */
+
+class MCPConfigManager {
+  constructor() {
+    this.storageKey = 'mcp_browser_config';
+    this.initializeStorage();
+  }
+
+  /**
+   * Initialize localStorage with default structure if not exists
+   */
+  initializeStorage() {
+    if (!localStorage.getItem(this.storageKey)) {
+      const defaultConfig = {
+        servers: [],
+        version: '1.0'
+      };
+      localStorage.setItem(this.storageKey, JSON.stringify(defaultConfig));
+      console.log('[MCP Config] Initialized default configuration');
+    }
+  }
+
+  /**
+   * Get all MCP server configurations
+   * @returns {Array} Array of server configs
+   */
+  getServers() {
+    try {
+      const config = JSON.parse(localStorage.getItem(this.storageKey));
+      return config?.servers || [];
+    } catch (error) {
+      console.error('[MCP Config] Failed to parse configuration:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get a specific server configuration by name
+   * @param {string} serverName - Server identifier
+   * @returns {Object|null}
+   */
+  getServer(serverName) {
+    const servers = this.getServers();
+    return servers.find(s => s.name === serverName) || null;
+  }
+
+  /**
+   * Add or update a server configuration
+   * @param {Object} serverConfig - Server configuration
+   * @param {string} serverConfig.name - Unique server name
+   * @param {string} serverConfig.url - WebSocket URL (ws:// or wss://)
+   * @param {boolean} serverConfig.autoConnect - Auto-connect on page load
+   * @param {string} serverConfig.description - Optional description
+   */
+  saveServer(serverConfig) {
+    if (!serverConfig.name || !serverConfig.url) {
+      throw new Error('Server name and URL are required');
+    }
+
+    try {
+      const config = JSON.parse(localStorage.getItem(this.storageKey));
+      const servers = config.servers || [];
+      
+      // Check if server exists
+      const existingIndex = servers.findIndex(s => s.name === serverConfig.name);
+      
+      if (existingIndex >= 0) {
+        // Update existing server
+        servers[existingIndex] = {
+          ...servers[existingIndex],
+          ...serverConfig,
+          updatedAt: new Date().toISOString()
+        };
+        console.log(`[MCP Config] Updated server: ${serverConfig.name}`);
+      } else {
+        // Add new server
+        servers.push({
+          ...serverConfig,
+          createdAt: new Date().toISOString(),
+          type: 'remote-web' // Web version only supports remote servers
+        });
+        console.log(`[MCP Config] Added new server: ${serverConfig.name}`);
+      }
+      
+      config.servers = servers;
+      localStorage.setItem(this.storageKey, JSON.stringify(config));
+      
+      return true;
+    } catch (error) {
+      console.error('[MCP Config] Failed to save server:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a server configuration
+   * @param {string} serverName - Server identifier
+   * @returns {boolean} Success status
+   */
+  removeServer(serverName) {
+    try {
+      const config = JSON.parse(localStorage.getItem(this.storageKey));
+      const servers = config.servers || [];
+      
+      const filteredServers = servers.filter(s => s.name !== serverName);
+      
+      if (filteredServers.length === servers.length) {
+        console.warn(`[MCP Config] Server not found: ${serverName}`);
+        return false;
+      }
+      
+      config.servers = filteredServers;
+      localStorage.setItem(this.storageKey, JSON.stringify(config));
+      
+      console.log(`[MCP Config] Removed server: ${serverName}`);
+      return true;
+    } catch (error) {
+      console.error('[MCP Config] Failed to remove server:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get servers with autoConnect enabled
+   * @returns {Array}
+   */
+  getAutoConnectServers() {
+    const servers = this.getServers();
+    return servers.filter(s => s.autoConnect === true);
+  }
+
+  /**
+   * Clear all server configurations
+   */
+  clearAll() {
+    const config = {
+      servers: [],
+      version: '1.0'
+    };
+    localStorage.setItem(this.storageKey, JSON.stringify(config));
+    console.log('[MCP Config] Cleared all server configurations');
+  }
+
+  /**
+   * Export configuration as JSON
+   * @returns {string} JSON string
+   */
+  exportConfig() {
+    const config = localStorage.getItem(this.storageKey);
+    return config || '{}';
+  }
+
+  /**
+   * Import configuration from JSON
+   * @param {string} jsonString - JSON configuration string
+   */
+  importConfig(jsonString) {
+    try {
+      const config = JSON.parse(jsonString);
+      
+      // Validate structure
+      if (!config.servers || !Array.isArray(config.servers)) {
+        throw new Error('Invalid configuration format');
+      }
+      
+      // Validate each server
+      for (const server of config.servers) {
+        if (!server.name || !server.url) {
+          throw new Error('Each server must have name and url');
+        }
+      }
+      
+      localStorage.setItem(this.storageKey, jsonString);
+      console.log('[MCP Config] Imported configuration successfully');
+      return true;
+    } catch (error) {
+      console.error('[MCP Config] Failed to import configuration:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate URL format
+   * @param {string} url - WebSocket URL to validate
+   * @returns {boolean}
+   */
+  static isValidWebSocketUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'ws:' || parsed.protocol === 'wss:';
+    } catch {
+      return false;
+    }
+  }
+}
+
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = MCPConfigManager;
+}
+
+// Also expose globally for browser use
+if (typeof window !== 'undefined') {
+  window.MCPConfigManager = MCPConfigManager;
+}
