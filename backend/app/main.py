@@ -47,14 +47,22 @@ ALLOWED_EXTENSIONS = {'pdf', 'txt', 'docx', 'md', 'jpg', 'jpeg', 'png'}
 # Create FastAPI instance
 app = FastAPI(title="ChatUCY API")
 
-# Set up CORS middleware (adjust origins as needed)
+# Set up CORS middleware with secure origins
+ALLOWED_ORIGINS = [
+    "https://chatucy.cs.ucy.ac.cy",
+    "https://www.chatucy.cs.ucy.ac.cy",
+    "http://localhost:8000",   # dev
+    "app://localhost",         # RELEASE DESKTOP APP
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,  # Only specific domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # Store settings in app.state (optional)
@@ -118,18 +126,15 @@ try:
             manage_history,
             model,
             llmms,
-           
+            session_rag,
         )
 
         app.include_router(chat.router)
         app.include_router(rag_chain.router)
         app.include_router(manage_history.router)
         app.include_router(model.router)
-   
-
-    
-
         app.include_router(llmms.router)
+        app.include_router(session_rag.router)
         logger.info("Successfully included all additional API routers")
     except ImportError as e:
         logger.warning(f"Some additional API routers could not be imported: {str(e)}")

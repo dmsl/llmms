@@ -1,0 +1,30 @@
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Ollama integration
+ollama>=0.1.0
+
+# Vector database (in-memory)
+chromadb>=0.4.15
+
+# ML/AI utilities
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# NLP processing
+nltk>=3.8.1
+
+# File processing
+PyMuPDF>=1.23.0  # PDF extraction (fitz)
+pytesseract>=0.3.10  # OCR for images
+Pillow>=10.0.0  # Image processing
+
+# Web scraping (existing utilities)
+beautifulsoup4>=4.12.0
+readability-lxml>=0.8.1
+requests>=2.31.0
+
+# Logging and utilities
+werkzeug>=3.0.0

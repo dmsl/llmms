@@ -1,92 +1,92 @@
 #!/usr/bin/env python3
-# ---------------------------------------------------------------
-# embedding_dimension_importance.py
-#
-#  • Requires:  numpy,  ollama-python client  ( pip install ollama )
-#  • Purpose :  Inspect which coordinate dimensions of a
-#               768-dim sentence embedding carry the most weight.
-#               No tokeniser or per-token embeddings needed.
-# ---------------------------------------------------------------
+# compare_embeddings_ranklog.py  –  fixed model list, one combined plot
+# ---------------------------------------------------------------------
 
 from __future__ import annotations
-import numpy as np
+import os, re, sys, numpy as np
+from typing import List
+from tqdm.auto import tqdm
+from datasets import load_dataset
+import matplotlib.pyplot as plt
 import ollama
-from typing import Tuple
 
-# ────────────────────────────────────────────────────────────────
-# 1 · BACKEND  —  adapt model name as needed
-# ────────────────────────────────────────────────────────────────
-EMBEDDING_MODEL = "nomic-embed-text"       # change to your Ollama model
+# ---------------- USER-SELECTED EMBEDDING MODELS --------------------
+MODEL_LIST = [
+    "bge-m3",
+    "paraphrase-multilingual",
+    "bge-large",
+    "snowflake-arctic-embed2",
+    "granite-embedding",
+    "mxbai-embed-large",
+    "nomic-embed-text",
+]
+# --------------------------------------------------------------------
 
-def embed_text(text: str) -> np.ndarray:
-    """
-    Return a (768,) float32 NumPy array for *text* using Ollama.
-    Raises RuntimeError if the backend returns nothing.
-    """
-    res = ollama.embed(model=EMBEDDING_MODEL, input=text)
-    vec = res.get("embeddings", [])
+DATASET_SLICE = "train[:1000]"              # change if you need more/less
+CACHE_DIR     = "embed_cache_compare"
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+def clean(name: str) -> str:
+    """Filename-safe model string."""
+    return re.sub(r"[^\w\-]", "_", name)
+
+# ---------------- helpers -------------------------------------------
+def embed(txt: str, model: str) -> np.ndarray:
+    try:
+        out = ollama.embed(model=model, input=txt)
+    except Exception as e:
+        print(f"✖  Cannot embed with {model}: {e}", file=sys.stderr)
+        raise
+    vec = out["embeddings"]
     if not vec:
-        raise RuntimeError("No embeddings returned for text")
-    return np.asarray(vec, dtype=np.float32).ravel()   # ensure 1-D shape
+        raise RuntimeError(f"{model} returned no embedding.")
+    return np.asarray(vec, dtype=np.float32).ravel()
 
+def embed_corpus(lines: List[str], model: str) -> np.ndarray:
+    path = os.path.join(CACHE_DIR, f"vecs_{clean(model)}.npy")
+    if os.path.exists(path):
+        return np.load(path)
+    print(f"→ embedding corpus with {model} …")
+    arr = np.vstack([embed(t, model) for t in tqdm(lines)])
+    np.save(path, arr)
+    return arr
+# --------------------------------------------------------------------
 
-# ────────────────────────────────────────────────────────────────
-# 2 · NORMALISATION SCHEMES
-# ────────────────────────────────────────────────────────────────
-def l1_normalise(vec: np.ndarray, *, eps: float = 1e-12) -> np.ndarray:
-    """
-    |v_i| / Σ|v_j|  →  non-negative weights that sum to 1.
-    Good when you want sign-agnostic “magnitude” importance.
-    """
-    weights = np.abs(vec)
-    Z = weights.sum()
-    if Z < eps:
-        raise ValueError("Vector is nearly zero; cannot normalise.")
-    return weights / Z
+# ---------------- load corpus once ----------------------------------
+ds     = load_dataset("ag_news", split=DATASET_SLICE)
+texts  = ds["text"]
+N      = len(texts)
+print(f"Corpus size: {N:,}")
 
+# ---------------- compute curves ------------------------------------
+curves = {}
+for model in MODEL_LIST:
+    try:
+        vecs      = embed_corpus(texts, model)
+    except Exception:
+        print(f"  → skipped {model}\n")
+        continue
+    mean_abs   = np.mean(np.abs(vecs), axis=0)
+    curves[model] = np.sort(mean_abs)[::-1]      # rank-ordered
+    print(f"  {model:<25}  dim={len(mean_abs)}   top={mean_abs.max():.4f}")
 
-def softmax(vec: np.ndarray) -> np.ndarray:
-    """
-    exp(v_i) / Σ exp(v_j)  →  emphasises large positive coordinates,
-    down-weights negatives, still sums to 1.
-    """
-    shifted = vec - vec.max()              # numerical stability
-    e = np.exp(shifted)
-    return e / e.sum()
+if not curves:
+    sys.exit("No models produced embeddings – abort.")
 
+# ---------------- joint rank-log plot -------------------------------
+plt.figure(figsize=(10, 6))
+for model, vals in curves.items():
+    x = np.arange(1, len(vals) + 1)
+    plt.plot(x, vals, marker=".", lw=0, label=model)
 
-# ────────────────────────────────────────────────────────────────
-# 3 · TOP-k INSPECTION
-# ────────────────────────────────────────────────────────────────
-def topk_dims(weights: np.ndarray, k: int = 10) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Return (indices, weights) of the k largest coordinates.
-    """
-    if not (1 <= k <= weights.size):
-        raise ValueError("k must be in [1, len(weights)]")
-    idx = np.argpartition(-weights, k)[:k]        # fast selection
-    best = weights[idx]
-    order = np.argsort(-best)                     # sort descending
-    return idx[order], best[order]
+plt.yscale("log")
+plt.xlabel("Rank (dims sorted by |value|)")
+plt.ylabel("Mean |value|   (log scale)")
+plt.title(f"Rank-ordered mean |value|  •  N={N:,} sentences")
+plt.legend(fontsize=8)
+plt.tight_layout()
 
+out_png = os.path.join(CACHE_DIR, "all_models_ranklog.png")
+plt.savefig(out_png, dpi=150); plt.close()
 
-# ────────────────────────────────────────────────────────────────
-# 4 · CLI DEMO
-# ────────────────────────────────────────────────────────────────
-def demo(sentence: str, k: int = 10) -> None:
-    vec = embed_text(sentence)
-    print("‖embedding‖₂ :", float(np.linalg.norm(vec)))
-
-    # Choose ONE normalisation method:
-    weights = l1_normalise(vec)          # sign-agnostic
-    # weights = softmax(vec)             # sign-aware
-
-    idx, w = topk_dims(weights, k)
-    print(f"\nTop-{k} dimensions (index → probability weight):")
-    for i, p in zip(idx, w):
-        print(f"{i:3d} → {p:.5f}")
-
-    print("\nCheck: Σ weights =", weights.sum())
-
-if __name__ == "__main__":
-    demo("The quick brown fox jumps over the lazy dog", k=10)
+print("\nCombined plot saved →", out_png)

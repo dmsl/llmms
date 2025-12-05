@@ -6,6 +6,14 @@ from readability.readability import Document
 from flask import current_app as app
 import ollama
 import chromadb
+import nltk
+from typing import List
+
+# Download punkt tokenizer for sentence splitting (runs once)
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
 
 # Initialize a global ChromaDB client for this module.
 chroma_client = chromadb.HttpClient(host="localhost", port=8000)
@@ -55,7 +63,7 @@ def get_context_length(model_details):
     )
     if context_length:
         return context_length
-    return 2048
+    return 8096
 
 
 def get_max_context_tokens(model_name):
@@ -184,3 +192,48 @@ def summarize_text(text, model="mistral-small"):
     except Exception as e:
         app.logger.error(f"Summarization failed: {str(e)}")
     return ""
+
+
+def semantic_chunks(text: str, max_words: int = 220, overlap_words: int = 40) -> List[str]:
+    """
+    Split text into semantic chunks that preserve sentence boundaries.
+    
+    Args:
+        text: The text to chunk
+        max_words: Maximum words per chunk
+        overlap_words: Number of words to overlap between chunks
+    
+    Returns:
+        List of text chunks
+    """
+    try:
+        sentences = nltk.sent_tokenize(text)
+    except Exception:
+        # Fallback if NLTK fails
+        sentences = text.split('. ')
+    
+    chunks = []
+    current = []
+    current_len = 0
+
+    for sentence in sentences:
+        sentence_len = len(sentence.split())
+        
+        if current_len + sentence_len > max_words and current:
+            # Save current chunk
+            chunk_text = " ".join(current)
+            chunks.append(chunk_text)
+            
+            # Create overlap: keep last N words
+            overlap_text = " ".join(chunk_text.split()[-overlap_words:])
+            current = [overlap_text, sentence]
+            current_len = len(overlap_text.split()) + sentence_len
+        else:
+            current.append(sentence)
+            current_len += sentence_len
+
+    # Add the last chunk
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks if chunks else [text]

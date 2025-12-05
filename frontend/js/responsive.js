@@ -84,5 +84,7 @@ textarea.addEventListener("input", function () {
         this.style.height = this.scrollHeight + "px";
         this.style.overflowY = "hidden";
         // tetxtareacontainer.style.height = this.scrollHeight + "px";
+
     }
+    
 });

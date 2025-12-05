@@ -4,18 +4,22 @@ import numpy as np
 EMBED_MODEL = "nomic-embed-text"
 
 
-def get_ollama_embedding(text):
+def get_ollama_embedding(text, model=None):
     """
     Use Ollama to get an embedding for the provided text.
+    
+    Args:
+        text: Text to embed
+        model: Optional model name (defaults to EMBED_MODEL)
+    
+    Returns:
+        List of floats representing the embedding
     """
     try:
-        model = EMBED_MODEL
-        response = ollama.embeddings(EMBED_MODEL, prompt=text)
-        # Extract and return the embedding
-
+        embedding_model = model or EMBED_MODEL
+        response = ollama.embeddings(embedding_model, prompt=text)
+        
         if response and response["embedding"]:
-            # convert it to float
-
             return response["embedding"]
         else:
             raise Exception("Embedding data not found in the response.")

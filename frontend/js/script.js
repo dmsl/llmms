@@ -1,6 +1,9 @@
 const CHAT_PREFIX = 'chat_'; // Prefix for identifying chat sessions in localStorage
 // Define the base URL for the API by decoding a Base64 string
-
+// Add these variables at the top with other global variables
+let isAutoScrolling = false;
+let userHasScrolledUp = false;
+let lastScrollPosition = 0;
 let llmMsEnabled = false;
 let chatHistory = [];
 let selectedModel = localStorage.getItem('selectedModel') || 'null';
@@ -344,7 +347,7 @@ function loadChatMemory(session) {
 async function manageChatHistory() {
     const selectedModel = localStorage.getItem('selectedModel');
     const modelContextLimits = JSON.parse(localStorage.getItem('modelContextLimits') || '{}');
-    let maxContextTokens = modelContextLimits[selectedModel] || 2048;  // Default to 2048 if not found
+    let maxContextTokens = modelContextLimits[selectedModel] || 8096;  // Default to 8096 if not found
     const sessionData = JSON.parse(localStorage.getItem(CHAT_PREFIX + sessionName)) || {};
     const hiddenHistory = sessionData.hiddenHistory || [];
     const messagesFromLastSummarized = chatHistory.slice(lastSummarizedIndex);
@@ -867,7 +870,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 document.getElementById('user-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-        
+             if (e.shiftKey) {
+            // Allow default behavior (new line) when Shift+Enter is pressed
+            return;
+        }
         e.preventDefault();
            if (llmMsEnabled) {console.log('Skipping single model appraoch');
     return;} // Exit early if LLM-MS is not enabled
@@ -888,6 +894,10 @@ document.getElementById('send-button').addEventListener('click', () => {
 
 document.getElementById('user-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+             if (e.shiftKey) {
+            // Allow default behavior (new line) when Shift+Enter is pressed
+            return;
+        }
         e.preventDefault(); // Prevent the default newline behavior
            if (llmMsEnabled) {console.log('Skipping single model appraoch');
     return;} // Exit early if LLM-MS is not enabled
@@ -964,7 +974,7 @@ async function submitRequest() {
     const hiddenHistory = sessionData.hiddenHistory || [];
     const messagesFromLastSummarized = chatHistory.slice(lastSummarizedIndex);
     const modelContextLimits = JSON.parse(localStorage.getItem('modelContextLimits') || '{}');
-    let maxContextTokens = modelContextLimits[selectedModel] || 2048;
+    let maxContextTokens = modelContextLimits[selectedModel] || 8096;
 
     // Calculate total tokens in the message history.
     const countTokens = text => text ? text.split(/\s+/).length : 0;
@@ -1021,7 +1031,7 @@ async function submitRequest() {
     bubbleDiv.appendChild(contentContainer);
     messageDiv.appendChild(bubbleDiv);
     chatContainer.appendChild(messageDiv);
-
+resetScrollBehavior();
     //const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
     let responseText = "";
 
@@ -1179,6 +1189,7 @@ async function submitRequest() {
         contentContainer.innerHTML = `<div class="text-danger">Error: ${error.message}</div>`;
         showErrorModal(error.message);
     } finally {
+           resetScrollBehavior();
         // Await any pending history management.
         if (historyPromise) await historyPromise;
         inputEl.value = '';
@@ -1392,3 +1403,31 @@ if (isIOS()) {
 }
 
 
+document.addEventListener('DOMContentLoaded', async () => {
+    // ...existing code...
+
+    // Add scroll listener to detect user scrolling up
+    const chatHistory = document.getElementById('chat-history');
+    if (chatHistory) {
+        chatHistory.addEventListener('scroll', () => {
+            const currentScrollPosition = chatHistory.scrollTop;
+            const maxScroll = chatHistory.scrollHeight - chatHistory.clientHeight;
+            
+            // Check if user scrolled up (not at bottom)
+            if (currentScrollPosition < maxScroll - 10) { // 10px threshold
+                userHasScrolledUp = true;
+            } else {
+                // User is at or near bottom, allow auto-scroll again
+                userHasScrolledUp = false;
+            }
+            
+            lastScrollPosition = currentScrollPosition;
+        }, { passive: true });
+    }
+
+    // ...rest of existing code...
+});
+function resetScrollBehavior() {
+    userHasScrolledUp = false;
+    isAutoScrolling = false;
+}

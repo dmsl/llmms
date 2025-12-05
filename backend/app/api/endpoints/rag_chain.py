@@ -1,3 +1,13 @@
+"""
+Privacy-first RAG endpoints using SessionRAG with advanced retrieval.
+
+Features:
+- Semantic chunking with sentence boundaries
+- MMR (Maximum Marginal Relevance) for diverse results
+- In-memory vector store (no persistence)
+- Automatic cleanup after processing
+"""
+
 import json
 import logging
 import os
@@ -9,85 +19,13 @@ import io
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 import ollama
-import chromadb
 from werkzeug.datastructures import FileStorage
 
 from app.utils.file_extraction import handle_text_extraction
-from app.utils.embeddings import get_ollama_embedding
-from app.utils.text_utils import get_max_context_tokens
+from app.utils.rag_session import SessionRAG
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def get_token_count(text: str) -> int:
-    """Approximate token count using whitespace splitting."""
-    return len(text.split())
-
-
-def chunk_document(text: str, chunk_size: int = 200, overlap: int = 50):
-    """Splits text into chunks of approximately 'chunk_size' words with an overlap."""
-    words = text.split()
-    if len(words) <= chunk_size:
-        return [text]
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = start + chunk_size
-        chunk = " ".join(words[start:end])
-        chunks.append(chunk)
-        if end >= len(words):
-            break
-        start = end - overlap  # slide with overlap
-    return chunks
-
-
-def save_to_chromadb(file_id, content, embedding, collection_name):
-    """Save a document (or document chunk) to a ChromaDB collection."""
-    collection = chroma_client.get_collection(collection_name)
-    collection.add(ids=[file_id], documents=[content], embeddings=[embedding])
-    return True
-
-
-def retrieve_relevant_text(
-    query: str, top_k: int = 3, collection_name: str = None
-) -> str:
-    """Retrieve relevant chunks from the specified collection using semantic search."""
-    query_embedding = get_ollama_embedding(query)
-    collection = chroma_client.get_collection(collection_name)
-    results = collection.query(query_embeddings=[query_embedding], n_results=top_k)
-    if "documents" in results and results["documents"]:
-        # Flatten list-of-lists
-        retrieved_texts = "\n".join(
-            [doc for sublist in results["documents"] for doc in sublist]
-        )
-        return retrieved_texts
-    return ""
-
-
-def build_context(
-    extracted_text: str,
-    model: str,
-    messages_str: str,
-    file_name: str,
-    collection_name: str,
-) -> str:
-    """Build the context to be injected into the prompt."""
-    chunks = chunk_document(extracted_text, chunk_size=200, overlap=50)
-    if len(chunks) == 1:
-        context = f"Context:\n{chunks[0]}\n"
-    else:
-        for i, chunk in enumerate(chunks):
-            chunk_id = f"{file_name}_chunk_{i}"
-            chunk_embedding = get_ollama_embedding(chunk)
-            save_to_chromadb(
-                chunk_id, chunk, chunk_embedding, collection_name=collection_name
-            )
-        retrieved_texts = retrieve_relevant_text(
-            messages_str, top_k=3, collection_name=collection_name
-        )
-        context = f"{retrieved_texts}"
-    return context
 
 
 def base64_to_file(base64_string: str, filename: str, file_type: str):
@@ -106,14 +44,11 @@ def base64_to_file(base64_string: str, filename: str, file_type: str):
         raise ValueError(f"Failed to process the encoded file: {str(e)}")
 
 
-# Initialize Chroma client.
-chroma_client = chromadb.HttpClient(host="localhost", port=8000)
-
-
 @router.post("/rag_chain")
 async def rag_chain_endpoint(request: Request):
     """
     Endpoint to handle RAG chain requests with base64‑encoded file data.
+    Uses advanced retrieval with semantic chunking and MMR reranking.
 
     Expects JSON with fields:
       - model: The LLM model to use
@@ -154,12 +89,14 @@ async def rag_chain_endpoint(request: Request):
         )
 
 
-from werkzeug.datastructures import FileStorage
-
-
 def process_rag_chain(
     file, file_name: str, model: str, message_history, stream: bool = True
 ):
+    """
+    Process RAG chain using the new privacy-first SessionRAG implementation
+    with advanced retrieval (semantic chunking + MMR).
+    """
+    rag_session = None
     try:
         if not file or not file_name:
             raise ValueError("No file or empty file provided")
@@ -175,87 +112,85 @@ def process_rag_chain(
         if not content:
             raise ValueError("Empty file provided")
 
-        # Write the in-memory content to a temporary file.
+        # Create a temporary RAG session (privacy-first, in-memory only)
+        rag_session = SessionRAG(chat_model=model)
+        
+        # Write the in-memory content to a temporary file for processing
         with tempfile.NamedTemporaryFile(
             mode="wb", delete=True, suffix=os.path.splitext(file_name)[1]
         ) as tmp:
             tmp.write(content)
-            tmp.flush()  # Ensure all data is written
+            tmp.flush()
 
-            # Open the temporary file for reading in binary mode.
+            # Open the temporary file for reading
             with open(tmp.name, "rb") as temp_file:
-                # Wrap the temporary file in a new FileStorage object.
-                # This mimics Flask’s behavior exactly.
                 file_storage = FileStorage(
                     stream=temp_file,
                     filename=file_name,
-                    content_type=file.content_type,  # or pass file_type if available
+                    content_type=file.content_type,
                 )
-                extracted_text = handle_text_extraction(file_storage)
-
-        if extracted_text.startswith("Error"):
-            raise ValueError(extracted_text)
-
-        # Create temporary ChromaDB collection
-        collection_name = f"temp_collection_{uuid.uuid4()}"
-        chroma_client.get_or_create_collection(name=collection_name)
-
-        try:
-            messages_str = json.dumps(message_history)
-            context = build_context(
-                extracted_text=extracted_text,
-                model=model,
-                messages_str=messages_str,
-                file_name=file_name,
-                collection_name=collection_name,
-            )
-            last_message = message_history[-1]
-            prompt = (
-                "You are a helpful AI assistant. Follow these instructions carefully:\n"
-                "1. Use only the provided context to answer the question.\n"
-                "2. Even if the context is not complete, infer the best possible answer using the given information. Do not mention any uncertainty or lack of information.\n"
-                "3. Provide a clear, concise, and confident answer.\n\n"
-                "Context:\n"
-                f"{context}\n\n"
-                "User Question:\n"
-                f"{last_message['content']}\n\n"
-                "Assistant:"
-            )
-
-            last_message["content"] = prompt
-
-            if stream:
-                return StreamingResponse(
-                    stream_response(model, message_history),
-                    media_type="text/event-stream",
+                
+                # Add document to RAG session with semantic chunking
+                result = rag_session.add_file(
+                    file=file_storage,
+                    chunk_size=220,  # Semantic chunks with sentence boundaries
+                    overlap=40
                 )
-            else:
-                response = ollama.chat(model=model, messages=message_history)
-                return JSONResponse({"response": response["message"]["content"]})
-        finally:
-            try:
-                chroma_client.delete_collection(name=collection_name)
-            except Exception as e:
-                logger.error(f"Failed to delete collection: {e}")
-            if hasattr(file, "close"):
-                file.close()
+                
+                if not result["success"]:
+                    raise ValueError(result.get("error", "Failed to process document"))
+
+        # Get the user's question from last message
+        last_message = message_history[-1]
+        user_query = last_message["content"]
+        
+        # Query the RAG session with advanced retrieval (MMR)
+        rag_result = rag_session.ask(
+            query=user_query,
+            top_k=5,  # Top 5 chunks after MMR reranking
+            n_candidates=15,  # Consider 15 candidates before MMR
+            lambda_param=0.7,  # Balance relevance (0.7) vs diversity (0.3)
+            stream=stream
+        )
+        
+        if not rag_result["success"]:
+            raise ValueError(rag_result.get("error", "Failed to query RAG session"))
+        
+        if stream:
+            # Stream the response
+            def stream_with_cleanup():
+                try:
+                    for chunk in rag_result["stream"]:
+                        yield chunk
+                finally:
+                    # Cleanup after streaming
+                    if rag_session:
+                        rag_session.close()
+            
+            return StreamingResponse(
+                stream_with_cleanup(),
+                media_type="text/event-stream",
+            )
+        else:
+            # Return the answer directly
+            answer = rag_result["answer"]
+            # Cleanup
+            if rag_session:
+                rag_session.close()
+            return JSONResponse({"response": answer})
+            
     except ValueError as ve:
+        if rag_session:
+            rag_session.close()
         return JSONResponse({"error": str(ve)}, status_code=400)
     except Exception as e:
         logger.error(f"RAG chain error: {str(e)}", exc_info=True)
+        if rag_session:
+            rag_session.close()
         return JSONResponse({"error": "Internal server error"}, status_code=500)
-
-
-def stream_response(model: str, messages):
-    """Helper generator to stream model responses."""
-    try:
-        stream = ollama.chat(model=model, messages=messages, stream=True)
-        for chunk in stream:
-            if content := chunk.get("message", {}).get("content"):
-                yield content
-    except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        yield "Error during response generation"
+    finally:
+        if hasattr(file, "close"):
+            file.close()
 
 
 @router.post("/local_rag_chain")
@@ -289,16 +224,17 @@ async def local_rag_chain_endpoint(request: Request):
         query = data["query"]
         local_context = data["localContext"]
 
+        # Use the same grounded prompt style as SessionRAG
         prompt = (
-            "You are a helpful AI assistant. Follow these instructions strictly:\n"
-            "1. Disregard any prior knowledge; use only the information in the context below.\n"
-            "2. Even if some details are not explicitly mentioned in the context, infer the best possible answer.\n"
-            "3. Provide a clear, concise, and confident answer without referencing missing details or uncertainty.\n\n"
+            "You are a helpful AI assistant. You MUST follow these rules strictly:\n\n"
+            "1. Answer ONLY using the information provided in the context below.\n"
+            "2. If the answer is not clearly supported by the context, say 'I don't know based on the provided context.'\n"
+            "3. Do not make assumptions or add information not present in the context.\n"
+            "4. Be concise and direct in your answer.\n\n"
             "Context:\n"
             f"{local_context}\n\n"
-            "User Question:\n"
-            f"{query}\n\n"
-            "Assistant:"
+            f"User question: {query}\n\n"
+            "Answer:"
         )
 
         # Replace the content of the last message with the constructed prompt.
@@ -308,8 +244,18 @@ async def local_rag_chain_endpoint(request: Request):
         # Set streaming mode; adjust if you want a non-streaming response.
         stream = True
         if stream:
+            def stream_ollama():
+                try:
+                    stream_resp = ollama.chat(model=model, messages=message_history, stream=True)
+                    for chunk in stream_resp:
+                        if content := chunk.get("message", {}).get("content"):
+                            yield content
+                except Exception as e:
+                    logger.error(f"Streaming error: {e}")
+                    yield "Error during response generation"
+            
             return StreamingResponse(
-                stream_response(model, message_history),
+                stream_ollama(),
                 media_type="text/event-stream",
             )
         else:
