@@ -1,1 +1,0 @@
-/home/konstantinkrasovitskiy/flask_app_modules/app/static/browser_rag/target/wasm32-unknown-unknown/release/browser_rag.wasm: /home/konstantinkrasovitskiy/flask_app_modules/app/static/browser_rag/src/lib.rs
