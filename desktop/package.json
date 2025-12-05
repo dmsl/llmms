@@ -1,0 +1,47 @@
+{
+  "name": "chatucy-desktop",
+  "version": "1.0.0",
+  "productName": "ChatUCY Desktop",
+  "description": "Desktop wrapper for LLM-MS chat application",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "ajv": "^6.12.6",
+    "electron-updater": "^6.1.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "latest",
+    "electron-builder": "latest"
+  },
+  "author": "ChatUCY",
+  "build": {
+    "appId": "cy.ucy.chatucy.desktop",
+    "productName": "ChatUCY Desktop",
+    "executableName": "ChatUCY",
+    "directories": {
+      "app": ".",
+      "buildResources": "resources"
+    },
+    "files": [
+      "**/*",
+      "frontend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "frontend",
+        "to": "frontend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

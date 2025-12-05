@@ -26,3 +26,6 @@ pytest_cache/
 *.swo
 *.bak
 *.tmp
+*.md
+!README.md
+!QUICK_SETUP.md
