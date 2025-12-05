@@ -48,7 +48,7 @@ class MMRRetriever:
         Returns:
             List of top-k documents after MMR reranking
         """
-        if not docs or not doc_vecs:
+        if not docs or len(doc_vecs) == 0:
             return []
         
         query_vec = np.array(query_vec).reshape(1, -1)
@@ -262,7 +262,7 @@ class SessionRAG:
                 include=["documents", "embeddings", "metadatas"]
             )
             
-            if not results["documents"] or not results["documents"][0]:
+            if not results["documents"] or len(results["documents"][0]) == 0:
                 return {
                     "success": False,
                     "error": "No relevant documents found",
@@ -314,11 +314,8 @@ class SessionRAG:
             }
     
     def _format_context(self, chunks: List[str]) -> str:
-        """Format chunks with numbered references."""
-        formatted = []
-        for i, chunk in enumerate(chunks, 1):
-            formatted.append(f"[Chunk {i}]\n{chunk}")
-        return "\n\n".join(formatted)
+        """Format chunks as clean text without markers."""
+        return "\n\n".join(chunks)
     
     def _build_grounded_prompt(self, context: str, query: str) -> str:
         """Build a prompt that enforces grounding and reduces hallucinations."""
@@ -326,9 +323,9 @@ class SessionRAG:
 
 1. Answer ONLY using the information provided in the context below.
 2. If the answer is not clearly supported by the context, say "I don't know based on the provided context."
-3. When you state a fact, reference it by mentioning [Chunk N] where N is the chunk number.
-4. Do not make assumptions or add information not present in the context.
-5. Be concise and direct in your answer.
+3. Do not make assumptions or add information not present in the context.
+4. Be concise and direct in your answer.
+5. Do NOT mention chunk numbers or reference markers in your response.
 
 Context:
 {context}

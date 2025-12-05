@@ -686,7 +686,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     focusTextbox();
 });
 
-let selectedFile = null;
+// Track currently selected files for next message
+let selectedFiles = [];
 // Trigger the hidden file input when the attach icon is clicked
 document.getElementById('upload-button').addEventListener('click', () => {
     document.getElementById('file-input').click();
@@ -738,6 +739,7 @@ document.getElementById('clear-all-chats').addEventListener('click', async () =>
         sessionName = null;
         chatHistory = [];
         chatmodelhistory = [];
+        selectedFiles = []; // Clear selected files
         lastSummarizedIndex = 0; // Reset the last summarized index
         updateSessionList(); // Refresh the session list
         updateChatHistoryDisplay(); // Clear the chat history display
@@ -748,51 +750,46 @@ document.getElementById('clear-all-chats').addEventListener('click', async () =>
 document.getElementById('file-input').addEventListener('change', (event) => {
     const fileInput = event.target;
     if (fileInput.files && fileInput.files.length > 0) {
-        selectedFile = fileInput.files[0];
+        // Add all selected files to the array
+        selectedFiles = Array.from(fileInput.files);
 
         // Use the existing file-info-container element
         const fileInfoContainer = document.getElementById('file-info-container');
         const fileNameEl = document.getElementById('file-name');
 
         if (fileInfoContainer && fileNameEl) {
-            // Show the file info container and update the filename
+            // Show the file info container
             fileInfoContainer.classList.remove('d-none');
 
-            // Create file icon if it doesn't exist
-            let fileIcon = fileNameEl.querySelector('i');
-            if (!fileIcon) {
-                fileIcon = document.createElement('i');
-                fileIcon.className = 'fa fa-file me-2';
-                fileNameEl.prepend(fileIcon);
-            }
+            // Clear existing content
+            fileNameEl.innerHTML = '';
 
-            // Add text with the filename
-            const fileText = document.createTextNode(selectedFile.name);
+            // Create file icon
+            const fileIcon = document.createElement('i');
+            fileIcon.className = 'fa fa-file me-2';
+            fileNameEl.appendChild(fileIcon);
 
-            // Clear existing content (except the icon)
-            while (fileNameEl.childNodes.length > 1) {
-                fileNameEl.removeChild(fileNameEl.lastChild);
-            }
-
-            // Add the filename text
+            // Show file count or single filename
+            const fileText = document.createTextNode(
+                selectedFiles.length === 1 
+                    ? selectedFiles[0].name 
+                    : `${selectedFiles.length} files selected`
+            );
             fileNameEl.appendChild(fileText);
 
-            // Add a remove button if it doesn't exist
-            let removeButton = fileNameEl.querySelector('.file-remove-btn');
-            if (!removeButton) {
-                removeButton = document.createElement('button');
-                removeButton.className = 'btn btn-sm text-danger file-remove-btn ms-2';
-                removeButton.innerHTML = '<i class="fa fa-times"></i>';
-                removeButton.onclick = function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // Clear the file
-                    selectedFile = null;
-                    document.getElementById('file-input').value = '';
-                    fileInfoContainer.classList.add('d-none');
-                };
-                fileNameEl.appendChild(removeButton);
-            }
+            // Add a remove button
+            const removeButton = document.createElement('button');
+            removeButton.className = 'btn btn-sm text-danger file-remove-btn ms-2';
+            removeButton.innerHTML = '<i class="fa fa-times"></i>';
+            removeButton.onclick = function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                // Clear the files
+                selectedFiles = [];
+                document.getElementById('file-input').value = '';
+                fileInfoContainer.classList.add('d-none');
+            };
+            fileNameEl.appendChild(removeButton);
         }
     }
     focusTextbox(); // Refocus the input box
@@ -1116,24 +1113,32 @@ resetScrollBehavior();
             }
         } else {
             // If client-side RAG is not enabled, process on the server.
-            if (selectedFile) {
-                console.log("submitRequest: Processing file on server via /rag_chain");
-                const fileBase64 = await fileToBase64(selectedFile);
+            if (selectedFiles.length > 0) {
+                console.log("submitRequest: Processing files on server via /rag_chain");
+                
+                // Convert files to base64 and prepare file array
+                const filesArray = [];
+                for (const file of selectedFiles) {
+                    const fileBase64 = await fileToBase64(file);
+                    filesArray.push({
+                        fileData: fileBase64,
+                        fileName: file.name,
+                        fileType: file.type
+                    });
+                }
+                
                 const fileData = {
                     model: data.model,
                     messages: data.messages || [],
-                    fileData: fileBase64,
-                    fileName: selectedFile.name,
-                    fileType: selectedFile.type,
-                    fileSize: selectedFile.size,
-                    clientSideRag: isClientSideRagEnabled
+                    sessionId: sessionName || 'default-session',
+                    files: filesArray
                 };
+                
                 const response = await fetch(`/api/rag_chain`, {
                     method: 'POST',
                     body: JSON.stringify(fileData),
                     headers: {
                         'Content-Type': 'application/json',
-
                     }
                 });
                 if (!response.ok) throw new Error(response.statusText);
@@ -1147,6 +1152,11 @@ resetScrollBehavior();
                     contentContainer.innerHTML = marked.parse(responseText);
                     scrollToBottom();
                 }
+                
+                // Clear selected files after sending
+                selectedFiles = [];
+                document.getElementById('file-input').value = '';
+                document.getElementById('file-info-container').classList.add('d-none');
             } else {
                 console.log("submitRequest: Sending JSON data via /send_message");
                 const response = await fetch(`/api/send_message`, {

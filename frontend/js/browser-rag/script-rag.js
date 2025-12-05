@@ -1,7 +1,19 @@
+/**
+ * Browser RAG Script - Multi-file Support with UI Throttling Prevention
+ * 
+ * Optimizations:
+ * - Uses requestIdleCallback to process files during browser idle time
+ * - Sequential processing with yields to prevent UI blocking
+ * - Per-file AbortControllers for granular cancellation
+ * - Model loading happens lazily (only when BrowserRetriever is first used)
+ * - Efficient chunking to avoid memory spikes
+ */
+
 // Initialize Browser RAG
 let browserRetriever = null;
 
-let ragProcessingController = null; // Controller for cancelable file processing
+let ragProcessingControllers = new Map(); // Map of file names to their AbortControllers
+let isModelLoading = false; // Flag to prevent concurrent model loads
 
 
 // Initialize the browser retriever when the page loads
@@ -31,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Update UI with status message
                 const fileNameEl = document.getElementById('file-name');
-                if (fileNameEl && selectedFile) {
+                if (fileNameEl && selectedFiles.length > 0) {
                     updateFileUI(isClientSideRagEnabled);
                 }
 
@@ -66,26 +78,25 @@ function updateFileUI(isEnabled) {
     }
 }
 
-// Listen for file selection
+// Listen for file selection - UPDATED FOR MULTIPLE FILES
 document.getElementById('file-input').addEventListener('change', async (event) => {
-    selectedFile = event.target.files[0];
+    selectedFiles = Array.from(event.target.files);
     const fileNameEl = document.getElementById('file-name');
     const fileInfoContainer = document.getElementById('file-info-container');
 
-    if (selectedFile) {
-        // Display the file name (truncate if too long)
-        let fileName = selectedFile.name;
-        if (fileName.length > 15) {
-            fileName = fileName.substring(0, 12) + '...';
-        }
+    if (selectedFiles.length > 0) {
+        // Show file count or single file name
+        const displayText = selectedFiles.length === 1 
+            ? (selectedFiles[0].name.length > 15 ? selectedFiles[0].name.substring(0, 12) + '...' : selectedFiles[0].name)
+            : `${selectedFiles.length} files selected`;
 
         // Show file info - with a "Ready for processing" indicator
         fileNameEl.innerHTML = `
             <div class="badge ${isClientSideRagEnabled ? 'bg-success text-white' : 'bg-light text-dark'} d-flex align-items-center p-2 mb-2">
                 <i class="fa-solid fa-file me-2"></i>
-                <span>${fileName}</span>
-                ${isClientSideRagEnabled ? '<span class="ms-2 small"><i class="fa-solid fa-circle-info me-1"></i></span>' : ''}
-                <button type="button" class="btn-close ms-2" aria-label="Remove file" id="remove-file-btn"></button>
+                <span>${displayText}</span>
+                ${isClientSideRagEnabled ? '<span class="ms-2 small"><i class="fa-solid fa-circle-info me-1"></i>Ready</span>' : ''}
+                <button type="button" class="btn-close ms-2" aria-label="Remove files" id="remove-file-btn"></button>
             </div>
         `;
         fileInfoContainer.classList.remove('d-none');
@@ -97,18 +108,18 @@ document.getElementById('file-input').addEventListener('change', async (event) =
                 removeBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
 
-                    // If there's an ongoing processing, cancel it
-                    if (ragProcessingController) {
-                        ragProcessingController.abort();
-                        ragProcessingController = null;
-                    }
+                    // Cancel all ongoing processing
+                    ragProcessingControllers.forEach((controller, fileName) => {
+                        controller.abort();
+                    });
+                    ragProcessingControllers.clear();
 
-                    selectedFile = null;
+                    selectedFiles = [];
                     document.getElementById('file-input').value = '';
                     fileInfoContainer.classList.add('d-none');
                     fileNameEl.innerHTML = '';
 
-                    // Clear the Browser RAG database when removing the file
+                    // Clear the Browser RAG database when removing files
                     if (isClientSideRagEnabled && browserRetriever) {
                         browserRetriever.clearAllDocuments();
                     }
@@ -121,67 +132,100 @@ document.getElementById('file-input').addEventListener('change', async (event) =
     }
 });
 
-// Process file with Browser RAG - now a separate function that can be canceled
-async function processFileWithRag(file) {
-    if (!isClientSideRagEnabled || !browserRetriever || !file) {
-        return { success: false, error: "RAG not enabled or no file selected" };
+// Process multiple files with Browser RAG efficiently
+async function processFilesWithRag(files) {
+    if (!isClientSideRagEnabled || !browserRetriever || !files || files.length === 0) {
+        return { success: false, error: "RAG not enabled or no files selected" };
     }
 
     const fileNameEl = document.getElementById('file-name');
+    const results = [];
+    let totalChunks = 0;
+
     try {
-        // Create a new AbortController for this processing task
-        ragProcessingController = new AbortController();
-        const signal = ragProcessingController.signal;
-
-        // Show processing indicator with cancel button
-        if (fileNameEl && fileNameEl.querySelector('.badge')) {
-            const badgeEl = fileNameEl.querySelector('.badge');
-            badgeEl.innerHTML = `
-                <i class="fa-solid fa-file me-2"></i>
-                <span>${file.name.length > 15 ? file.name.substring(0, 12) + '...' : file.name}</span>
-                <span class="ms-2 text-muted small">
-                    <i class="fa-solid fa-spinner fa-spin me-1"></i>
-                </span>
-                <button type="button" class="btn btn-sm btn-danger ms-2" id="cancel-processing-btn" style="font-size: 0.75rem;">
-                    <i class="fa-solid fa-times"></i> Cancel
-                </button>
-            `;
-
-            // Add event listener for the cancel button
-            document.getElementById('cancel-processing-btn').addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (ragProcessingController) {
-                    ragProcessingController.abort();
-                    ragProcessingController = null;
-
-                    // Update UI to show canceled state
-                    badgeEl.innerHTML = `
-                        <i class="fa-solid fa-file me-2"></i>
-                        <span>${file.name.length > 15 ? file.name.substring(0, 12) + '...' : file.name}</span>
-                        <span class="ms-2 text-warning small">
-                            <i class="fa-solid fa-exclamation-circle me-1"></i>Canceled
-                        </span>
-                        <button type="button" class="btn-close ms-2" aria-label="Remove file" id="remove-file-btn"></button>
-                    `;
-
-                    // Re-add the remove button event listener
-                    setTimeout(() => {
-                        const removeBtn = document.getElementById('remove-file-btn');
-                        if (removeBtn) {
-                            removeBtn.addEventListener('click', () => {
-                                selectedFile = null;
-                                document.getElementById('file-input').value = '';
-                                document.getElementById('file-info-container').classList.add('d-none');
-                                fileNameEl.innerHTML = '';
-                                if (browserRetriever) browserRetriever.clearAllDocuments();
-                            });
-                        }
-                    }, 0);
+        // Process files sequentially with requestIdleCallback to avoid blocking UI
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            
+            // Wait for idle time before processing next file (non-blocking)
+            await new Promise(resolve => {
+                if (window.requestIdleCallback) {
+                    requestIdleCallback(() => resolve(), { timeout: 100 });
+                } else {
+                    setTimeout(resolve, 10); // Fallback
                 }
             });
+
+            // Update UI to show current file being processed
+            if (fileNameEl && fileNameEl.querySelector('.badge')) {
+                const badgeEl = fileNameEl.querySelector('.badge');
+                badgeEl.innerHTML = `
+                    <i class="fa-solid fa-spinner fa-spin me-2"></i>
+                    <span>Processing ${i + 1}/${files.length}: ${file.name.substring(0, 12)}...</span>
+                `;
+            }
+
+            const result = await processSingleFileWithRag(file);
+            results.push(result);
+            
+            if (result.success) {
+                totalChunks += result.chunkCount || 0;
+            }
         }
 
-        // Create a wrapper for ingestFile that can be cancelled
+        // Update UI with final success indication
+        if (fileNameEl && fileNameEl.querySelector('.badge')) {
+            const badgeEl = fileNameEl.querySelector('.badge');
+            const successCount = results.filter(r => r.success).length;
+            badgeEl.innerHTML = `
+                <i class="fa-solid fa-file me-2"></i>
+                <span>${files.length} file${files.length > 1 ? 's' : ''}</span>
+                <span class="ms-2 text-success small">
+                    <i class="fa-solid fa-check me-1"></i>${successCount}/${files.length} (${totalChunks} chunks)
+                </span>
+                <button type="button" class="btn-close ms-2" aria-label="Remove files" id="remove-file-btn"></button>
+            `;
+
+            // Re-add the remove button event listener
+            setTimeout(() => {
+                const removeBtn = document.getElementById('remove-file-btn');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', () => {
+                        selectedFiles = [];
+                        document.getElementById('file-input').value = '';
+                        document.getElementById('file-info-container').classList.add('d-none');
+                        fileNameEl.innerHTML = '';
+                        if (browserRetriever) browserRetriever.clearAllDocuments();
+                    });
+                }
+            }, 0);
+        }
+
+        return { 
+            success: true, 
+            results,
+            totalChunks,
+            processedCount: results.filter(r => r.success).length
+        };
+    } catch (error) {
+        console.error("Error processing files with Browser RAG:", error);
+        return { success: false, error: error.message || "Unknown error" };
+    }
+}
+
+// Process single file with Browser RAG - can be canceled
+async function processSingleFileWithRag(file) {
+    if (!isClientSideRagEnabled || !browserRetriever || !file) {
+        return { success: false, error: "RAG not enabled or no file provided" };
+    }
+
+    try {
+        // Create a new AbortController for this file
+        const controller = new AbortController();
+        ragProcessingControllers.set(file.name, controller);
+        const signal = controller.signal;
+
+        // Ingest file with cancellation support
         const result = await new Promise((resolve, reject) => {
             const processTask = browserRetriever.ingestFile(file);
 
@@ -194,77 +238,23 @@ async function processFileWithRag(file) {
             processTask.then(resolve).catch(reject);
         });
 
-        // Reset controller after successful completion
-        ragProcessingController = null;
-
-        // Update UI with success indication
-        if (fileNameEl && fileNameEl.querySelector('.badge')) {
-            const badgeEl = fileNameEl.querySelector('.badge');
-            badgeEl.innerHTML = `
-                <i class="fa-solid fa-file me-2"></i>
-                <span>${file.name.length > 15 ? file.name.substring(0, 12) + '...' : file.name}</span>
-                <span class="ms-2 text-success small">
-                    <i class="fa-solid fa-check me-1"></i>${result.chunkCount} chunks
-                </span>
-                <button type="button" class="btn-close ms-2" aria-label="Remove file" id="remove-file-btn"></button>
-            `;
-
-            // Re-add the remove button event listener
-            setTimeout(() => {
-                const removeBtn = document.getElementById('remove-file-btn');
-                if (removeBtn) {
-                    removeBtn.addEventListener('click', () => {
-                        selectedFile = null;
-                        document.getElementById('file-input').value = '';
-                        document.getElementById('file-info-container').classList.add('d-none');
-                        fileNameEl.innerHTML = '';
-                        if (browserRetriever) browserRetriever.clearAllDocuments();
-                    });
-                }
-            }, 0);
-        }
+        // Remove controller after successful completion
+        ragProcessingControllers.delete(file.name);
 
         return result;
     } catch (error) {
-        // Reset controller on error
-        ragProcessingController = null;
+        // Remove controller on error
+        ragProcessingControllers.delete(file.name);
 
         // Check if this was a user-initiated abort
         if (error.name === 'AbortError') {
-            console.log("File processing was canceled by user");
-            return { success: false, error: "Canceled by user" };
+            console.log(`File processing canceled: ${file.name}`);
+            return { success: false, error: "Canceled by user", fileName: file.name };
         }
 
         // Handle other errors
-        console.error("Error processing file with Browser RAG:", error);
-
-        // Update UI with error indication
-        if (fileNameEl && fileNameEl.querySelector('.badge')) {
-            const badgeEl = fileNameEl.querySelector('.badge');
-            badgeEl.innerHTML = `
-                <i class="fa-solid fa-file me-2"></i>
-                <span>${file.name.length > 15 ? file.name.substring(0, 12) + '...' : file.name}</span>
-                <span class="ms-2 text-danger small">
-                    <i class="fa-solid fa-exclamation-triangle me-1"></i>Error
-                </span>
-                <button type="button" class="btn-close ms-2" aria-label="Remove file" id="remove-file-btn"></button>
-            `;
-
-            // Re-add the remove button event listener
-            setTimeout(() => {
-                const removeBtn = document.getElementById('remove-file-btn');
-                if (removeBtn) {
-                    removeBtn.addEventListener('click', () => {
-                        selectedFile = null;
-                        document.getElementById('file-input').value = '';
-                        document.getElementById('file-info-container').classList.add('d-none');
-                        fileNameEl.innerHTML = '';
-                    });
-                }
-            }, 0);
-        }
-
-        return { success: false, error: error.message || "Unknown error" };
+        console.error(`Error processing file ${file.name}:`, error);
+        return { success: false, error: error.message || "Unknown error", fileName: file.name };
     }
 }
 

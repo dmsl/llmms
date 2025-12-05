@@ -1,6 +1,7 @@
 import requests
 import json
 import logging
+import os
 from bs4 import BeautifulSoup
 from readability.readability import Document
 from flask import current_app as app
@@ -9,11 +10,26 @@ import chromadb
 import nltk
 from typing import List
 
-# Download punkt tokenizer for sentence splitting (runs once)
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
+# Set NLTK data path to /tmp to avoid permission issues
+nltk_data_dir = os.path.join('/tmp', 'nltk_data')
+nltk.data.path.insert(0, nltk_data_dir)
+
+# Lazy-load NLTK data only when needed (not at import time)
+_nltk_initialized = False
+
+def _ensure_nltk_data():
+    """Download NLTK data only when first needed."""
+    global _nltk_initialized
+    if not _nltk_initialized:
+        try:
+            os.makedirs(nltk_data_dir, exist_ok=True)
+            nltk.data.find('tokenizers/punkt')
+        except (LookupError, OSError):
+            try:
+                nltk.download('punkt', quiet=True, download_dir=nltk_data_dir)
+            except Exception as e:
+                logging.warning(f"Failed to download NLTK data: {e}")
+        _nltk_initialized = True
 
 # Initialize a global ChromaDB client for this module.
 chroma_client = chromadb.HttpClient(host="localhost", port=8000)
@@ -206,6 +222,9 @@ def semantic_chunks(text: str, max_words: int = 220, overlap_words: int = 40) ->
     Returns:
         List of text chunks
     """
+    # Lazy-load NLTK data only when this function is called
+    _ensure_nltk_data()
+    
     try:
         sentences = nltk.sent_tokenize(text)
     except Exception:

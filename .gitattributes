@@ -1,3 +1,0 @@
-*.npy filter=lfs diff=lfs merge=lfs -text
-*.index filter=lfs diff=lfs merge=lfs -text
-cache_*/**/*.png filter=lfs diff=lfs merge=lfs -text
