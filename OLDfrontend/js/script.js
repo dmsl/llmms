@@ -1,3 +1,39 @@
+// --- RAG Lazy Loader (lightweight performance approach) ---
+let ragLoaded = false;
+let ragLoadingPromise = null;
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureRagLoaded() {
+  if (ragLoaded) return;
+  if (ragLoadingPromise) return ragLoadingPromise;
+
+  ragLoadingPromise = (async () => {
+    // Load TFJS + USE only when needed
+    await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs");
+    await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder");
+
+    // Load your browser-rag implementation only when needed
+    await loadScriptOnce("/js/browser-rag/indexed-db-vector-store.js?v=1");
+    await loadScriptOnce("/js/browser-rag/browser-retriever.js?v=1");
+    await loadScriptOnce("/js/browser-rag/script-rag.js?v=1");
+
+    ragLoaded = true;
+  })();
+
+  return ragLoadingPromise;
+}
+
 const CHAT_PREFIX = 'chat_'; // Prefix for identifying chat sessions in localStorage
 // Define the base URL for the API by decoding a Base64 string
 // Add these variables at the top with other global variables
@@ -844,19 +880,53 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     focusTextbox();
 
-    // Load client-side RAG setting from localStorage
-    const savedClientSideRagState = localStorage.getItem('clientSideRagEnabled');
-    if (savedClientSideRagState === 'true') {
-        isClientSideRagEnabled = true;
-        // Update UI button state if available
-        const clientSideRagButton = document.getElementById('clientsiderag-button');
-        if (clientSideRagButton) {
-            clientSideRagButton.classList.add('active');
-            clientSideRagButton.setAttribute('title', 'Client-side RAG Enabled');
+    // Wire RAG toggle to lazy loader
+    const ragToggle = document.getElementById("rag-toggle");
+    if (ragToggle) {
+        // Restore saved preference
+        const savedEnabled = localStorage.getItem("clientSideRagEnabled") === "true";
+        ragToggle.checked = savedEnabled;
+        isClientSideRagEnabled = savedEnabled;
+
+        // If user already enabled it in the past, load it now (but only then)
+        if (savedEnabled) {
+            ensureRagLoaded().catch(console.error);
         }
+
+        // Optional: prefetch on hover/touch (improves perceived speed without initial load hit)
+        const prefetchOnce = () => ensureRagLoaded().catch(() => {});
+        ragToggle.addEventListener("pointerenter", prefetchOnce, { once: true });
+        ragToggle.addEventListener("touchstart", prefetchOnce, { once: true });
+
+        ragToggle.addEventListener("change", async () => {
+            const enabled = ragToggle.checked;
+            isClientSideRagEnabled = enabled;
+            localStorage.setItem("clientSideRagEnabled", String(enabled));
+
+            if (enabled) {
+                try {
+                    ragToggle.disabled = true;
+                    await ensureRagLoaded();
+                } catch (e) {
+                    console.error(e);
+                    // revert on failure
+                    ragToggle.checked = false;
+                    isClientSideRagEnabled = false;
+                    localStorage.setItem("clientSideRagEnabled", "false");
+                    alert("Could not load Local RAG components.");
+                } finally {
+                    ragToggle.disabled = false;
+                }
+            } else {
+                // Optional cleanup to reduce memory/storage usage
+                if (window.browserRetriever?.clearAllDocuments) {
+                    window.browserRetriever.clearAllDocuments();
+                }
+            }
+        });
     }
 
-    // Add event listener for the client-side RAG toggle button
+    // Add event listener for the legacy client-side RAG toggle button (if exists)
     const clientSideRagButton = document.getElementById('clientsiderag-button');
     if (clientSideRagButton) {
         clientSideRagButton.addEventListener('click', handleClientSideRagToggle);
@@ -1033,7 +1103,12 @@ resetScrollBehavior();
     let responseText = "";
 
     try {
-        // If client-side RAG is enabled, process locally.
+        // If client-side RAG is enabled, ensure scripts are loaded and process locally
+        if (isClientSideRagEnabled) {
+            // Gate RAG usage: ensure all RAG scripts are loaded before proceeding
+            await ensureRagLoaded();
+        }
+
         if (isClientSideRagEnabled && selectedFile) {
             console.log("submitRequest: Client-side RAG enabled");
             console.log("submitRequest: Selected file:", selectedFile);

@@ -15,12 +15,27 @@ class MCPBrowserClient {
    * Connect to a remote MCP server via WebSocket
    * @param {string} serverName - Unique identifier for this server
    * @param {string} url - WebSocket URL (ws:// or wss://)
+   * @param {Object} connectionParams - Optional connection parameters (database, user, password)
    * @returns {Promise<void>}
    */
-  async connect(serverName, url) {
+  async connect(serverName, url, connectionParams = null) {
     if (this.servers.has(serverName)) {
       console.log(`[MCP Browser] Server ${serverName} already connected`);
       return;
+    }
+    
+    // Append connection parameters as query string if provided
+    if (connectionParams) {
+      const queryParams = new URLSearchParams();
+      if (connectionParams.database) queryParams.set('database', connectionParams.database);
+      if (connectionParams.user) queryParams.set('user', connectionParams.user);
+      if (connectionParams.password) queryParams.set('password', connectionParams.password);
+      
+      const queryString = queryParams.toString();
+      if (queryString) {
+        url += (url.includes('?') ? '&' : '?') + queryString;
+        console.log(`[MCP Browser] Connecting with custom parameters: ${connectionParams.database || 'default'}`);
+      }
     }
 
     return new Promise((resolve, reject) => {

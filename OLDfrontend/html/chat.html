@@ -135,18 +135,12 @@
                                 <span class="sr-only">Attach File</span>
                             </div>
 
-                            <!-- Local RAG Toggle -->
-                            <label 
-                                for="rag-toggle"
-                                id="rag-toggle-label"
-                                class="d-inline-flex align-items-center gap-2 px-2 py-1 rounded border transition-all cursor-pointer"
-                                style="font-size: 0.75rem; white-space: nowrap;"
-                                title="Toggle Local RAG for document context">
-                                <input type="checkbox" id="rag-toggle" class="d-none">
-                                <i class="fa fa-database" style="font-size: 0.8rem;"></i>
-                                <span class="fw-medium">Local RAG</span>
-                                <i class="fa fa-check" id="rag-check-icon" style="font-size: 0.7rem; opacity: 0; transition: opacity 0.2s;"></i>
-                            </label>
+                            <!-- Radio button for RAG instead of icon -->
+                            <div class="relative d-flex align-items-center mx-2">
+                                <input type="checkbox" id="rag-toggle" class="form-check-input me-1"
+                                    title="Toggle Local RAG">
+                                <label for="rag-toggle" class="form-check-label small text-muted">Local RAG</label>
+                            </div>
 
                             <!-- Add file info container -->
                             <div id="file-info-container" class="d-none">

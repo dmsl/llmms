@@ -65,10 +65,20 @@ export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2'
   }
   
   // Build initial messages with system prompt
+  let systemPrompt = `You are a helpful, friendly assistant with access to powerful tools. When a user asks you to perform an action that requires using tools, you should use them directly rather than saying you cannot do something.`;
+  
+  // If tools are available, explicitly list them in the system prompt
+  if (toolSchemas && toolSchemas.length > 0) {
+    const toolNames = toolSchemas.map(t => t.name).join(', ');
+    const toolDescriptions = toolSchemas.map(t => `- ${t.name}: ${t.description || 'No description'}`).join('\n');
+    
+    systemPrompt += `\n\nYou have access to the following tools and MUST use them when appropriate:\n${toolDescriptions}\n\nWhen a user asks you to perform database operations, file operations, or other tasks that match these tools, use them directly. Do not say you cannot do something if you have a tool for it. Always try to use the available tools to accomplish the user's request.`;
+  }
+  
   let messages = [
     {
       role: 'system',
-      content: `You are a helpful, friendly assistant. Provide clear, concise, and helpful responses to user questions. Be conversational and natural in your responses.`
+      content: systemPrompt
     }
   ];
   
@@ -191,6 +201,8 @@ async function callLLM(messages, toolSchemas, model) {
         
         console.log(`[Agent] Sending ${validTools.length} tools to LLM:`, 
           validTools.map(t => t.function.name));
+        console.log(`[Agent] Tool descriptions:`, 
+          validTools.map(t => `${t.function.name}: ${t.function.description}`));
       } else {
         console.log('[Agent] No valid tool schemas found, proceeding without tools');
       }

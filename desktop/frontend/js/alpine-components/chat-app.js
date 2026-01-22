@@ -2,17 +2,75 @@
 // Handles chat functionality for both web and Electron modes
 // Uses agent-integration.js for consistent LLM interactions across platforms
 
+// --- RAG Lazy Loader (lightweight performance approach) ---
+let ragLoaded = false;
+let ragLoadingPromise = null;
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureRagLoaded() {
+  if (ragLoaded) return;
+  if (ragLoadingPromise) return ragLoadingPromise;
+
+  ragLoadingPromise = (async () => {
+    console.log('[RAG Loader] Loading RAG dependencies...');
+    
+    // Load TFJS + USE only when needed
+    await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs");
+    await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder");
+
+    // Load browser-rag implementation only when needed
+    await loadScriptOnce("../js/browser-rag/indexed-db-vector-store.js");
+    await loadScriptOnce("../js/browser-rag/browser-retriever.js");
+    await loadScriptOnce("../js/browser-rag/script-rag.js");
+
+    // Initialize the USE model (downloads ~50MB model shards)
+    console.log('[RAG Loader] Initializing Universal Sentence Encoder model...');
+    if (window.use && !window.ragEmbeddingModel) {
+      window.ragEmbeddingModel = await window.use.load();
+      console.log('[RAG Loader] Model initialized successfully');
+    }
+
+    ragLoaded = true;
+    console.log('[RAG Loader] All RAG dependencies loaded successfully');
+  })();
+
+  return ragLoadingPromise;
+}
+
 // Import agent integration (handles both web and Electron modes)
 import { askAgent } from '../agent-integration.js';
 import { basicToolSchemas } from '../tools.js';
+import { ConversationManager } from '../conversation-manager.js';
+
 window.askAgent = askAgent;
 
 // API Base URL for model loading (Electron will use this to get available models)
 const API_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/api';
 
 function chatApp() {
+    // Initialize sidebar state from localStorage or based on screen size
+    const getSavedSidebarState = () => {
+        const saved = localStorage.getItem('sidebar_open');
+        if (saved !== null) {
+            return saved === 'true';
+        }
+        // Default: open on desktop, closed on mobile
+        return typeof window !== 'undefined' && window.innerWidth >= 1024;
+    };
+    
     return {
-        sidebarOpen: typeof window !== 'undefined' && window.innerWidth >= 1024, // Open on desktop (lg breakpoint)
+        sidebarOpen: getSavedSidebarState(),
         userInput: '',
         messages: [],
         sessions: [],
@@ -24,6 +82,7 @@ function chatApp() {
         uploadedFile: null,
         uploadedFileName: '',
         uploadedFilePreview: null, // Base64 preview for images
+        conversationManager: new ConversationManager(API_BASE_URL), // Conversation summarization manager
         modal: {
             show: false,
             type: '', // 'edit' or 'delete'
@@ -252,12 +311,13 @@ function chatApp() {
         },
         
         async init() {
-            // Handle window resize to adjust sidebar visibility
-            window.addEventListener('resize', () => {
-                if (window.innerWidth >= 1024) {
-                    this.sidebarOpen = true; // Keep sidebar open on desktop
-                }
+            // Watch for sidebar state changes and persist to localStorage
+            this.$watch('sidebarOpen', (value) => {
+                localStorage.setItem('sidebar_open', value.toString());
             });
+            
+            // No automatic resize handling - let user control sidebar state
+            // The CSS responsive classes (lg:w-60, lg:w-0, etc.) handle the visual adaptation
             
             // Load sessions from sessionStorage
             const savedSessions = sessionStorage.getItem('chat_sessions');
@@ -286,6 +346,51 @@ function chatApp() {
                 if (textarea) {
                     textarea.style.height = 'auto';
                     textarea.style.height = Math.min(textarea.scrollHeight, 128) + 'px';
+                }
+            });
+            
+            // Watch localRagEnabled and lazy-load RAG dependencies when enabled
+            this.$watch('localRagEnabled', async (enabled) => {
+                if (enabled) {
+                    // Show loading indicator
+                    const loadingMsg = {
+                        id: Date.now(),
+                        role: 'system',
+                        content: '🔄 Loading Local RAG (downloading ~50MB model shards)...'
+                    };
+                    this.messages.push(loadingMsg);
+                    const loadingIndex = this.messages.length - 1;
+                    
+                    try {
+                        console.log('[ChatApp] Local RAG enabled, loading dependencies...');
+                        await ensureRagLoaded();
+                        
+                        // Update loading message to success
+                        this.messages[loadingIndex].content = '✅ Local RAG ready! You can now upload documents for context-aware chat.';
+                        console.log('[ChatApp] RAG dependencies loaded successfully');
+                        
+                        // Remove success message after 3 seconds
+                        setTimeout(() => {
+                            const idx = this.messages.findIndex(m => m.id === loadingMsg.id);
+                            if (idx !== -1) this.messages.splice(idx, 1);
+                        }, 3000);
+                    } catch (error) {
+                        console.error('[ChatApp] Failed to load RAG dependencies:', error);
+                        this.localRagEnabled = false;
+                        this.messages[loadingIndex].content = '❌ Failed to load Local RAG: ' + error.message;
+                        
+                        // Remove error message after 5 seconds
+                        setTimeout(() => {
+                            const idx = this.messages.findIndex(m => m.id === loadingMsg.id);
+                            if (idx !== -1) this.messages.splice(idx, 1);
+                        }, 5000);
+                    }
+                } else {
+                    // Optional cleanup to reduce memory/storage usage
+                    if (window.browserRetriever?.clearAllDocuments) {
+                        window.browserRetriever.clearAllDocuments();
+                        console.log('[ChatApp] RAG documents cleared');
+                    }
                 }
             });
             
@@ -333,7 +438,7 @@ function chatApp() {
             for (const server of servers) {
                 try {
                     console.log(`[ChatApp Web] Connecting to ${server.name} (${server.url})`);
-                    await window.mcpBrowserClient.connect(server.name, server.url);
+                    await window.mcpBrowserClient.connect(server.name, server.url, server.connectionParams);
                     console.log(`[ChatApp Web] Connected to ${server.name}`);
                 } catch (error) {
                     console.error(`[ChatApp Web] Failed to connect to ${server.name}:`, error);
@@ -367,6 +472,23 @@ function chatApp() {
             }
         },
         
+        detectModelCapabilities(modelName) {
+            const name = modelName.toLowerCase();
+            return {
+                vision: name.includes('vision') || name.includes('llava') || name.includes('minicpm-v') || 
+                        name.includes('moondream') || name.includes('bakllava') || name.includes('qwen') && name.includes('vl') ||
+                        name.includes('gemma3') || name.includes('llama3.2-vision') || name.includes('llama4'),
+                tools: name.includes('llama3') || name.includes('llama4') || name.includes('mistral') || 
+                       name.includes('qwen') || name.includes('deepseek') || name.includes('command-r') ||
+                       name.includes('granite') || name.includes('hermes') || name.includes('nemotron') ||
+                       name.includes('mixtral') || name.includes('firefunction') || name.includes('ministral') ||
+                       name.includes('gpt-oss') || name.includes('cogito') || name.includes('devstral') ||
+                       name.includes('phi4') || name.includes('smollm'),
+                thinking: name.includes('deepseek-r1') || name.includes('deepseek-v3') || name.includes('qwq') ||
+                         name.includes('gpt-oss') || name.includes('magistral') || name.includes('qwen3') && !name.includes('coder')
+            };
+        },
+        
         async loadModels() {
             try {
                 // Use regular fetch - will work with proper CORS (app://localhost origin)
@@ -379,11 +501,16 @@ function chatApp() {
                 const data = await response.json();
                 console.log('[ChatApp] Loaded models:', data);
                 if (data.models && Array.isArray(data.models)) {
-                    this.availableModels = data.models.map(m => ({
-                        id: m.id || m.name || m,
-                        displayName: this.formatModelName(m.id || m.name || m),
-                        context_length: m.context_length || -1
-                    }));
+                    this.availableModels = data.models.map(m => {
+                        const modelId = m.id || m.name || m;
+                        const capabilities = this.detectModelCapabilities(modelId);
+                        return {
+                            id: modelId,
+                            displayName: this.formatModelName(modelId),
+                            context_length: m.context_length || -1,
+                            ...capabilities
+                        };
+                    });
                     if (this.availableModels.length > 0) {
                         this.selectedModel = this.availableModels[0].id;
                     }
@@ -393,10 +520,10 @@ function chatApp() {
                 console.error('[ChatApp] Failed to load models from backend:', error);
                 // Fallback to common models if backend is not available
                 this.availableModels = [
-                    { id: 'llama2', displayName: 'Llama2', context_length: -1 },
-                    { id: 'mistral', displayName: 'Mistral', context_length: -1 },
-                    { id: 'neural-chat', displayName: 'Neural Chat', context_length: -1 },
-                    { id: 'dolphin-mixtral', displayName: 'Dolphin Mixtral', context_length: -1 }
+                    { id: 'llama2', displayName: 'Llama2', context_length: -1, vision: false, tools: false, thinking: false },
+                    { id: 'mistral', displayName: 'Mistral', context_length: -1, vision: false, tools: true, thinking: false },
+                    { id: 'neural-chat', displayName: 'Neural Chat', context_length: -1, vision: false, tools: false, thinking: false },
+                    { id: 'dolphin-mixtral', displayName: 'Dolphin Mixtral', context_length: -1, vision: false, tools: true, thinking: false }
                 ];
                 this.selectedModel = this.availableModels[0].id;
             }
@@ -454,6 +581,27 @@ function chatApp() {
             const session = this.sessions.find(s => s.id === sessionId);
             if (session) {
                 this.messages = session.messages;
+                
+                // Update showModelInfo for loaded messages
+                // Show icon on first assistant message and when model changes
+                let lastModel = null;
+                for (let i = 0; i < this.messages.length; i++) {
+                    const msg = this.messages[i];
+                    if (msg.role === 'assistant') {
+                        // Ensure model property exists (for older saved sessions)
+                        if (!msg.model) {
+                            msg.model = this.selectedModel || 'Unknown Model';
+                        }
+                        
+                        // Show icon if it's the first assistant message or model changed
+                        if (lastModel === null || lastModel !== msg.model) {
+                            msg.showModelInfo = true;
+                            lastModel = msg.model;
+                        } else {
+                            msg.showModelInfo = false;
+                        }
+                    }
+                }
             }
             // Close sidebar only on mobile (below lg breakpoint)
             if (window.innerWidth < 1024) {
@@ -589,6 +737,8 @@ function chatApp() {
                 // If Local RAG is enabled, process the file
                 if (this.localRagEnabled && window.processFileForRAG) {
                     try {
+                        // Ensure RAG dependencies are loaded before processing
+                        await ensureRagLoaded();
                         await window.processFileForRAG(file);
                         console.log('[ChatApp] File processed for Local RAG');
                     } catch (error) {
@@ -610,6 +760,17 @@ function chatApp() {
         async sendMessage() {
             if (!this.userInput.trim() || this.isLoading) return;
             
+            // If Local RAG is enabled, ensure scripts are loaded
+            if (this.localRagEnabled) {
+                try {
+                    await ensureRagLoaded();
+                } catch (error) {
+                    console.error('[ChatApp] Failed to load RAG dependencies:', error);
+                    alert('Could not load Local RAG components. Please try again.');
+                    return;
+                }
+            }
+            
             const userMessage = {
                 id: Date.now(),
                 role: 'user',
@@ -630,12 +791,21 @@ function chatApp() {
             });
             
             try {
+                // Check if this is the first assistant message or if model changed
+                const previousAssistantMessages = this.messages.filter(m => m.role === 'assistant');
+                const lastAssistantModel = previousAssistantMessages.length > 0 
+                    ? previousAssistantMessages[previousAssistantMessages.length - 1].model 
+                    : null;
+                const showModelInfo = previousAssistantMessages.length === 0 || lastAssistantModel !== this.selectedModel;
+                
                 let assistantMessage = {
                     id: Date.now() + 1,
                     role: 'assistant',
-                    content: '',
+                    content: '<div class="typing-indicator"><span></span><span></span><span></span></div>',
                     model: this.selectedModel,
-                    isStreaming: true
+                    showModelInfo: showModelInfo,
+                    isStreaming: true,
+                    isTyping: true
                 };
                 this.messages.push(assistantMessage);
                 const messageIndex = this.messages.length - 1;
@@ -646,10 +816,12 @@ function chatApp() {
                     content: m.content
                 }));
                 
-                // Get MCP tools and merge with basic schemas
-                let toolSchemas = [...basicToolSchemas];
+                // Get MCP tools (don't start with basicToolSchemas in web mode)
+                let toolSchemas = [];
                 
                 if (window.desktop?.isElectron && window.desktop?.getMCPToolSchemas) {
+                    // Electron mode: Get desktop MCP tools + basic filesystem tools
+                    toolSchemas = [...basicToolSchemas];
                     try {
                         const mcpSchemas = await window.desktop.getMCPToolSchemas();
                         if (mcpSchemas && Array.isArray(mcpSchemas)) {
@@ -659,6 +831,17 @@ function chatApp() {
                     } catch (error) {
                         console.warn('[ChatApp] Failed to load MCP tool schemas:', error);
                     }
+                } else if (window.mcpBrowserClient) {
+                    // Web mode: Get browser MCP tools (no filesystem tools)
+                    const browserTools = window.mcpBrowserClient.getAllTools();
+                    if (browserTools && Array.isArray(browserTools)) {
+                        toolSchemas = browserTools.map(tool => ({
+                            name: tool.name,
+                            description: tool.description,
+                            parameters: tool.schema || tool.inputSchema || tool.parameters
+                        }));
+                        console.log(`[ChatApp] Loaded ${toolSchemas.length} browser MCP tool schemas`);
+                    }
                 }
                 
                 // Call agent integration (supports file uploads and conversation context)
@@ -667,8 +850,9 @@ function chatApp() {
                 // Parse and stream the result
                 await this.streamResponse(result, messageIndex);
                 
-                // Mark streaming as complete
+                // Mark streaming as complete and remove any typing indicators
                 this.messages[messageIndex].isStreaming = false;
+                this.messages[messageIndex].isTyping = false;
                 
                 // Auto-generate session name from first message
                 this.autoGenerateSessionName();
@@ -683,11 +867,20 @@ function chatApp() {
                 
             } catch (error) {
                 console.error('Error sending message:', error);
-                this.messages.push({
-                    id: Date.now() + 2,
-                    role: 'assistant',
-                    content: `Error: ${error.message}. Please ensure the agent is accessible.`
-                });
+                // Update the existing assistant message with the error
+                const messageIndex = this.messages.length - 1;
+                if (this.messages[messageIndex] && this.messages[messageIndex].role === 'assistant') {
+                    this.messages[messageIndex].content = `Error: ${error.message}. Please ensure the agent is accessible.`;
+                    this.messages[messageIndex].isStreaming = false;
+                    this.messages[messageIndex].isTyping = false;
+                } else {
+                    // Fallback: add new error message if something went wrong
+                    this.messages.push({
+                        id: Date.now() + 2,
+                        role: 'assistant',
+                        content: `Error: ${error.message}. Please ensure the agent is accessible.`
+                    });
+                }
             } finally {
                 this.isLoading = false;
                 this.saveSessions();
@@ -714,6 +907,12 @@ function chatApp() {
                 text = String(text || '');
             }
             
+            // Clear typing indicator and start with empty content
+            if (this.messages[messageIndex].isTyping) {
+                this.messages[messageIndex].content = '';
+                this.messages[messageIndex].isTyping = false;
+            }
+            
             // Stream text with a small delay between characters for visual effect
             const chunkSize = 10; // Characters per chunk
             const delayMs = 10; // Delay between chunks
@@ -721,8 +920,9 @@ function chatApp() {
             for (let i = 0; i < text.length; i += chunkSize) {
                 const chunk = text.substring(i, i + chunkSize);
                 
-                // Append chunk to message (raw text, not HTML)
-                this.messages[messageIndex].content += chunk;
+                // Append chunk to message with typing cursor (raw text, not HTML)
+                const isLastChunk = i + chunkSize >= text.length;
+                this.messages[messageIndex].content = text.substring(0, i + chunk.length) + (isLastChunk ? '' : '<span class="typing-cursor"></span>');
                 
                 // Scroll to keep up with streaming
                 this.$nextTick(() => {
@@ -732,6 +932,9 @@ function chatApp() {
                 // Small delay to create streaming effect
                 await this.delay(delayMs);
             }
+            
+            // Remove cursor after streaming is complete
+            this.messages[messageIndex].content = text;
         },
         
         updateMessageMarkdown(messageIndex) {

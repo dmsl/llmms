@@ -22,10 +22,6 @@
     <!-- Font Awesome for icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
-    <!-- TensorFlow.js for embeddings -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script>
-    
     <!-- Mammoth.js for DOCX parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.19/mammoth.browser.min.js"></script>
     
@@ -109,6 +105,78 @@
             -webkit-backdrop-filter: blur(12px);
             backdrop-filter: blur(12px);
         }
+        
+        /* Typing indicator animation */
+        @keyframes blink {
+            0%, 49% {
+                opacity: 1;
+            }
+            50%, 100% {
+                opacity: 0;
+            }
+        }
+        
+        .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background-color: currentColor;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+            vertical-align: text-bottom;
+        }
+        
+        .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background-color: currentColor;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+        
+        .typing-indicator span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .typing-indicator span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0.6);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        /* Mobile input area positioning - move up on mobile phones only (excludes small laptops) */
+        @media (max-width: 768px) and (pointer: coarse) {
+            #input-area {
+                bottom: 10vh !important;
+            }
+        }
+        
+        /* Prevent sidebar flash on page load */
+        aside.fixed {
+            will-change: transform;
+        }
+        
+        /* Smooth sidebar width transition for desktop */
+        @media (min-width: 1024px) {
+            aside {
+                will-change: width;
+            }
+        }
     </style>
 </head>
 
@@ -126,11 +194,12 @@
     <div class="flex h-full overflow-hidden">
         <!-- Sidebar -->
         <aside 
-            :class="sidebarOpen ? 'translate-x-0 lg:w-64' : '-translate-x-full lg:translate-x-0 lg:w-0'"
-            class="fixed lg:relative inset-y-0 left-0 z-40 w-72 bg-primary-pale border-r border-sidebar-border transition-all duration-300 ease-in-out flex flex-col overflow-hidden">
+            :class="sidebarOpen ? 'translate-x-0 lg:w-60' : '-translate-x-full lg:translate-x-0 lg:w-0'"
+            class="fixed lg:relative inset-y-0 left-0 z-40 w-72 bg-primary-pale transition-all duration-300 ease-in-out flex flex-col overflow-hidden"
+            style="border-right: 1px solid rgba(229, 231, 235, 0.3);">
             
             <!-- Sidebar Content Wrapper (prevents content from squishing on desktop) -->
-            <div class="w-72 lg:w-64 flex flex-col h-full">
+            <div class="w-72 lg:w-60 flex flex-col h-full">
                 <!-- Sidebar Header -->
                 <div class="p-4 border-b border-sidebar-border flex-shrink-0">
                     <h2 class="text-lg font-semibold text-gray-800 whitespace-nowrap">Sessions</h2>
@@ -149,7 +218,7 @@
                                     <i :class="currentSession === session.id ? 'text-white' : 'text-gray-400'" class="fas fa-message text-xs flex-shrink-0 transition-colors"></i>
                                     <span class="text-sm truncate leading-tight block font-medium" x-text="session.name"></span>
                                 </button>
-                                <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                <div class="flex items-center gap-0.5 opacity-0 lg:group-hover:opacity-100 lg:transition-opacity opacity-100 lg:opacity-0 flex-shrink-0">
                                     <button 
                                         @click="editSessionName(session.id)"
                                         :class="currentSession === session.id ? 'hover:bg-primary-dark' : 'hover:bg-gray-100'"
@@ -281,38 +350,48 @@
             </header>
             
             <!-- Chat Area -->
-            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 pt-12 pb-5 md:px-8 md:pt-16 md:pb-6 lg:px-12 lg:pt-20 lg:pb-8" id="chat-history">
+            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 pt-12 pb-5 md:px-8 md:pt-16 md:pb-6 lg:px-12 lg:pt-20 lg:pb-8 bg-gray-100" id="chat-history">
                 <div id="messages-container" class="w-full mx-auto space-y-5 mt-4">
                     <template x-for="message in messages" :key="message.id">
                         <div 
                             :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
-                            class="flex items-start gap-3 message-animate">
-                            <!-- Assistant Icon -->
-                            <template x-if="message.role === 'assistant'">
-                                <div class="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden bg-white border-2 border-gray-200 flex items-center justify-center">
-                                    <img 
-                                        :src="getModelIcon(message.model)" 
-                                        :alt="message.model"
-                                        class="w-full h-full object-cover"
-                                        onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'fas fa-robot text-primary\'></i>'">
+                            class="flex message-animate mb-2">
+                            <!-- User message - stays on the right -->
+                            <template x-if="message.role === 'user'">
+                                <div class="bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl shadow-md max-w-[80%] px-3 py-2">
+                                    <div class="text-sm prose prose-sm max-w-none leading-snug" x-html="message.content"></div>
                                 </div>
                             </template>
                             
-                            <div 
-                                :class="message.role === 'user' 
-                                    ? 'bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl shadow-md' 
-                                    : 'bg-gray-100 text-gray-800 rounded-tl-2xl rounded-tr-2xl rounded-br-2xl shadow-sm'"
-                                class="max-w-[80%] px-3 py-2">
-                                <div class="text-sm prose prose-sm max-w-none leading-snug" x-html="message.content"></div>
-                            </div>
+                            <!-- Assistant message - icon on top, message below -->
+                            <template x-if="message.role === 'assistant'">
+                                <div class="w-[90%]">
+                                    <!-- Assistant Icon and Model Info (only show on first message or when model changes) -->
+                                    <div x-show="message.showModelInfo" class="flex items-center gap-2 mb-1">
+                                        <div class="flex-shrink-0 w-4 h-4 rounded-full overflow-hidden bg-white border border-gray-300 flex items-center justify-center">
+                                            <img 
+                                                :src="getModelIcon(message.model)" 
+                                                :alt="message.model"
+                                                class="w-full h-full object-cover"
+                                                onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'fas fa-robot text-primary text-[8px]\'></i>'">
+                                        </div>
+                                        <span class="text-xs text-gray-600 font-medium" x-text="message.model"></span>
+                                        <div class="flex-1 h-px bg-gray-300 ml-2"></div>
+                                    </div>
+                                    <!-- Message content -->
+                                    <div class="text-gray-800">
+                                        <div class="text-sm prose prose-sm max-w-none leading-snug" x-html="message.content"></div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </template>
                 </div>
             </div>
             
             <!-- Input Area -->
-            <div id="input-area" class="absolute bottom-0 left-0 right-0 ">
-                <div class="max-w-6xl mx-auto backdrop-blur-md bg-white/30 rounded-2xl p-4">
+            <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0" style="bottom: env(safe-area-inset-bottom, 0px);">
+                <div class="max-w-6xl mx-auto">
                     <!-- File info display -->
                     <div x-show="uploadedFile" class="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
                         <div class="flex items-center gap-2">
@@ -364,7 +443,20 @@
                                         <button 
                                             @click="selectModel(model.id); open = false"
                                             class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
-                                            <span x-text="model.displayName"></span>
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span x-text="model.displayName"></span>
+                                                <div class="flex items-center gap-1">
+                                                    <template x-if="model.vision">
+                                                        <i class="fas fa-eye text-blue-500 text-xs" title="Vision"></i>
+                                                    </template>
+                                                    <template x-if="model.tools">
+                                                        <i class="fas fa-wrench text-green-500 text-xs" title="Tools"></i>
+                                                    </template>
+                                                    <template x-if="model.thinking">
+                                                        <i class="fas fa-brain text-purple-500 text-xs" title="Thinking"></i>
+                                                    </template>
+                                                </div>
+                                            </div>
                                         </button>
                                     </template>
                                     <div x-show="availableModels.length === 0" class="px-3 py-2 text-sm text-gray-500">
@@ -383,12 +475,18 @@
                             
                             <!-- Local RAG Toggle -->
                             <div class="flex items-center gap-2 ml-auto">
-                                <label class="flex items-center gap-2 cursor-pointer">
+                                <label 
+                                    class="relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-all cursor-pointer hover:bg-gray-50"
+                                    :class="localRagEnabled ? 'border-primary bg-primary-pale text-primary' : 'border-gray-300 text-gray-600'">
                                     <input 
                                         type="checkbox"
                                         x-model="localRagEnabled"
-                                        class="w-4 h-4 text-primary rounded focus:ring-primary">
-                                    <span class="text-sm text-gray-700">Local RAG</span>
+                                        class="sr-only">
+                                    <i class="fas fa-database text-xs"></i>
+                                    <span class="text-xs font-medium">Local RAG</span>
+                                    <i 
+                                        class="fas text-xs transition-opacity"
+                                        :class="localRagEnabled ? 'fa-check opacity-100' : 'opacity-0'"></i>
                                 </label>
                             </div>
                         </div>
@@ -477,11 +575,6 @@
         window.pdfjsLib = pdfjsLib;
         console.log("Local PDF.js imported and attached to window.pdfjsLib");
     </script>
-    
-    <!-- Browser RAG Scripts -->
-    <script src="../js/browser-rag/indexed-db-vector-store.js"></script>
-    <script src="../js/browser-rag/browser-retriever.js"></script>
-    <script src="../js/browser-rag/script-rag.js"></script>
     
     <!-- MCP Browser Client for Web Mode (Remote MCP servers only) -->
     <script src="../js/mcp-browser-client.js"></script>
