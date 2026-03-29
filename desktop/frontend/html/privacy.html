@@ -1,109 +1,161 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - ChatUCY</title>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="../js/alpine-components/tailwind-config.js"></script>
-    
-    <!-- Font Awesome -->
+    <title>Privacy Policy — ChatUCY</title>
+
+    <script>
+      (function () {
+        var t = localStorage.getItem('chatucy-theme');
+        document.documentElement.dataset.theme = (t === 'dark' || t === 'light') ? t : 'light';
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="../css/design-system.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 
-<body class="flex flex-col min-h-screen bg-gray-50">
-    <!-- Header -->
-    <header class="bg-gray-900 text-white py-6 px-4">
-        <div class="container mx-auto">
-            <h1 class="text-3xl font-bold">Privacy Policy</h1>
+<body style="min-height:100vh; display:flex; flex-direction:column;">
+
+    <!-- Site Header -->
+    <header class="ds-site-header">
+        <div class="ds-container ds-site-header-inner">
+            <a href="/" class="ds-site-logo">ChatUCY</a>
+            <nav class="ds-site-nav" aria-label="Primary">
+                <a href="/" class="ds-link">Home</a>
+                <a href="/chat.html" class="ds-link">Chat</a>
+                <a href="/llmms.html" class="ds-link">LLM-MS</a>
+                <a href="/terms.html" class="ds-link">Terms</a>
+            </nav>
+            <div class="ds-theme-toggle" role="group" aria-label="Mode">
+                <span class="ds-theme-toggle-label">Mode</span>
+                <div class="ds-theme-toggle-buttons">
+                    <button type="button" data-theme-toggle="light">Light</button>
+                    <button type="button" data-theme-toggle="dark">Dark</button>
+                </div>
+            </div>
+            <details class="ds-mobile-nav">
+                <summary>Menu</summary>
+                <nav aria-label="Mobile">
+                    <a href="/" class="ds-link">Home</a>
+                    <a href="/chat.html" class="ds-link">Chat</a>
+                    <a href="/terms.html" class="ds-link">Terms</a>
+                </nav>
+            </details>
         </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="flex-1 container mx-auto px-4 py-12">
-        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
-            <section class="mb-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Introduction</h2>
-                <p class="text-gray-700 leading-relaxed">
-                    At ChatUCY, we are committed to protecting your privacy. This policy explains how we collect, use, and
-                    safeguard information during your use of our platform.
-                </p>
+    <!-- Hero -->
+    <section class="ds-hero" style="padding-bottom:var(--space-6);">
+        <div class="ds-container ds-hero-inner">
+            <h1 class="ds-hero-title" style="font-size:clamp(2rem,5vw,3.2rem);">Privacy Policy</h1>
+            <p class="ds-hero-subline">How ChatUCY handles your data — and why we collect almost none of it.</p>
+        </div>
+    </section>
+
+    <!-- Content -->
+    <main style="flex:1; padding-bottom:var(--space-8);">
+        <div class="ds-container">
+
+            <section class="ds-section" style="border-top:none; padding-top:0;">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">01</span>
+                    <div class="ds-section-title">Introduction</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px;">
+                    <p style="color:var(--muted); line-height:1.75;">
+                        At ChatUCY, we are committed to protecting your privacy. This policy explains how we collect, use, and
+                        safeguard information during your use of our platform.
+                    </p>
+                </div>
             </section>
 
-            <section class="mb-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Data Collection</h2>
-                <p class="text-gray-700 leading-relaxed">
-                    ChatUCY does not collect or store your personal data or chat history. All interactions occur in real-time
-                    and are not logged or saved by the system.
-                </p>
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">02</span>
+                    <div class="ds-section-title">Data Collection</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px;">
+                    <p style="color:var(--muted); line-height:1.75;">
+                        ChatUCY does not collect or store your personal data or chat history. All interactions occur in real-time
+                        and are not logged or saved by the system.
+                    </p>
+                </div>
             </section>
 
-            <section class="mb-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Use of Open-Source Models</h2>
-                <p class="text-gray-700 leading-relaxed">
-                    Our platform uses open-source AI models to provide chat functionality. These models run on our university's
-                    infrastructure and are not shared with third-party providers.
-                </p>
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">03</span>
+                    <div class="ds-section-title">Use of Open-Source Models</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px;">
+                    <p style="color:var(--muted); line-height:1.75;">
+                        Our platform uses open-source AI models to provide chat functionality. These models run on our university's
+                        infrastructure and are not shared with third-party providers.
+                    </p>
+                </div>
             </section>
 
-            <section class="mb-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Security</h2>
-                <p class="text-gray-700 leading-relaxed">
-                    Although we do not store user data, our platform implements industry-standard security measures to ensure a
-                    safe browsing experience.
-                </p>
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">04</span>
+                    <div class="ds-section-title">Security</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px;">
+                    <p style="color:var(--muted); line-height:1.75;">
+                        Although we do not store user data, our platform implements industry-standard security measures to ensure a
+                        safe browsing experience.
+                    </p>
+                </div>
             </section>
 
-            <section class="mb-8">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Your Rights</h2>
-                <p class="text-gray-700 leading-relaxed">
-                    As we do not retain any user data, you are assured of complete privacy during your session. If you have any
-                    concerns or questions, please contact us at
-                    <a href="mailto:dmsl@cs.ucy.ac.cy" class="text-primary hover:underline">dmsl@cs.ucy.ac.cy</a>.
-                </p>
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">05</span>
+                    <div class="ds-section-title">Your Rights</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px;">
+                    <p style="color:var(--muted); line-height:1.75;">
+                        As we do not retain any user data, you are assured of complete privacy during your session. If you have any
+                        concerns or questions, please contact us at
+                        <a href="mailto:dmsl@cs.ucy.ac.cy" class="ds-link ds-link--accent">dmsl@cs.ucy.ac.cy</a>.
+                    </p>
+                </div>
             </section>
 
-            <section>
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Contact</h2>
-                <p class="text-gray-700 leading-relaxed">
-                    If you have questions about this privacy policy, please contact us at
-                    <a href="mailto:dmsl@cs.ucy.ac.cy" class="text-primary hover:underline">dmsl@cs.ucy.ac.cy</a>.
-                </p>
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">06</span>
+                    <div class="ds-section-title">Contact</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px; display:grid; gap:var(--space-3);">
+                    <p style="color:var(--muted);">Questions about this privacy policy?</p>
+                    <div>
+                        <p class="ds-meta" style="margin-bottom:4px;">Email</p>
+                        <a href="mailto:dmsl@cs.ucy.ac.cy" class="ds-link ds-link--accent">dmsl@cs.ucy.ac.cy</a>
+                    </div>
+                </div>
             </section>
+
         </div>
     </main>
 
     <!-- Footer -->
-    <footer class="bg-gray-900 text-white py-8">
-        <div class="container mx-auto px-4">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
-                <!-- Contact Section -->
-                <div>
-                    <h4 class="font-bold mb-3 text-lg">Contact</h4>
-                    <p class="mb-1">
-                        <i class="fas fa-envelope mr-2"></i>
-                        <a href="mailto:dmsl@cs.ucy.ac.cy" class="hover:text-primary transition-colors">dmsl@cs.ucy.ac.cy</a>
-                    </p>
-                    <p>
-                        <i class="fas fa-phone mr-2"></i>
-                        <a href="tel:+35722892755" class="hover:text-primary transition-colors">+357-22-892755</a>
-                    </p>
-                </div>
-
-                <!-- Legal Section -->
-                <div class="text-center md:text-right">
-                    <h4 class="font-bold mb-3 text-lg">Legal</h4>
-                    <p class="mb-2">
-                        <a href="/terms.html" class="hover:text-primary transition-colors">Terms of Service</a>
-                        <span class="mx-2">|</span>
-                        <a href="/privacy.html" class="hover:text-primary transition-colors">Privacy Policy</a>
-                    </p>
-                    <p class="text-gray-400">© 2024 ChatUCY. All rights reserved.</p>
-                </div>
+    <footer class="ds-footer">
+        <div class="ds-container ds-footer-inner">
+            <div><span>ChatUCY — </span><a href="http://dmsl.cs.ucy.ac.cy/" target="_blank">DMSL, University of Cyprus</a></div>
+            <div style="display:flex; gap:var(--space-5); align-items:center; flex-wrap:wrap;">
+                <a href="/terms.html">Terms</a>
+                <a href="/privacy.html" style="color:var(--accent);">Privacy</a>
+                <span>© 2025 ChatUCY</span>
             </div>
         </div>
     </footer>
+
+    <script src="../js/ds-theme.js"></script>
 </body>
 </html>

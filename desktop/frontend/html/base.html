@@ -1,52 +1,89 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChatUCY</title>
-    
+
+    <!-- Theme: apply before paint to prevent flash -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('chatucy-theme');
+        document.documentElement.dataset.theme = (t === 'dark' || t === 'light') ? t : 'light';
+      })();
+    </script>
+
+    <!-- Design System -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="../css/design-system.css" rel="stylesheet">
+
     <!-- Tailwind CSS - Local compiled version -->
     <link href="../dist/output.css" rel="stylesheet">
-    
+
     <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 
-<body class="flex flex-col min-h-screen bg-white">
+<body style="min-height:100vh; display:flex; flex-direction:column;">
+
+    <!-- Site Header -->
+    <header class="ds-site-header">
+        <div class="ds-container ds-site-header-inner">
+            <a href="/" class="ds-site-logo">ChatUCY</a>
+
+            <nav class="ds-site-nav" aria-label="Primary">
+                <a href="/" class="ds-link">Home</a>
+                <a href="/chat.html" class="ds-link">Chat</a>
+                <a href="/llmms.html" class="ds-link">LLM-MS</a>
+                <a href="/privacyllm.html" class="ds-link">Private LLM</a>
+                <a href="/publications/" class="ds-link">Research</a>
+            </nav>
+
+            <div class="ds-theme-toggle" role="group" aria-label="Mode">
+                <span class="ds-theme-toggle-label">Mode</span>
+                <div class="ds-theme-toggle-buttons">
+                    <button type="button" data-theme-toggle="light">Light</button>
+                    <button type="button" data-theme-toggle="dark">Dark</button>
+                </div>
+            </div>
+
+            <details class="ds-mobile-nav">
+                <summary>Menu</summary>
+                <nav aria-label="Mobile">
+                    <a href="/" class="ds-link">Home</a>
+                    <a href="/chat.html" class="ds-link">Chat</a>
+                    <a href="/llmms.html" class="ds-link">LLM-MS</a>
+                    <a href="/privacyllm.html" class="ds-link">Private LLM</a>
+                    <a href="/publications/" class="ds-link">Research</a>
+                </nav>
+            </details>
+        </div>
+    </header>
+
     <!-- Main content area - can be filled by including pages -->
-    <main class="flex-1">
+    <main style="flex:1;">
         <!-- Page content goes here -->
     </main>
 
     <!-- Footer -->
-    <footer class="bg-gray-900 text-white py-8 mt-auto">
-        <div class="container mx-auto px-4">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
-                <!-- Contact Section -->
-                <div>
-                    <h4 class="font-bold mb-3 text-lg">Contact</h4>
-                    <p class="mb-1">
-                        <i class="fas fa-envelope mr-2"></i>
-                        <a href="mailto:dmsl@cs.ucy.ac.cy" class="hover:text-primary transition-colors">dmsl@cs.ucy.ac.cy</a>
-                    </p>
-                    <p>
-                        <i class="fas fa-phone mr-2"></i>
-                        <a href="tel:+35722892755" class="hover:text-primary transition-colors">+357-22-892755</a>
-                    </p>
-                </div>
-
-                <!-- Legal Section -->
-                <div class="text-center md:text-right">
-                    <h4 class="font-bold mb-3 text-lg">Legal</h4>
-                    <p class="mb-2">
-                        <a href="/terms.html" class="hover:text-primary transition-colors">Terms of Service</a>
-                        <span class="mx-2">|</span>
-                        <a href="/privacy.html" class="hover:text-primary transition-colors">Privacy Policy</a>
-                    </p>
-                    <p class="text-gray-400">© 2024 ChatUCY. All rights reserved.</p>
-                </div>
+    <footer class="ds-footer">
+        <div class="ds-container ds-footer-inner">
+            <div>
+                <span>ChatUCY — DMSL, University of Cyprus</span>
+                <span style="margin-left:16px;">
+                    <a href="mailto:dmsl@cs.ucy.ac.cy">dmsl@cs.ucy.ac.cy</a>
+                </span>
+            </div>
+            <div style="display:flex; gap:24px; align-items:center;">
+                <a href="/terms.html">Terms</a>
+                <a href="/privacy.html">Privacy</a>
+                <span>© 2025 ChatUCY</span>
             </div>
         </div>
     </footer>
+
+    <script src="../js/ds-theme.js"></script>
 </body>
 </html>

@@ -8,6 +8,35 @@ class MCPConfigManager {
   constructor() {
     this.storageKey = 'mcp_browser_config';
     this.initializeStorage();
+    this._migrate();
+  }
+
+  /**
+   * Migrate old configs (e.g. wss:// playwright URL → https:// SSE URL)
+   * Runs on every page load; idempotent.
+   * @private
+   */
+  _migrate() {
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      if (!raw) return;
+      const config = JSON.parse(raw);
+      let dirty = false;
+      for (const s of (config.servers || [])) {
+        if (s.name === 'playwright' && (s.url.startsWith('ws://') || s.url.startsWith('wss://'))) {
+          s.url  = 'https://chatucy.cs.ucy.ac.cy/mcp/playwright';
+          s.type = 'sse';
+          s.autoConnect = true;
+          dirty = true;
+        }
+      }
+      if (dirty) {
+        localStorage.setItem(this.storageKey, JSON.stringify(config));
+        console.log('[MCP Config] Migrated playwright server to SSE transport');
+      }
+    } catch (e) {
+      console.warn('[MCP Config] Migration error:', e);
+    }
   }
 
   /**
@@ -16,7 +45,14 @@ class MCPConfigManager {
   initializeStorage() {
     if (!localStorage.getItem(this.storageKey)) {
       const defaultConfig = {
-        servers: [],
+        servers: [
+          {
+            name: 'playwright',
+            url: 'https://chatucy.cs.ucy.ac.cy/mcp/playwright',
+            type: 'sse',
+            autoConnect: true
+          }
+        ],
         version: '1.0'
       };
       localStorage.setItem(this.storageKey, JSON.stringify(defaultConfig));
@@ -191,7 +227,7 @@ class MCPConfigManager {
   static isValidWebSocketUrl(url) {
     try {
       const parsed = new URL(url);
-      return parsed.protocol === 'ws:' || parsed.protocol === 'wss:';
+      return ['ws:', 'wss:', 'http:', 'https:'].includes(parsed.protocol);
     } catch {
       return false;
     }

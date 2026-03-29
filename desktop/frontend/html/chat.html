@@ -1,10 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Chat UCY</title>
-    
+
+    <!-- Theme: apply before paint -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('chatucy-theme');
+        document.documentElement.dataset.theme = (t === 'dark' || t === 'light') ? t : 'light';
+      })();
+    </script>
+
+    <!-- Design System -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="../css/design-system.css" rel="stylesheet">
+
     <!-- Tailwind CSS - Local compiled version -->
     <link href="../dist/output.css" rel="stylesheet">
     
@@ -69,7 +83,94 @@
         .message-animate {
             animation: fadeInUp 0.3s ease-out forwards;
         }
-        
+
+        /* ── Markdown content rendering ── */
+        .md-content { font-size: 0.875rem; line-height: 1.7; color: inherit; }
+        .md-content p { margin: 0 0 0.65em; }
+        .md-content p:last-child { margin-bottom: 0; }
+        .md-content h1,.md-content h2,.md-content h3,.md-content h4 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600; margin: 1em 0 0.35em; line-height: 1.3;
+            color: var(--text-strong);
+        }
+        .md-content h1 { font-size: 1.25em; }
+        .md-content h2 { font-size: 1.1em; }
+        .md-content h3 { font-size: 1em; }
+        .md-content h4 { font-size: 0.9em; color: var(--muted); }
+        .md-content strong { font-weight: 600; color: var(--text-strong); }
+        .md-content em { font-style: italic; }
+        .md-content ul, .md-content ol { margin: 0.4em 0 0.7em 1.2em; padding: 0; }
+        .md-content li { margin: 0.2em 0; }
+        .md-content ul { list-style: disc; }
+        .md-content ol { list-style: decimal; }
+        .md-content ul li::marker { color: var(--accent); }
+        .md-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+        .md-content blockquote {
+            border-left: 3px solid var(--accent);
+            margin: 0.6em 0; padding: 0.3em 0.8em;
+            background: rgba(106,66,194,0.05);
+            border-radius: 0 6px 6px 0;
+            color: var(--muted);
+        }
+        .md-content code {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.82em;
+            background: rgba(106,66,194,0.08);
+            color: var(--accent);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+        }
+        .md-content pre {
+            position: relative;
+            background: rgba(106,66,194,0.07);
+            border-radius: 8px;
+            padding: 12px 16px;
+            padding-right: 48px;
+            overflow-x: auto;
+            margin: 0.6em 0;
+            border: 1px solid rgba(106,66,194,0.15);
+        }
+        .md-content pre code {
+            background: none;
+            color: #2d1460;
+            padding: 0;
+            font-size: 0.8em;
+            line-height: 1.65;
+        }
+        .md-copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(255,255,255,0.85);
+            border: 1px solid rgba(106,66,194,0.2);
+            color: var(--accent);
+            border-radius: 5px;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.7rem;
+            transition: background 0.15s, color 0.15s;
+            opacity: 0.7;
+        }
+        .md-copy-btn:hover {
+            background: var(--accent);
+            color: #fff;
+            opacity: 1;
+        }
+        .md-content hr { border: none; border-top: 1px solid var(--border); margin: 0.8em 0; }
+        .md-content table { width: 100%; border-collapse: collapse; margin: 0.6em 0; font-size: 0.85em; }
+        .md-content th { background: rgba(106,66,194,0.08); font-weight: 600; }
+        .md-content th, .md-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+        /* user bubble overrides – keep text white */
+        .md-content--user strong, .md-content--user h1,
+        .md-content--user h2, .md-content--user h3 { color: #fff; }
+        .md-content--user code { background: rgba(255,255,255,0.18); color: #fff; }
+        .md-content--user a { color: rgba(255,255,255,0.85); }
+        .md-content--user ul li::marker { color: rgba(255,255,255,0.7); }
+
         /* Button hover scale */
         .btn-hover-scale:hover {
             transform: scale(1.05);
@@ -177,10 +278,248 @@
                 will-change: width;
             }
         }
+
+        /* Sidebar bg-primary-pale (Tailwind static colour) → design system surface */
+        .bg-primary-pale {
+            background: var(--surface-elevated) !important;
+        }
+        /* Sidebar border-sidebar-border */
+        .border-sidebar-border {
+            border-color: var(--border) !important;
+        }
+
+        /* ═══════════════════════════════════════════════════════
+           Design System integration overrides
+           Map all Tailwind colour classes → CSS variables
+           ═══════════════════════════════════════════════════════ */
+
+        /* Body & global background */
+        body { background: var(--bg) !important; color: var(--text) !important; }
+
+        /* Sidebar */
+        aside {
+            background: var(--surface-elevated) !important;
+            border-right: 1px solid var(--border) !important;
+        }
+
+        /* Sidebar header */
+        .p-4.border-b { border-color: var(--border) !important; }
+        .p-4.border-b h2 { color: var(--text-strong) !important; }
+
+        /* Session items — inactive */
+        .session-item { background: var(--surface) !important; border-color: var(--border) !important; color: var(--text) !important; box-shadow: none !important; }
+        .session-item .text-gray-700 { color: var(--text) !important; }
+        .session-item:hover { border-color: rgba(106,66,194,0.28) !important; background: rgba(106,66,194,0.05) !important; }
+
+        /* Session items — active (bg-primary) */
+        .bg-primary.text-white.shadow-sm { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+        .bg-primary.text-white.shadow-sm span,
+        .bg-primary.text-white.shadow-sm .text-white { color: #fff !important; }
+
+        /* Sidebar footer border */
+        .border-t.border-gray-200 { border-color: var(--border) !important; }
+
+        /* "New Chat" and action buttons in sidebar */
+        .bg-primary.hover\:bg-primary-dark.text-white { background: var(--accent) !important; color: #fff !important; border: none; }
+        .bg-primary.hover\:bg-primary-dark.text-white:hover { background: color-mix(in srgb, var(--accent) 82%, #000) !important; }
+        .bg-gray-700.hover\:bg-gray-800.text-white {
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            border: 1px solid var(--border) !important;
+        }
+        .bg-gray-700.hover\:bg-gray-800.text-white:hover { border-color: var(--accent) !important; color: var(--accent) !important; }
+
+        /* MCP tools panel (Electron only) */
+        #mcp-tools-panel.bg-gray-700 { background: var(--surface) !important; border-color: var(--border) !important; color: var(--text) !important; }
+        #mcp-tools-panel.bg-gray-700:hover { background: var(--surface-elevated) !important; }
+
+        /* Chat history area */
+        #chat-history { background: var(--bg) !important; }
+        #messages-container { color: var(--text) !important; }
+
+        /* User message bubble */
+        .bg-primary.text-white.rounded-tl-2xl { background: var(--accent) !important; color: #fff !important; }
+
+        /* Assistant message */
+        .text-gray-800 { color: var(--text) !important; }
+        .text-gray-600 { color: var(--muted) !important; }
+        .text-xs.text-gray-600.font-medium { color: var(--muted) !important; }
+        .flex-1.h-px.bg-gray-300 { background: var(--border) !important; }
+        .w-4.h-4.rounded-full.bg-white.border.border-gray-300 { background: var(--surface-elevated) !important; border-color: var(--border) !important; }
+
+        /* File upload info bar */
+        .mb-2.px-3.py-2.bg-white.rounded-lg.border.border-gray-200 {
+            background: var(--surface-elevated) !important;
+            border-color: var(--border) !important;
+            color: var(--text) !important;
+        }
+        .text-sm.text-gray-700 { color: var(--text) !important; }
+
+        /* Input container box */
+        .bg-white.rounded-2xl.shadow-lg {
+            background: var(--surface-elevated) !important;
+            border-color: var(--border) !important;
+            box-shadow: 0 4px 24px rgba(106,66,194,0.08) !important;
+        }
+        textarea.flex-1, .input-focus {
+            background: transparent !important;
+            color: var(--text) !important;
+        }
+        textarea.flex-1::placeholder { color: var(--muted) !important; }
+        .border-t.border-gray-200.mt-3 { border-color: var(--border) !important; }
+
+        /* Send button */
+        .bg-primary.hover\:bg-primary-dark.shadow-md { background: var(--accent) !important; }
+        .bg-primary.hover\:bg-primary-dark.shadow-md:hover { background: color-mix(in srgb, var(--accent) 82%, #000) !important; }
+        .bg-gray-300.cursor-not-allowed { background: var(--border) !important; }
+
+        /* Model selector button */
+        .border-primary.text-primary { border-color: var(--accent) !important; color: var(--accent) !important; }
+        .hover\:bg-primary-pale:hover { background: rgba(106,66,194,0.07) !important; }
+
+        /* Model dropdown panel */
+        .absolute.bottom-full.mb-2.bg-white.rounded-lg {
+            background: var(--surface-elevated) !important;
+            border-color: var(--border) !important;
+        }
+        .px-3.py-1.text-xs.font-semibold.text-gray-500 { color: var(--muted) !important; }
+        .hover\:bg-gray-100:hover { background: rgba(106,66,194,0.06) !important; }
+        .text-sm.hover\:bg-gray-100 { color: var(--text) !important; }
+
+        /* File upload button */
+        .w-10.h-10.rounded-lg.border.border-primary { border-color: var(--accent) !important; color: var(--accent) !important; }
+
+        /* Local RAG toggle */
+        .border-primary.bg-primary-pale { background: rgba(106,66,194,0.07) !important; border-color: var(--accent) !important; color: var(--accent) !important; }
+        .border-gray-300.text-gray-600 { border-color: var(--border) !important; color: var(--muted) !important; }
+
+        /* Session edit/delete modal */
+        .bg-white.rounded-2xl.shadow-2xl {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text) !important;
+        }
+        .text-lg.font-semibold.text-gray-800 { color: var(--text-strong) !important; }
+        .text-gray-600.text-sm { color: var(--muted) !important; }
+        .w-full.px-4.py-3.border.border-gray-300.rounded-lg {
+            background: transparent !important;
+            border-color: var(--border) !important;
+            color: var(--text) !important;
+        }
+        .bg-gray-100.hover\:bg-gray-200.text-gray-700 {
+            background: var(--surface) !important;
+            color: var(--text) !important;
+            border: 1px solid var(--border);
+        }
+        .bg-gray-100.hover\:bg-gray-200.text-gray-700:hover { background: var(--surface-elevated) !important; }
+        .bg-primary.hover\:bg-primary-dark.text-white.rounded-lg.font-medium {
+            background: var(--accent) !important; color: #fff !important;
+        }
+        .w-12.h-12.bg-red-100.rounded-full { background: rgba(220,38,38,0.12) !important; }
+
+        /* MCP Config modal */
+        .bg-white.rounded-2xl.shadow-2xl.max-w-2xl,
+        .bg-white.rounded-2xl.shadow-2xl.max-w-4xl {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border) !important;
+        }
+        .text-xl.font-semibold.text-gray-800,
+        .text-2xl.font-bold.text-gray-800 { color: var(--text-strong) !important; }
+        .border-b.border-gray-200 { border-color: var(--border) !important; }
+        .border-b-2.border-primary.text-primary { border-color: var(--accent) !important; color: var(--accent) !important; }
+        .text-gray-600.hover\:text-gray-800 { color: var(--muted) !important; }
+        .text-gray-600.hover\:text-gray-800:hover { color: var(--text-strong) !important; }
+        .text-gray-500.hover\:text-gray-700 { color: var(--muted) !important; }
+
+        /* Add server form */
+        .bg-gradient-to-br.from-blue-50.to-purple-50 {
+            background: rgba(106,66,194,0.05) !important;
+            border-color: rgba(106,66,194,0.2) !important;
+        }
+        .p-4.bg-blue-50.border.border-blue-200.rounded-lg {
+            background: rgba(106,66,194,0.05) !important;
+            border-color: rgba(106,66,194,0.2) !important;
+            color: var(--text) !important;
+        }
+        .text-sm.text-blue-900 { color: var(--text) !important; }
+        .text-blue-900 .font-semibold { color: var(--text-strong) !important; }
+        .text-xs.text-blue-700 { color: var(--accent) !important; }
+        .px-2.py-1.bg-blue-100.text-blue-700 { background: rgba(106,66,194,0.1) !important; color: var(--accent) !important; }
+        .px-3.py-1.bg-blue-100.text-blue-700 { background: rgba(106,66,194,0.1) !important; color: var(--accent) !important; }
+
+        /* MCP server form inputs */
+        .w-full.px-3.py-2.border.border-gray-300 {
+            background: transparent !important;
+            border-color: var(--border) !important;
+            color: var(--text) !important;
+        }
+        .label.flex.items-center.gap-2.p-3.bg-white.rounded-lg,
+        label.flex.items-center.gap-2.p-3.bg-white.rounded-lg {
+            background: var(--surface) !important;
+            border-color: var(--border) !important;
+        }
+        .text-sm.text-gray-700.font-medium { color: var(--text) !important; }
+        .text-sm.font-medium.text-gray-700.mb-1 { color: var(--muted) !important; }
+        .p-3.bg-red-50.border.border-red-200 { background: rgba(220,38,38,0.06) !important; border-color: rgba(220,38,38,0.25) !important; }
+        .flex-1.bg-gray-200.hover\:bg-gray-300.text-gray-700 {
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text) !important;
+        }
+
+        /* Server list items in modal */
+        .border.border-gray-300.rounded-lg.p-4 {
+            border-color: var(--border) !important;
+            background: var(--surface) !important;
+        }
+        .border.border-gray-300.rounded-lg.p-4.bg-gray-50 {
+            background: var(--surface) !important;
+            border-color: var(--border) !important;
+        }
+        .border-b.border-gray-300 { border-color: var(--border) !important; }
+        .font-semibold.text-gray-800 { color: var(--text-strong) !important; }
+        .text-xs.text-gray-600.capitalize { color: var(--muted) !important; }
+
+        /* Tools list items */
+        .border.border-gray-200.rounded-lg.hover\:bg-white {
+            border-color: var(--border) !important;
+            background: var(--surface) !important;
+        }
+        .border.border-gray-200.rounded-lg.hover\:bg-white:hover { background: var(--surface-elevated) !important; }
+        .font-medium.text-gray-800.break-words { color: var(--text-strong) !important; }
+        .text-xs.text-gray-600.mt-1 { color: var(--muted) !important; }
+
+        /* MCP modal footer */
+        .flex.gap-3.mt-8.pt-6.border-t.border-gray-200 { border-color: var(--border) !important; }
+        .flex-1.px-4.py-3.bg-gray-100 { background: var(--surface) !important; color: var(--text) !important; border: 1px solid var(--border); }
+        .flex-1.px-4.py-3.bg-gray-100:hover { background: var(--surface-elevated) !important; }
+        .flex-1.px-4.py-3.bg-primary { background: var(--accent) !important; color: #fff !important; }
+
+        /* JSON editor modal */
+        .bg-gradient-to-r.from-primary\/5.to-purple-50 {
+            background: rgba(106,66,194,0.05) !important;
+            border-color: var(--border) !important;
+        }
+        .w-full.h-\[500px\].px-4.py-3.border-2.border-gray-300.rounded-lg.font-mono {
+            background: var(--surface) !important;
+            border-color: var(--border) !important;
+            color: var(--text) !important;
+            font-size: 0.8rem;
+        }
+        .p-6.border-t.border-gray-200.bg-gray-50 {
+            background: var(--surface) !important;
+            border-color: var(--border) !important;
+        }
+        .px-4.py-3.bg-gray-200.hover\:bg-gray-300 {
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text) !important;
+        }
+        .px-6.py-3.bg-primary { background: var(--accent) !important; color: #fff !important; }
     </style>
 </head>
 
-<body class="h-screen overflow-hidden bg-white font-sans antialiased" x-data="chatApp()">
+<body class="h-screen overflow-hidden font-sans antialiased" x-data="chatApp()" style="background:var(--bg); color:var(--text)">
     <!-- Mobile Overlay -->
     <div 
         x-show="sidebarOpen"
@@ -195,89 +534,98 @@
         <!-- Sidebar -->
         <aside 
             :class="sidebarOpen ? 'translate-x-0 lg:w-60' : '-translate-x-full lg:translate-x-0 lg:w-0'"
-            class="fixed lg:relative inset-y-0 left-0 z-40 w-72 bg-primary-pale transition-all duration-300 ease-in-out flex flex-col overflow-hidden"
-            style="border-right: 1px solid rgba(229, 231, 235, 0.3);">
+            class="fixed lg:relative inset-y-0 left-0 z-40 w-60 bg-primary-pale transition-all duration-300 ease-in-out flex flex-col overflow-hidden"
+            style="border-right: 1px solid var(--border);">
             
-            <!-- Sidebar Content Wrapper (prevents content from squishing on desktop) -->
-            <div class="w-72 lg:w-60 flex flex-col h-full">
+            <!-- Sidebar Content Wrapper -->
+            <div style="width:100%; flex-shrink:0; display:flex; flex-direction:column; height:100%;">
+
                 <!-- Sidebar Header -->
-                <div class="p-4 border-b border-sidebar-border flex-shrink-0">
-                    <h2 class="text-lg font-semibold text-gray-800 whitespace-nowrap">Sessions</h2>
+                <div style="padding:16px; border-bottom:1px solid var(--border); flex-shrink:0;">
+                    <span style="font-family:var(--font-heading); font-size:0.7rem; letter-spacing:0.28em; text-transform:uppercase; color:var(--muted);">Sessions</span>
                 </div>
-            
+
                 <!-- Session List -->
-                <div class="flex-1 overflow-y-auto px-2 py-3 space-y-1.5 custom-scrollbar">
+                <div class="custom-scrollbar" style="flex:1; overflow-y:auto; padding:8px;">
                     <template x-for="session in sessions" :key="session.id">
-                        <div 
-                            :class="currentSession === session.id ? 'bg-primary text-white shadow-sm' : 'bg-white text-gray-700 hover:shadow-sm'"
-                            class="w-full rounded-lg transition-all duration-200 group session-item cursor-pointer shadow-sm border border-gray-100">
-                            <div class="flex items-center gap-2 px-3 py-2">
-                                <button 
+                        <div
+                            :style="currentSession === session.id
+                                ? 'background:var(--accent); border-color:var(--accent); color:#fff;'
+                                : 'background:var(--surface); border-color:var(--border); color:var(--text);'"
+                            style="width:100%; border:1px solid; border-radius:var(--radius); margin-bottom:4px; transition:border-color 0.18s, background 0.18s; cursor:pointer;"
+                            class="group session-item">
+                            <div style="display:flex; align-items:center; gap:8px; padding:8px 10px;">
+                                <button
                                     @click="selectSession(session.id)"
-                                    class="flex-1 text-left flex items-center gap-2 min-w-0 overflow-hidden">
-                                    <i :class="currentSession === session.id ? 'text-white' : 'text-gray-400'" class="fas fa-message text-xs flex-shrink-0 transition-colors"></i>
-                                    <span class="text-sm truncate leading-tight block font-medium" x-text="session.name"></span>
+                                    style="flex:1; text-align:left; display:flex; align-items:center; gap:8px; min-width:0; overflow:hidden; background:none; border:none; cursor:pointer; color:inherit; font:inherit;">
+                                    <i :style="currentSession === session.id ? 'color:#fff;' : 'color:var(--muted);'"
+                                       class="fas fa-message"
+                                       style="font-size:0.65rem; flex-shrink:0;"></i>
+                                    <span style="font-size:0.8rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="session.name"></span>
                                 </button>
-                                <div class="flex items-center gap-0.5 opacity-0 lg:group-hover:opacity-100 lg:transition-opacity opacity-100 lg:opacity-0 flex-shrink-0">
-                                    <button 
+                                <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;" class="session-actions">
+                                    <button
                                         @click="editSessionName(session.id)"
-                                        :class="currentSession === session.id ? 'hover:bg-primary-dark' : 'hover:bg-gray-100'"
-                                        class="p-1.5 rounded-md transition-all"
+                                        :style="currentSession === session.id ? 'color:#fff;' : 'color:var(--muted);'"
+                                        style="padding:4px 6px; background:none; border:none; cursor:pointer; border-radius:var(--radius); transition:color 0.15s, background 0.15s; font-size:0.6rem;"
                                         title="Rename">
-                                        <i class="fas fa-pen text-[10px]"></i>
+                                        <i class="fas fa-pen"></i>
                                     </button>
-                                    <button 
+                                    <button
                                         @click="deleteSession(session.id)"
-                                        :class="currentSession === session.id ? 'hover:bg-red-600' : 'hover:bg-red-50 hover:text-red-600'"
-                                        class="p-1.5 rounded-md transition-all"
+                                        style="padding:4px 6px; background:none; border:none; cursor:pointer; border-radius:var(--radius); color:var(--muted); transition:color 0.15s; font-size:0.65rem;"
+                                        onmouseover="this.style.color='#dc2626'"
+                                        onmouseout="this.style.color='var(--muted)'"
                                         title="Delete">
-                                        <i class="fas fa-xmark text-xs"></i>
+                                        <i class="fas fa-xmark"></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
                     </template>
-                    
+
                     <!-- Empty state -->
-                    <div x-show="sessions.length === 0" class="text-center py-8 text-gray-500">
-                        <i class="fas fa-comments text-3xl mb-2"></i>
-                        <p class="text-sm">No sessions yet</p>
+                    <div x-show="sessions.length === 0" style="text-align:center; padding:32px 0; color:var(--muted);">
+                        <i class="fas fa-comments" style="font-size:1.5rem; display:block; margin-bottom:8px; opacity:0.4;"></i>
+                        <p style="font-size:0.75rem; letter-spacing:0.1em;">No sessions yet</p>
                     </div>
                 </div>
-                
+
                 <!-- Sidebar Footer -->
-                <div class="p-3 border-t border-gray-200 space-y-2 flex-shrink-0">
-                    <!-- MCP Tools Panel (Desktop only) -->
-                    <button id="mcp-tools-panel" style="display:none;" @click="mcpConfigModal.show = true; mcpConfigModal.activeTab = 'tools'" class="w-full mb-4 p-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-xs text-left transition-colors">
-                       <div class="font-semibold mb-2 flex items-center gap-2">
-                           <i class="fas fa-plug text-green-400"></i>
-                           <span>MCP Tools</span>
-                       </div>
-                       <div id="mcp-tools-list" class="space-y-2 max-h-32 overflow-y-auto scrollbar-hidden text-xs"></div>
+                <div style="padding:12px; border-top:1px solid var(--border); display:grid; gap:8px; flex-shrink:0;">
+
+                    <!-- MCP Tools Panel (Electron only) -->
+                    <button id="mcp-tools-panel" style="display:none;"
+                        @click="mcpConfigModal.show = true; mcpConfigModal.activeTab = 'tools'"
+                        style="width:100%; padding:10px 12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:0.7rem; text-align:left; cursor:pointer; transition:border-color 0.18s;">
+                        <div style="font-weight:600; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-plug" style="color:var(--accent);"></i>
+                            <span>MCP Tools</span>
+                        </div>
+                        <div id="mcp-tools-list" style="max-height:128px; overflow-y:auto;" class="scrollbar-hidden"></div>
                     </button>
-                    
-                    <!-- New Chat Button -->
-                    <button 
-                        @click="newChat()"
-                        class="w-full bg-primary hover:bg-primary-dark text-white font-medium py-3 px-4 rounded-lg transition-colors">
-                        <i class="fas fa-plus mr-2"></i>New Chat
+
+                    <!-- New Chat -->
+                    <button @click="newChat()" class="ds-btn ds-btn--solid" style="width:100%; justify-content:center;">
+                        <i class="fas fa-plus"></i> New Chat
                     </button>
-                    
-                    <!-- Action Buttons -->
-                    <div class="flex gap-2">
-                        <button 
+
+                    <!-- Servers + Clear -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                        <button
                             @click="mcpConfigModal.show = true, mcpConfigModal.activeTab = 'servers', mcpConfigModal.loadServers()"
-                            class="flex-1 bg-gray-700 hover:bg-gray-800 text-white px-3 py-3 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium"
+                            class="ds-btn"
+                            style="justify-content:center; font-size:0.65rem; padding:8px;"
                             title="Configure MCP servers">
-                            <i class="fas fa-server"></i>
-                            <span>Servers</span>
+                            <i class="fas fa-server"></i> Servers
                         </button>
-                        <button 
+                        <button
                             @click="clearAllSessions()"
-                            class="flex-1 bg-red-600 hover:bg-red-700 text-white px-3 py-3 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium"
+                            style="display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:8px; border-radius:var(--radius); border:1px solid rgba(220,38,38,0.35); color:#dc2626; background:rgba(220,38,38,0.06); font-size:0.65rem; font-family:var(--font-body); letter-spacing:0.18em; text-transform:uppercase; cursor:pointer; transition:background 0.18s, border-color 0.18s;"
+                            onmouseover="this.style.background='rgba(220,38,38,0.14)'"
+                            onmouseout="this.style.background='rgba(220,38,38,0.06)'"
                             title="Clear all sessions">
-                            <i class="fas fa-trash-alt"></i>
-                            <span>Clear</span>
+                            <i class="fas fa-trash-alt"></i> Clear
                         </button>
                     </div>
                 </div>
@@ -287,101 +635,118 @@
         <!-- Main Content Area -->
         <main class="flex-1 flex flex-col h-full relative">
             <!-- Header -->
-            <header class="bg-white px-4 py-2.5 flex items-center justify-between ">
-                <!-- Left: Menu Toggle (always shows hamburger icon) -->
-                <button 
-                    @click="sidebarOpen = !sidebarOpen"
-                    class="text-gray-600 hover:bg-gray-100 w-10 h-10 rounded-lg transition-colors duration-200 flex items-center justify-center text-lg flex-shrink-0"
-                    title="Toggle sidebar">
-                    <i class="fas fa-bars"></i>
-                </button>
-                
-                <!-- Center: Title -->
-                <div class="flex-1 lg:ml-0 ml-4">
-                    <h1 class="text-base font-600 text-gray-900 hidden sm:block tracking-tight">Chat UCY</h1>
-                </div>
-                
-                <!-- Right: Logos & Menu -->
-                <div class="flex items-center gap-3">
-                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="UCY">
-                        <img src="../img/ucy_logo.png" alt="UCY" class="h-full object-contain" onerror="this.style.display='none'">
-                    </a>
-                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="DMSL">
-                        <img src="../img/dmsllogobig.png" alt="DMSL" class="h-full object-contain" onerror="this.style.display='none'">
-                    </a>
-                    
-                    <!-- Navigation Dropdown -->
-                    <div class="relative" x-data="{ open: false }">
-                        <button 
-                            @click="open = !open"
-                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center btn-hover-scale" title="Menu">
-                            <img src="../img/chatucy_logo.png" alt="ChatUCY" class="h-6 object-contain" onerror="this.innerHTML='☰'">
+            <header class="ds-app-header">
+                <div class="ds-app-header-inner">
+                    <!-- Left: sidebar toggle -->
+                    <button
+                        @click="sidebarOpen = !sidebarOpen"
+                        class="ds-icon-btn"
+                        title="Toggle sidebar">
+                        <i class="fas fa-bars"></i>
+                    </button>
+
+                    <!-- Center: Title -->
+                    <span class="ds-app-header-title">Chat UCY</span>
+
+                    <!-- Right: nav + logos + menu -->
+                    <div style="display:flex; align-items:center; gap:var(--space-3);">
+                        <nav class="ds-app-nav">
+                            <a href="/" class="ds-link">Home</a>
+                            <a href="/llmms.html" class="ds-link">LLM-MS</a>
+                            <a href="/privacy.html" class="ds-link">Privacy</a>
+                        </nav>
+
+                        <a href="https://www.ucy.ac.cy/" target="_blank" style="height:28px; display:none;" class="sm-show" title="UCY">
+                            <img src="../img/ucy_logo.png" alt="UCY" style="height:100%; object-fit:contain;" onerror="this.parentElement.style.display='none'">
+                        </a>
+                        <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" style="height:28px; display:none;" class="sm-show" title="DMSL">
+                            <img src="../img/dmsllogobig.png" alt="DMSL" style="height:100%; object-fit:contain;" onerror="this.parentElement.style.display='none'">
+                        </a>
+
+                        <!-- Live Browser View toggle -->
+                        <button
+                            @click="browserViewOpen = !browserViewOpen"
+                            class="ds-icon-btn"
+                            :style="browserViewOpen ? 'background:var(--accent); color:#fff; border-color:var(--accent);' : ''"
+                            title="Toggle live browser view">
+                            <i class="fas fa-desktop" style="font-size:0.8rem;"></i>
                         </button>
-                        <div 
-                            x-show="open"
-                            @click.away="open = false"
-                            x-transition
-                            class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                            <div class="px-4 py-2 text-sm text-gray-500 border-b border-gray-200">v1.2</div>
-                            <a href="/" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-home"></i> Home
-                            </a>
-                            <a href="/privacy" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-lock"></i> Privacy
-                            </a>
-                            <a href="/terms" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-file-text"></i> Terms
-                            </a>
-                            <div class="border-t border-gray-200 my-2"></div>
-                            <!-- MCP Config Button -->
-                            <button @click="open = false; mcpConfigModal.show = true; mcpConfigModal.activeTab = 'servers'; mcpConfigModal.loadServers()" class="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-server"></i> <span x-text="window.desktop?.isElectron ? 'MCP Config' : 'Remote Servers'"></span>
+
+                        <!-- Theme toggle (compact) -->
+                        <div class="ds-theme-toggle">
+                            <div class="ds-theme-toggle-buttons">
+                                <button type="button" data-theme-toggle="light" title="Light mode">&#9788;</button>
+                                <button type="button" data-theme-toggle="dark" title="Dark mode">&#9790;</button>
+                            </div>
+                        </div>
+
+                        <!-- Navigation Dropdown -->
+                        <div class="relative" x-data="{ open: false }">
+                            <button
+                                @click="open = !open"
+                                class="ds-icon-btn"
+                                title="Menu">
+                                <img src="../img/chatucy_logo.png" alt="Menu" style="height:18px; object-fit:contain;" onerror="this.style.display='none'">
                             </button>
-                            <!-- Desktop-only buttons -->
-                            <button id="open-config-btn" style="display:none;" @click="open = false" class="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-cog"></i> Open Config File
-                            </button>
-                            <button id="mcp-connect-btn" style="display:none;" @click="open = false" class="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-plug"></i> Connect MCP
-                            </button>
+                            <div
+                                x-show="open"
+                                @click.away="open = false"
+                                x-transition
+                                class="ds-dropdown-menu"
+                                style="position:absolute; right:0; top:calc(100% + 8px); z-index:200;">
+                                <div class="ds-dropdown-version">v1.2</div>
+                                <a href="/"><i class="fas fa-home" style="width:14px;"></i> Home</a>
+                                <a href="/privacy.html"><i class="fas fa-lock" style="width:14px;"></i> Privacy</a>
+                                <a href="/terms.html"><i class="fas fa-file-alt" style="width:14px;"></i> Terms</a>
+                                <div class="ds-dropdown-menu-divider"></div>
+                                <button @click="open = false; mcpConfigModal.show = true; mcpConfigModal.activeTab = 'servers'; mcpConfigModal.loadServers()">
+                                    <i class="fas fa-server" style="width:14px;"></i>
+                                    <span x-text="window.desktop?.isElectron ? 'MCP Config' : 'Remote Servers'"></span>
+                                </button>
+                                <button id="open-config-btn" style="display:none;" @click="open = false">
+                                    <i class="fas fa-cog" style="width:14px;"></i> Open Config File
+                                </button>
+                                <button id="mcp-connect-btn" style="display:none;" @click="open = false">
+                                    <i class="fas fa-plug" style="width:14px;"></i> Connect MCP
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </header>
             
             <!-- Chat Area -->
-            <div class="flex-1 overflow-y-auto scrollbar-hidden px-4 pt-12 pb-5 md:px-8 md:pt-16 md:pb-6 lg:px-12 lg:pt-20 lg:pb-8 bg-gray-100" id="chat-history">
-                <div id="messages-container" class="w-full mx-auto space-y-5 mt-4">
+            <div class="flex-1 overflow-y-auto scrollbar-hidden" id="chat-history"
+                 style="background:var(--bg); padding:72px 24px 16px;">
+                <div id="messages-container" style="max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:8px;">
                     <template x-for="message in messages" :key="message.id">
-                        <div 
-                            :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
-                            class="flex message-animate mb-2">
-                            <!-- User message - stays on the right -->
+                        <div class="message-animate"
+                             :style="message.role === 'user' ? 'display:flex; justify-content:flex-end;' : 'display:block;'">
+
+                            <!-- User bubble -->
                             <template x-if="message.role === 'user'">
-                                <div class="bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl shadow-md max-w-[80%] px-3 py-2">
-                                    <div class="text-sm prose prose-sm max-w-none leading-snug" x-html="message.content"></div>
+                                <div style="max-width:68%; background:var(--accent); color:#fff; border-radius:12px 12px 2px 12px; padding:8px 13px; box-shadow:0 2px 10px rgba(106,66,194,0.16);">
+                                    <div class="md-content md-content--user" x-html="message.content"></div>
                                 </div>
                             </template>
-                            
-                            <!-- Assistant message - icon on top, message below -->
+
+                            <!-- Assistant — no bubble, plain text -->
                             <template x-if="message.role === 'assistant'">
-                                <div class="w-[90%]">
-                                    <!-- Assistant Icon and Model Info (only show on first message or when model changes) -->
-                                    <div x-show="message.showModelInfo" class="flex items-center gap-2 mb-1">
-                                        <div class="flex-shrink-0 w-4 h-4 rounded-full overflow-hidden bg-white border border-gray-300 flex items-center justify-center">
-                                            <img 
-                                                :src="getModelIcon(message.model)" 
+                                <div style="max-width:92%;">
+                                    <!-- Model label (only when model changes) -->
+                                    <div x-show="message.showModelInfo"
+                                         style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                        <div style="flex-shrink:0; width:16px; height:16px; border-radius:50%; overflow:hidden; background:var(--surface-elevated); border:1px solid var(--border); display:flex; align-items:center; justify-content:center;">
+                                            <img
+                                                :src="getModelIcon(message.model)"
                                                 :alt="message.model"
-                                                class="w-full h-full object-cover"
-                                                onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'fas fa-robot text-primary text-[8px]\'></i>'">
+                                                style="width:100%; height:100%; object-fit:cover;"
+                                                onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'fas fa-robot\' style=\'font-size:7px;color:var(--accent);\'></i>'">
                                         </div>
-                                        <span class="text-xs text-gray-600 font-medium" x-text="message.model"></span>
-                                        <div class="flex-1 h-px bg-gray-300 ml-2"></div>
+                                        <span style="font-size:0.6rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--muted);" x-text="message.model"></span>
                                     </div>
-                                    <!-- Message content -->
-                                    <div class="text-gray-800">
-                                        <div class="text-sm prose prose-sm max-w-none leading-snug" x-html="message.content"></div>
-                                    </div>
+                                    <!-- Plain content -->
+                                    <div class="md-content" x-html="message.content"></div>
                                 </div>
                             </template>
                         </div>
@@ -393,111 +758,172 @@
             <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0" style="bottom: env(safe-area-inset-bottom, 0px);">
                 <div class="max-w-6xl mx-auto">
                     <!-- File info display -->
-                    <div x-show="uploadedFile" class="mb-2 px-3 py-2 bg-white rounded-lg border border-gray-200 flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                            <i class="fas fa-file text-primary"></i>
-                            <span class="text-sm text-gray-700" x-text="uploadedFileName"></span>
+                    <div x-show="uploadedFile" style="margin-bottom:8px; padding:7px 12px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:space-between;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
+                            <span style="font-size:0.82rem; color:var(--text);" x-text="uploadedFileName"></span>
                         </div>
-                        <button @click="clearFile()" class="text-gray-500 hover:text-red-600">
+                        <button @click="clearFile()" style="background:none; border:none; cursor:pointer; color:var(--muted); font-size:0.8rem;" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--muted)'">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
                     
-                    <div class="bg-white rounded-2xl shadow-lg border border-gray-200 border-opacity-80 p-3">
+                    <div style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 2px 16px rgba(106,66,194,0.08); padding:10px 12px;">
                         <!-- Main Input Row -->
                         <div class="flex gap-2 items-end">
-                            <textarea 
+                            <textarea
                                 x-model="userInput"
                                 @keydown.enter.prevent="handleEnter($event)"
                                 placeholder="Type your message here..."
                                 rows="1"
-                                class="flex-1 resize-none border-none outline-none text-gray-800 text-sm max-h-32 overflow-y-auto scrollbar-hidden input-focus placeholder-gray-400"
-                                style="min-height: 2.5rem;"></textarea>
-                            
-                            <button 
+                                style="flex:1; resize:none; border:none; outline:none; background:transparent; font-size:0.875rem; color:var(--text); max-height:8rem; overflow-y:auto; line-height:1.55; padding:2px 0;"
+                                class="scrollbar-hidden"></textarea>
+
+                            <button
                                 @click="sendMessage()"
                                 :disabled="!userInput.trim() || isLoading"
-                                :class="userInput.trim() && !isLoading ? 'bg-primary hover:bg-primary-dark shadow-md hover:shadow-lg' : 'bg-gray-300 cursor-not-allowed opacity-60'"
-                                class="w-10 h-10 rounded-full text-white flex items-center justify-center transition-all flex-shrink-0 btn-hover-scale">
-                                <i class="fas fa-paper-plane"></i>
+                                :style="userInput.trim() && !isLoading ? 'background:var(--accent); box-shadow:0 2px 10px rgba(106,66,194,0.3); opacity:1;' : 'background:rgba(106,66,194,0.18); opacity:0.5; cursor:not-allowed;'"
+                                style="width:36px; height:36px; border-radius:50%; border:none; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
+                                <i class="fas fa-paper-plane" style="font-size:0.75rem;"></i>
                             </button>
                         </div>
                         
                         <!-- Bottom Controls -->
-                        <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200">
+                        <!-- Toolbar -->
+                        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+
                             <!-- Model Selector -->
                             <div class="relative" x-data="{ open: false }">
-                                <button 
+                                <button
                                     @click="open = !open"
-                                    class="px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center gap-2 font-medium btn-hover-scale">
+                                    class="ds-btn"
+                                    style="font-size:0.7rem; padding:6px 12px; border-color:var(--accent); color:var(--accent); gap:6px;">
                                     <span x-text="getSelectedModelName()"></span>
-                                    <i class="fas fa-chevron-down text-xs"></i>
+                                    <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
                                 </button>
-                                <div 
+                                <div
                                     x-show="open"
                                     @click.away="open = false"
                                     x-transition
-                                    class="absolute bottom-full mb-2 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50 min-w-[200px] max-h-64 overflow-y-auto custom-scrollbar">
-                                    <div class="px-3 py-1 text-xs font-semibold text-gray-500">Available Models</div>
+                                    class="custom-scrollbar"
+                                    style="position:absolute; bottom:calc(100% + 8px); left:0; z-index:200; min-width:200px; max-height:256px; overflow-y:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
+                                    <div style="padding:6px 12px; font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); margin-bottom:4px;">Models</div>
                                     <template x-for="model in availableModels" :key="model.id">
-                                        <button 
+                                        <button
                                             @click="selectModel(model.id); open = false"
-                                            class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 text-gray-700">
-                                            <div class="flex items-center justify-between gap-2">
-                                                <span x-text="model.displayName"></span>
-                                                <div class="flex items-center gap-1">
-                                                    <template x-if="model.vision">
-                                                        <i class="fas fa-eye text-blue-500 text-xs" title="Vision"></i>
-                                                    </template>
-                                                    <template x-if="model.tools">
-                                                        <i class="fas fa-wrench text-green-500 text-xs" title="Tools"></i>
-                                                    </template>
-                                                    <template x-if="model.thinking">
-                                                        <i class="fas fa-brain text-purple-500 text-xs" title="Thinking"></i>
-                                                    </template>
-                                                </div>
-                                            </div>
+                                            style="width:100%; text-align:left; padding:7px 12px; font-size:0.8rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); display:flex; align-items:center; justify-content:space-between; gap:8px; transition:background 0.15s;"
+                                            onmouseover="this.style.background='rgba(106,66,194,0.07)'"
+                                            onmouseout="this.style.background='none'">
+                                            <span x-text="model.displayName"></span>
+                                            <span style="display:flex; align-items:center; gap:4px;">
+                                                <template x-if="model.vision">
+                                                    <i class="fas fa-eye" style="font-size:0.6rem; color:#6b99d4;" title="Vision"></i>
+                                                </template>
+                                                <template x-if="model.tools">
+                                                    <i class="fas fa-wrench" style="font-size:0.6rem; color:#5aab7a;" title="Tools"></i>
+                                                </template>
+                                                <template x-if="model.thinking">
+                                                    <i class="fas fa-brain" style="font-size:0.6rem; color:var(--accent);" title="Thinking"></i>
+                                                </template>
+                                            </span>
                                         </button>
                                     </template>
-                                    <div x-show="availableModels.length === 0" class="px-3 py-2 text-sm text-gray-500">
+                                    <div x-show="availableModels.length === 0" style="padding:8px 12px; font-size:0.75rem; color:var(--muted);">
                                         Loading models...
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- File Upload -->
-                            <button 
+                            <button
                                 @click="$refs.fileInput.click()"
-                                class="w-10 h-10 rounded-lg border border-primary text-primary hover:bg-primary-pale transition-colors flex items-center justify-center btn-hover-scale">
+                                class="ds-icon-btn"
+                                title="Attach file">
                                 <i class="fas fa-paperclip"></i>
                             </button>
                             <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
-                            
+
                             <!-- Local RAG Toggle -->
-                            <div class="flex items-center gap-2 ml-auto">
-                                <label 
-                                    class="relative inline-flex items-center gap-2 px-3 py-2 rounded-lg border transition-all cursor-pointer hover:bg-gray-50"
-                                    :class="localRagEnabled ? 'border-primary bg-primary-pale text-primary' : 'border-gray-300 text-gray-600'">
-                                    <input 
-                                        type="checkbox"
-                                        x-model="localRagEnabled"
-                                        class="sr-only">
-                                    <i class="fas fa-database text-xs"></i>
-                                    <span class="text-xs font-medium">Local RAG</span>
-                                    <i 
-                                        class="fas text-xs transition-opacity"
-                                        :class="localRagEnabled ? 'fa-check opacity-100' : 'opacity-0'"></i>
-                                </label>
-                            </div>
+                            <label
+                                style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:var(--radius); border:1px solid; cursor:pointer; font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; transition:border-color 0.18s, background 0.18s; font-family:var(--font-body);"
+                                :style="localRagEnabled
+                                    ? 'border-color:var(--accent); background:rgba(106,66,194,0.08); color:var(--accent);'
+                                    : 'border-color:var(--border); background:transparent; color:var(--muted);'">
+                                <input type="checkbox" x-model="localRagEnabled" style="display:none;">
+                                <i class="fas fa-database" style="font-size:0.65rem;"></i>
+                                <span>Local RAG</span>
+                                <i class="fas fa-check" style="font-size:0.6rem;" x-show="localRagEnabled"></i>
+                            </label>
                         </div>
                     </div>
                 </div>
             </div>
         </main>
-    </div>
-    
+
+        <!-- Live Browser Panel (right) -->
+        <div
+            x-show="browserViewOpen"
+            x-transition:enter="transition ease-out duration-250"
+            x-transition:enter-start="opacity-0 translate-x-8"
+            x-transition:enter-end="opacity-100 translate-x-0"
+            x-transition:leave="transition ease-in duration-200"
+            x-transition:leave-start="opacity-100 translate-x-0"
+            x-transition:leave-end="opacity-0 translate-x-8"
+            style="width:480px; min-width:320px; flex-shrink:0; overflow:hidden;">
+            <div style="display:flex; flex-direction:column; height:100%; border-left:1px solid var(--border); background:var(--surface-elevated);">
+
+            <!-- Panel Header -->
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border); flex-shrink:0; background:rgba(106,66,194,0.04);">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <i class="fas fa-desktop" style="color:var(--accent); font-size:0.8rem;"></i>
+                    <span style="font-family:'Space Grotesk',sans-serif; font-size:0.8rem; font-weight:600; color:var(--text-strong); letter-spacing:0.04em;">Live Browser</span>
+                    <span style="font-size:0.65rem; padding:2px 6px; background:rgba(106,66,194,0.1); color:var(--accent); border-radius:10px;">view only</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <a href="/browser-view/vnc.html?autoconnect=1&resize=scale&view_only=0&path=browser-view/websockify" target="_blank"
+                       class="ds-icon-btn" style="width:26px; height:26px;" title="Open full screen">
+                        <i class="fas fa-external-link-alt" style="font-size:0.65rem;"></i>
+                    </a>
+                    <button @click="browserViewOpen = false" class="ds-icon-btn" style="width:26px; height:26px;">
+                        <i class="fas fa-times" style="font-size:0.7rem;"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- noVNC iframe — kept in DOM but hidden; avoids reload on every toggle -->
+            <iframe
+                x-show="browserViewOpen"
+                src="/browser-view/vnc.html?autoconnect=1&resize=scale&view_only=1&path=browser-view/websockify"
+                style="flex:1; border:none; width:100%; background:#0e0e12;"
+                allow="clipboard-read; clipboard-write"
+                @load="
+                    try {
+                        const doc = $el.contentDocument;
+                        if (!doc) return;
+                        const s = doc.createElement('style');
+                        s.textContent = `
+                            #noVNC_control_bar_anchor,
+                            #noVNC_control_bar,
+                            #noVNC_hint_anchor,
+                            #noVNC_transition_dim,
+                            #noVNC_bell {
+                                display: none !important;
+                            }
+                            #noVNC_screen {
+                                top: 0 !important;
+                            }
+                        `;
+                        doc.head.appendChild(s);
+                    } catch(e) {}
+                ">
+            </iframe>
+            </div><!-- /inner flex wrapper -->
+        </div><!-- /browser panel -->
+
+    </div><!-- /Main Container -->
+
     <!-- Modal for Edit/Delete Session -->
-    <div 
+    <div
         x-show="modal.show"
         @click="modal.show = false"
         x-transition:enter="transition ease-out duration-200"
@@ -506,9 +932,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
-        style="display: none;">
-        <div 
+        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;">
+        <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
             x-transition:enter-start="opacity-0 scale-95"
@@ -516,52 +941,38 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
-            class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            
-            <!-- Edit Session Modal -->
+            style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 32px rgba(106,66,194,0.16); max-width:380px; width:100%; padding:20px;">
+
+            <!-- Edit Session -->
             <template x-if="modal.type === 'edit'">
                 <div>
-                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Rename Session</h3>
-                    <input 
+                    <h3 style="font-family:'Space Grotesk',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-strong); margin:0 0 14px;">Rename Session</h3>
+                    <input
                         x-model="modal.value"
                         @keydown.enter="confirmModal()"
                         type="text"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none text-gray-800"
+                        style="width:100%; padding:8px 12px; background:rgba(106,66,194,0.04); border:1px solid var(--border); border-radius:7px; outline:none; font-size:0.875rem; color:var(--text); box-sizing:border-box;"
+                        onfocus="this.style.borderColor='var(--accent)'"
+                        onblur="this.style.borderColor='var(--border)'"
                         placeholder="Enter session name">
-                    <div class="flex gap-3 mt-6">
-                        <button 
-                            @click="modal.show = false"
-                            class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
-                            Cancel
-                        </button>
-                        <button 
-                            @click="confirmModal()"
-                            class="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors">
-                            Rename
-                        </button>
+                    <div style="display:flex; gap:8px; margin-top:14px;">
+                        <button @click="modal.show = false" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0;">Cancel</button>
+                        <button @click="confirmModal()" class="ds-btn ds-btn--solid" style="flex:1; font-size:0.8rem; padding:7px 0;">Rename</button>
                     </div>
                 </div>
             </template>
-            
-            <!-- Delete Session Modal -->
+
+            <!-- Delete Session -->
             <template x-if="modal.type === 'delete'">
-                <div>
-                    <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                <div style="text-align:center;">
+                    <div style="width:40px; height:40px; background:rgba(220,38,38,0.08); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 12px;">
+                        <i class="fas fa-exclamation-triangle" style="color:#dc2626; font-size:1rem;"></i>
                     </div>
-                    <h3 class="text-lg font-semibold text-gray-800 mb-2 text-center">Delete Session?</h3>
-                    <p class="text-gray-600 text-sm mb-6 text-center">This action cannot be undone. All messages in this session will be permanently deleted.</p>
-                    <div class="flex gap-3">
-                        <button 
-                            @click="modal.show = false"
-                            class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
-                            Cancel
-                        </button>
-                        <button 
-                            @click="confirmModal()"
-                            class="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">
-                            Delete
-                        </button>
+                    <h3 style="font-family:'Space Grotesk',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-strong); margin:0 0 6px;">Delete Session?</h3>
+                    <p style="font-size:0.8rem; color:var(--muted); margin:0 0 16px; line-height:1.5;">This action cannot be undone. All messages will be permanently deleted.</p>
+                    <div style="display:flex; gap:8px;">
+                        <button @click="modal.show = false" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0;">Cancel</button>
+                        <button @click="confirmModal()" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0; background:rgba(220,38,38,0.1); color:#dc2626; border-color:rgba(220,38,38,0.25);">Delete</button>
                     </div>
                 </div>
             </template>
@@ -666,9 +1077,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
-        style="display: none;">
-        <div 
+        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;">
+        <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
             x-transition:enter-start="opacity-0 scale-95"
@@ -676,217 +1086,171 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
-            class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
-            
-            <div class="flex items-center justify-between mb-6">
-                <h3 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
-                    <i class="fas fa-cog text-primary"></i>
+            style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 8px 40px rgba(106,66,194,0.18); max-width:640px; width:100%; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
+
+            <!-- Header -->
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border); flex-shrink:0;">
+                <h3 style="font-family:'Space Grotesk',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-strong); display:flex; align-items:center; gap:7px; margin:0;">
+                    <i class="fas fa-cog" style="color:var(--accent); font-size:0.8rem;"></i>
                     MCP Configuration
                 </h3>
-                <button @click="mcpConfigModal.show = false" class="text-gray-500 hover:text-gray-700">
-                    <i class="fas fa-times text-xl"></i>
+                <button @click="mcpConfigModal.show = false" class="ds-icon-btn" style="width:28px; height:28px;">
+                    <i class="fas fa-times" style="font-size:0.75rem;"></i>
                 </button>
             </div>
-            
+
             <!-- Tabs -->
-            <div class="flex gap-2 mb-6 border-b border-gray-200">
-                <button 
+            <div style="display:flex; gap:0; border-bottom:1px solid var(--border); padding:0 18px; flex-shrink:0;">
+                <button
                     @click="mcpConfigModal.activeTab = 'servers'"
-                    :class="mcpConfigModal.activeTab === 'servers' ? 'border-b-2 border-primary text-primary' : 'text-gray-600 hover:text-gray-800'"
-                    class="px-4 py-2 font-medium transition-colors">
-                    Servers
-                </button>
-                <button 
+                    :style="mcpConfigModal.activeTab === 'servers' ? 'color:var(--accent); border-bottom:2px solid var(--accent);' : 'color:var(--muted); border-bottom:2px solid transparent;'"
+                    style="padding:8px 14px; font-size:0.8rem; font-weight:500; background:none; border:none; border-top:none; border-left:none; border-right:none; cursor:pointer; transition:color 0.15s;">Servers</button>
+                <button
                     @click="mcpConfigModal.activeTab = 'tools'"
-                    :class="mcpConfigModal.activeTab === 'tools' ? 'border-b-2 border-primary text-primary' : 'text-gray-600 hover:text-gray-800'"
-                    class="px-4 py-2 font-medium transition-colors">
-                    Tools
-                </button>
+                    :style="mcpConfigModal.activeTab === 'tools' ? 'color:var(--accent); border-bottom:2px solid var(--accent);' : 'color:var(--muted); border-bottom:2px solid transparent;'"
+                    style="padding:8px 14px; font-size:0.8rem; font-weight:500; background:none; border:none; border-top:none; border-left:none; border-right:none; cursor:pointer; transition:color 0.15s;">Tools</button>
             </div>
-            
-            <!-- Servers Tab -->
-            <template x-if="mcpConfigModal.activeTab === 'servers'">
-                <div>
-                    <!-- Add Server Button (Web mode only) -->
-                    <div x-show="!window.desktop?.isElectron" class="mb-4">
-                        <button 
-                            @click="mcpConfigModal.newServerForm.show = !mcpConfigModal.newServerForm.show"
-                            class="w-full bg-primary hover:bg-primary-dark text-white font-medium py-3 px-4 rounded-lg transition-colors">
-                            <i class="fas fa-plus mr-2"></i>Add Remote MCP Server
-                        </button>
-                    </div>
-                    
-                    <!-- Add Server Form (Web mode) -->
-                    <div x-show="mcpConfigModal.newServerForm.show && !window.desktop?.isElectron" class="mb-6 p-4 bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-primary/20 rounded-xl shadow-sm">
-                        <h3 class="font-semibold text-lg mb-2 text-gray-800">Add Remote MCP Server</h3>
-                        <p class="text-sm text-gray-600 mb-4">Configure a WebSocket connection to your remote MCP server</p>
-                        <div class="space-y-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Server Name *</label>
-                                <input 
-                                    type="text" 
-                                    x-model="mcpConfigModal.newServerForm.name"
-                                    placeholder="e.g., my-mcp-server"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">WebSocket URL *</label>
-                                <input 
-                                    type="text" 
-                                    x-model="mcpConfigModal.newServerForm.url"
-                                    placeholder="wss://example.com/mcp"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all">
-                                <p class="text-xs text-gray-500 mt-1">Must start with ws:// or wss://</p>
-                            </div>
-                            <label class="flex items-center gap-2 p-3 bg-white rounded-lg border border-gray-200 hover:border-primary/30 transition-colors cursor-pointer">
-                                <input type="checkbox" x-model="mcpConfigModal.newServerForm.autoConnect" class="w-4 h-4 text-primary rounded focus:ring-2 focus:ring-primary">
-                                <span class="text-sm text-gray-700 font-medium">Auto-connect on page load</span>
-                            </label>
-                            <div x-show="mcpConfigModal.newServerForm.error" class="p-3 bg-red-50 border border-red-200 rounded-lg">
-                                <div class="flex items-center gap-2 text-red-700">
-                                    <i class="fas fa-exclamation-circle"></i>
-                                    <span class="text-sm font-medium" x-text="mcpConfigModal.newServerForm.error"></span>
+
+            <!-- Scrollable body -->
+            <div style="flex:1; overflow-y:auto; padding:14px 18px;">
+
+                <!-- Servers Tab -->
+                <template x-if="mcpConfigModal.activeTab === 'servers'">
+                    <div>
+                        <div x-show="!window.desktop?.isElectron" style="margin-bottom:10px;">
+                            <button
+                                @click="mcpConfigModal.newServerForm.show = !mcpConfigModal.newServerForm.show"
+                                class="ds-btn ds-btn--solid" style="width:100%; font-size:0.8rem; padding:7px 0; justify-content:center;">
+                                <i class="fas fa-plus" style="margin-right:6px; font-size:0.7rem;"></i>Add Remote MCP Server
+                            </button>
+                        </div>
+
+                        <!-- Add server form -->
+                        <div x-show="mcpConfigModal.newServerForm.show && !window.desktop?.isElectron"
+                             style="margin-bottom:12px; padding:12px 14px; background:rgba(106,66,194,0.05); border:1px solid var(--border); border-radius:8px;">
+                            <h4 style="font-size:0.85rem; font-weight:600; color:var(--text-strong); margin:0 0 10px;">Add Remote MCP Server</h4>
+                            <div style="display:flex; flex-direction:column; gap:8px;">
+                                <div>
+                                    <label style="display:block; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin-bottom:4px;">Server Name *</label>
+                                    <input type="text" x-model="mcpConfigModal.newServerForm.name" placeholder="e.g., my-mcp-server"
+                                        style="width:100%; padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:6px; font-size:0.82rem; color:var(--text); outline:none; box-sizing:border-box;"
+                                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
                                 </div>
-                            </div>
-                            <div class="flex gap-2 pt-2">
-                                <button 
-                                    @click="mcpConfigModal.addWebServer()"
-                                    class="flex-1 bg-primary hover:bg-primary-dark text-white py-2.5 px-4 rounded-lg font-medium transition-all shadow-sm hover:shadow-md">
-                                    <i class="fas fa-plus mr-2"></i>Add Server
-                                </button>
-                                <button 
-                                    @click="mcpConfigModal.newServerForm.show = false; mcpConfigModal.newServerForm.error = ''"
-                                    class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 px-4 rounded-lg font-medium transition-all">
-                                    Cancel
-                                </button>
+                                <div>
+                                    <label style="display:block; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted); margin-bottom:4px;">WebSocket URL *</label>
+                                    <input type="text" x-model="mcpConfigModal.newServerForm.url" placeholder="wss://example.com/mcp"
+                                        style="width:100%; padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:6px; font-size:0.82rem; color:var(--text); outline:none; box-sizing:border-box;"
+                                        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+                                    <p style="font-size:0.68rem; color:var(--muted); margin:3px 0 0;">Must start with ws:// or wss://</p>
+                                </div>
+                                <label style="display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:6px; cursor:pointer;">
+                                    <input type="checkbox" x-model="mcpConfigModal.newServerForm.autoConnect" style="accent-color:var(--accent); width:14px; height:14px;">
+                                    <span style="font-size:0.8rem; color:var(--text);">Auto-connect on page load</span>
+                                </label>
+                                <div x-show="mcpConfigModal.newServerForm.error" style="padding:7px 10px; background:rgba(220,38,38,0.07); border:1px solid rgba(220,38,38,0.2); border-radius:6px;">
+                                    <span style="font-size:0.78rem; color:#dc2626;" x-text="mcpConfigModal.newServerForm.error"></span>
+                                </div>
+                                <div style="display:flex; gap:8px;">
+                                    <button @click="mcpConfigModal.addWebServer()" class="ds-btn ds-btn--solid" style="flex:1; font-size:0.78rem; padding:6px 0; justify-content:center;"><i class="fas fa-plus" style="margin-right:5px;"></i>Add</button>
+                                    <button @click="mcpConfigModal.newServerForm.show = false; mcpConfigModal.newServerForm.error = ''" class="ds-btn" style="flex:1; font-size:0.78rem; padding:6px 0; justify-content:center;">Cancel</button>
+                                </div>
                             </div>
                         </div>
+
+                        <!-- Server list -->
+                        <div style="display:flex; flex-direction:column; gap:6px;">
+                            <template x-for="(server, idx) in mcpConfigModal.servers" :key="idx">
+                                <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:rgba(106,66,194,0.02);">
+                                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
+                                        <div style="flex:1;">
+                                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                                <input type="checkbox" x-model="server.autoConnect" disabled style="accent-color:var(--accent); width:13px; height:13px;">
+                                                <span style="font-size:0.75rem; color:var(--muted);">Auto-connect</span>
+                                            </div>
+                                            <div style="font-size:0.82rem; color:var(--text); display:flex; align-items:center; gap:6px;">
+                                                <!-- live connection status dot -->
+                                                <span :style="window.mcpBrowserClient?.isConnected(server.name) ? 'width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0' : 'width:7px;height:7px;border-radius:50%;background:#dc2626;display:inline-block;flex-shrink:0'"
+                                                      :title="window.mcpBrowserClient?.isConnected(server.name) ? 'Connected' : 'Disconnected'"></span>
+                                                <span x-text="server.name"></span>
+                                                <span x-show="server.type" style="padding:1px 6px; background:rgba(106,66,194,0.1); color:var(--accent); border-radius:4px; font-size:0.68rem;" x-text="server.type"></span>
+                                            </div>
+                                            <template x-if="server.url">
+                                                <div style="font-size:0.7rem; color:var(--muted); margin-top:2px; word-break:break-all;" x-text="server.url"></div>
+                                            </template>
+                                        </div>
+                                        <button @click="window.desktop?.isElectron ? mcpConfigModal.servers.splice(idx, 1) : mcpConfigModal.removeWebServer(server.name)"
+                                            style="color:#dc2626; background:none; border:none; cursor:pointer; padding:2px 4px; font-size:0.78rem;">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <div x-show="mcpConfigModal.servers.length === 0" style="text-align:center; padding:24px 0; color:var(--muted); font-size:0.85rem;">
+                            <i class="fas fa-server" style="font-size:1.4rem; display:block; margin-bottom:8px; opacity:0.4;"></i>
+                            No MCP servers configured
+                        </div>
+
+                        <div style="margin-top:12px; padding:10px 12px; background:rgba(106,66,194,0.05); border:1px solid var(--border); border-radius:8px; font-size:0.75rem; color:var(--muted);">
+                            <strong style="color:var(--text-strong);">Total:</strong> <span x-text="mcpConfigModal.servers.length"></span>
+                            <span x-show="!window.desktop?.isElectron"> &nbsp;·&nbsp; Web mode (WebSocket only)</span>
+                            <span x-show="window.desktop?.isElectron"> &nbsp;·&nbsp; Desktop mode (Local + Remote)</span>
+                        </div>
                     </div>
-                    
-                    <div class="space-y-4">
-                        <template x-for="(server, idx) in mcpConfigModal.servers" :key="idx">
-                            <div class="border border-gray-300 rounded-lg p-4">
-                                <div class="flex items-start justify-between gap-4 mb-3">
-                                    <div class="flex-1">
-                                        <div class="flex items-center gap-2 mb-2">
-                                            <label class="flex items-center gap-2">
-                                                <input type="checkbox" x-model="server.autoConnect" class="w-4 h-4 text-primary rounded" disabled>
-                                                <span class="font-medium text-gray-700">Auto-connect</span>
+                </template>
+
+                <!-- Tools Tab -->
+                <template x-if="mcpConfigModal.activeTab === 'tools'">
+                    <div>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <template x-for="(server, serverName) in mcpConfigModal.toolsByServer" :key="serverName">
+                                <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:rgba(106,66,194,0.02);">
+                                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--border);">
+                                        <div style="flex:1;">
+                                            <div style="font-size:0.82rem; font-weight:600; color:var(--text-strong);" x-text="serverName"></div>
+                                            <div style="font-size:0.68rem; color:var(--muted); text-transform:capitalize;" x-text="'Type: ' + (server.type || 'unknown')"></div>
+                                        </div>
+                                        <span style="padding:2px 8px; background:rgba(106,66,194,0.1); color:var(--accent); border-radius:10px; font-size:0.68rem;" x-text="(server.tools?.length || 0) + ' tools'"></span>
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:4px;">
+                                        <template x-for="(tool, idx) in server.tools" :key="idx">
+                                            <label style="display:flex; align-items:flex-start; gap:8px; padding:7px 10px; border:1px solid var(--border); border-radius:6px; cursor:pointer; background:var(--surface-elevated);">
+                                                <input type="checkbox" x-model="tool.enabled" @change="mcpConfigModal.onToolToggle(tool)" style="accent-color:var(--accent); width:13px; height:13px; margin-top:2px; flex-shrink:0;">
+                                                <div>
+                                                    <div style="font-size:0.8rem; color:var(--text-strong); font-weight:500;" x-text="tool.name"></div>
+                                                    <div style="font-size:0.68rem; color:var(--muted); margin-top:1px;" x-text="tool.description || 'No description'"></div>
+                                                </div>
                                             </label>
-                                        </div>
-                                        <div class="text-sm text-gray-600">
-                                            <span x-text="server.name"></span>
-                                            <span x-show="server.type" class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs" x-text="'(' + server.type + ')'"></span>
-                                        </div>
-                                        <template x-if="server.url">
-                                            <div class="text-xs text-gray-500 mt-1 break-all" x-text="server.url"></div>
                                         </template>
                                     </div>
-                                    <button 
-                                        @click="window.desktop?.isElectron ? mcpConfigModal.servers.splice(idx, 1) : mcpConfigModal.removeWebServer(server.name)"
-                                        class="text-red-600 hover:text-red-700 p-1">
-                                        <i class="fas fa-trash text-sm"></i>
-                                    </button>
+                                    <div x-show="!server.tools || server.tools.length === 0" style="text-align:center; padding:10px; font-size:0.78rem; color:var(--muted);">No tools for this server</div>
                                 </div>
-                            </div>
-                        </template>
+                            </template>
+                        </div>
+                        <div x-show="Object.keys(mcpConfigModal.toolsByServer).length === 0" style="text-align:center; padding:24px 0; color:var(--muted); font-size:0.85rem;">
+                            <i class="fas fa-plug" style="font-size:1.4rem; display:block; margin-bottom:8px; opacity:0.4;"></i>
+                            No tools — connect servers first
+                        </div>
                     </div>
-                    
-                    <div x-show="mcpConfigModal.servers.length === 0" class="text-center py-8 text-gray-500">
-                        <i class="fas fa-server text-2xl mb-2"></i>
-                        <p>No MCP servers configured</p>
-                        <p x-show="!window.desktop?.isElectron" class="text-sm mt-2">Click "Add Remote MCP Server" to get started</p>
-                    </div>
-                    
-                    <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
-                        <p class="font-semibold mb-2">Configured Servers:</p>
-                        <p x-text="'Total: ' + mcpConfigModal.servers.length"></p>
-                        <p x-show="!window.desktop?.isElectron" class="text-xs mt-2 text-blue-700">Web mode: Remote servers only (WebSocket)</p>
-                        <p x-show="window.desktop?.isElectron" class="text-xs mt-2 text-blue-700">Desktop mode: Local + Remote servers</p>
-                    </div>
-                </div>
-            </template>
-            
-            <!-- Tools Tab -->
-            <template x-if="mcpConfigModal.activeTab === 'tools'">
-                <div>
-                    <!-- Tools organized by server -->
-                    <div class="space-y-6">
-                        <template x-for="(server, serverName) in mcpConfigModal.toolsByServer" :key="serverName">
-                            <div class="border border-gray-300 rounded-lg p-4 bg-gray-50">
-                                <!-- Server header -->
-                                <div class="flex items-center gap-2 mb-4 pb-3 border-b border-gray-300">
-                                    <div class="flex-1">
-                                        <h4 class="font-semibold text-gray-800" x-text="serverName"></h4>
-                                        <p class="text-xs text-gray-600 capitalize" x-text="'Type: ' + (server.type || 'unknown')"></p>
-                                    </div>
-                                    <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium" x-text="(server.tools?.length || 0) + ' tools'"></span>
-                                </div>
-                                
-                                <!-- Tools list for this server -->
-                                <div class="space-y-2">
-                                    <template x-for="(tool, idx) in server.tools" :key="idx">
-                                        <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-white cursor-pointer transition-colors">
-                                            <input 
-                                                type="checkbox" 
-                                                x-model="tool.enabled"
-                                                @change="mcpConfigModal.onToolToggle(tool)"
-                                                class="w-4 h-4 text-primary rounded mt-0.5 flex-shrink-0">
-                                            <div class="flex-1 min-w-0">
-                                                <div class="font-medium text-gray-800 break-words" x-text="tool.name"></div>
-                                                <div class="text-xs text-gray-600 mt-1 line-clamp-2" x-text="tool.description || 'No description available'"></div>
-                                            </div>
-                                        </label>
-                                    </template>
-                                </div>
-                                
-                                <!-- Empty state for this server -->
-                                <div x-show="!server.tools || server.tools.length === 0" class="text-center py-4 text-gray-500 text-sm">
-                                    <i class="fas fa-exclamation-circle mb-1"></i>
-                                    <p>No tools available for this server</p>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                    
-                    <!-- Empty state when no servers -->
-                    <div x-show="Object.keys(mcpConfigModal.toolsByServer).length === 0" class="text-center py-8 text-gray-500">
-                        <i class="fas fa-plug text-2xl mb-2"></i>
-                        <p>No tools available</p>
-                        <p class="text-xs mt-2">Connect to MCP servers in the <strong>Servers</strong> tab to access their tools</p>
-                    </div>
-                </div>
-            </template>
-            
+                </template>
+            </div>
+
             <!-- Footer -->
-            <div class="flex gap-3 mt-8 pt-6 border-t border-gray-200">
-                <button 
-                    @click="mcpConfigModal.show = false"
-                    class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors">
-                    Close
+            <div style="display:flex; gap:8px; padding:12px 18px; border-top:1px solid var(--border); flex-shrink:0;">
+                <button @click="mcpConfigModal.show = false" class="ds-btn" style="flex:1; font-size:0.78rem; padding:7px 0; justify-content:center;">Close</button>
+                <button x-show="window.desktop?.isElectron" @click="mcpConfigModal.openConfigFile()" class="ds-btn ds-btn--solid" style="flex:1; font-size:0.78rem; padding:7px 0; justify-content:center;">
+                    <i class="fas fa-folder-open" style="margin-right:5px;"></i>Open Config
                 </button>
-                <!-- Desktop: Open Config File -->
-                <button 
-                    x-show="window.desktop?.isElectron"
-                    @click="mcpConfigModal.openConfigFile()"
-                    class="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
-                    <i class="fas fa-folder-open"></i>
-                    Open Config File
-                </button>
-                <!-- Web: Edit JSON Config -->
-                <button 
-                    x-show="!window.desktop?.isElectron"
-                    @click="jsonEditorModal.show = true, jsonEditorModal.loadConfig()"
-                    class="flex-1 px-4 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2">
-                    <i class="fas fa-code"></i>
-                    Edit JSON Config
+                <button x-show="!window.desktop?.isElectron" @click="jsonEditorModal.show = true, jsonEditorModal.loadConfig()" class="ds-btn ds-btn--solid" style="flex:1; font-size:0.78rem; padding:7px 0; justify-content:center;">
+                    <i class="fas fa-code" style="margin-right:5px;"></i>Edit JSON
                 </button>
             </div>
         </div>
     </div>
 
     <!-- JSON Editor Modal (Web Mode) -->
-    <div 
+    <div
         x-show="jsonEditorModal.show"
         @click="jsonEditorModal.show = false"
         x-transition:enter="transition ease-out duration-200"
@@ -895,9 +1259,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
-        style="display: none;">
-        <div 
+        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;">
+        <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
             x-transition:enter-start="opacity-0 scale-95"
@@ -905,71 +1268,62 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
-            class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-            
+            style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 8px 40px rgba(106,66,194,0.18); max-width:800px; width:100%; max-height:90vh; overflow:hidden; display:flex; flex-direction:column;">
+
             <!-- Header -->
-            <div class="flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-primary/5 to-purple-50">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); background:rgba(106,66,194,0.04); flex-shrink:0;">
                 <div>
-                    <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                        <i class="fas fa-code text-primary"></i>
+                    <h2 style="font-family:'Space Grotesk',sans-serif; font-size:1rem; font-weight:600; color:var(--text-strong); display:flex; align-items:center; gap:8px; margin:0;">
+                        <i class="fas fa-code" style="color:var(--accent); font-size:0.85rem;"></i>
                         MCP Configuration Editor
                     </h2>
-                    <p class="text-sm text-gray-600 mt-1">Edit your remote MCP servers configuration (stored in localStorage)</p>
+                    <p style="font-size:0.72rem; color:var(--muted); margin:3px 0 0;">Edit remote MCP servers configuration (stored in localStorage)</p>
                 </div>
-                <button @click="jsonEditorModal.show = false" class="text-gray-500 hover:text-gray-700 p-2">
-                    <i class="fas fa-times text-xl"></i>
+                <button @click="jsonEditorModal.show = false" class="ds-icon-btn" style="width:30px; height:30px;">
+                    <i class="fas fa-times" style="font-size:0.8rem;"></i>
                 </button>
             </div>
-            
+
             <!-- Content -->
-            <div class="p-6 overflow-y-auto" style="max-height: calc(90vh - 180px);">
-                <!-- Instructions -->
-                <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div class="flex items-start gap-3">
-                        <i class="fas fa-info-circle text-blue-600 mt-1"></i>
-                        <div class="text-sm text-blue-900">
-                            <p class="font-semibold mb-1">Remote MCP Configuration</p>
-                           
-                        </div>
-                    </div>
+            <div style="padding:16px 20px; overflow-y:auto; flex:1;">
+                <!-- Info -->
+                <div style="margin-bottom:12px; padding:10px 14px; background:rgba(106,66,194,0.06); border:1px solid var(--border); border-radius:8px; display:flex; align-items:flex-start; gap:10px;">
+                    <i class="fas fa-info-circle" style="color:var(--accent); font-size:0.8rem; margin-top:2px; flex-shrink:0;"></i>
+                    <p style="font-size:0.78rem; color:var(--muted); margin:0; line-height:1.5;"><strong style="color:var(--text-strong);">Remote MCP Configuration</strong> — JSON is saved to localStorage and applied on reload.</p>
                 </div>
-                
-                <!-- Error Display -->
-                <div x-show="jsonEditorModal.error" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <div class="flex items-center gap-2 text-red-700">
+
+                <!-- Error -->
+                <div x-show="jsonEditorModal.error" style="display:none; margin-bottom:12px; padding:8px 14px; background:rgba(220,38,38,0.07); border:1px solid rgba(220,38,38,0.25); border-radius:8px;">
+                    <div style="display:flex; align-items:center; gap:8px; color:#b91c1c; font-size:0.8rem;">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <span class="text-sm font-medium" x-text="jsonEditorModal.error"></span>
+                        <span x-text="jsonEditorModal.error"></span>
                     </div>
                 </div>
-                
-                <!-- JSON Editor -->
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Configuration JSON</label>
-                    <textarea 
+
+                <!-- Textarea -->
+                <div>
+                    <label style="display:block; font-size:0.72rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Configuration JSON</label>
+                    <textarea
                         x-model="jsonEditorModal.jsonText"
-                        class="w-full h-[500px] px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none font-mono text-sm"
+                        style="width:100%; height:420px; padding:12px 14px; background:rgba(106,66,194,0.04); border:1px solid var(--border); border-radius:8px; outline:none; font-family:'JetBrains Mono','Fira Code','Consolas',monospace; font-size:0.8rem; line-height:1.6; color:var(--text); resize:vertical; box-sizing:border-box; transition:border-color 0.15s;"
+                        onfocus="this.style.borderColor='var(--accent)'"
+                        onblur="this.style.borderColor='var(--border)'"
                         placeholder="Enter your MCP configuration JSON..."
                         spellcheck="false"></textarea>
                 </div>
             </div>
-            
+
             <!-- Footer -->
-            <div class="flex gap-3 p-6 border-t border-gray-200 bg-gray-50">
-                <button 
-                    @click="jsonEditorModal.resetToDefault()"
-                    class="px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors">
-                    <i class="fas fa-undo mr-2"></i>Reset to Default
+            <div style="display:flex; align-items:center; gap:8px; padding:12px 20px; border-top:1px solid var(--border); background:rgba(106,66,194,0.03); flex-shrink:0;">
+                <button @click="jsonEditorModal.resetToDefault()" class="ds-btn" style="font-size:0.78rem; padding:6px 12px;">
+                    <i class="fas fa-undo" style="margin-right:6px; font-size:0.7rem;"></i>Reset
                 </button>
-                <div class="flex-1"></div>
-                <button 
-                    @click="jsonEditorModal.show = false"
-                    class="px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors">
+                <div style="flex:1;"></div>
+                <button @click="jsonEditorModal.show = false" class="ds-btn" style="font-size:0.78rem; padding:6px 14px;">
                     Cancel
                 </button>
-                <button 
-                    @click="jsonEditorModal.saveConfig()"
-                    class="px-6 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg font-medium transition-colors flex items-center gap-2">
-                    <i class="fas fa-save"></i>Save & Reload
+                <button @click="jsonEditorModal.saveConfig()" class="ds-btn ds-btn--solid" style="font-size:0.78rem; padding:6px 14px;">
+                    <i class="fas fa-save" style="margin-right:6px; font-size:0.7rem;"></i>Save &amp; Reload
                 </button>
             </div>
         </div>
@@ -995,5 +1349,6 @@
         </div>
       </div>
     </div>
+<script src="../js/ds-theme.js"></script>
 </body>
 </html>

@@ -71,6 +71,7 @@ function chatApp() {
     
     return {
         sidebarOpen: getSavedSidebarState(),
+        browserViewOpen: false,
         userInput: '',
         messages: [],
         sessions: [],
@@ -154,7 +155,14 @@ function chatApp() {
             resetToDefault() {
                 if (confirm('Reset to default configuration? This will clear all your MCP servers.')) {
                     this.jsonText = JSON.stringify({
-                        servers: [],
+                        servers: [
+                            {
+                                name: 'playwright',
+                                url: 'https://chatucy.cs.ucy.ac.cy/mcp/playwright',
+                                type: 'sse',
+                                autoConnect: true
+                            }
+                        ],
                         version: '1.0'
                     }, null, 2);
                     this.error = '';
@@ -246,7 +254,7 @@ function chatApp() {
                 }
                 
                 if (!window.MCPConfigManager.isValidWebSocketUrl(this.newServerForm.url)) {
-                    this.newServerForm.error = 'Invalid WebSocket URL (must start with ws:// or wss://)';
+                    this.newServerForm.error = 'Invalid URL (must start with ws://, wss://, http://, or https://)';
                     return;
                 }
                 
@@ -429,6 +437,7 @@ function chatApp() {
             window.mcpBrowserClient.setToolsCallback((serverName, tools) => {
                 console.log(`[ChatApp Web] Received ${tools.length} tools from ${serverName}`);
                 this.mcpConfigModal.tools = window.mcpBrowserClient.getAllTools();
+                this._rebuildToolsByServer();
             });
             
             // Auto-connect to configured servers
@@ -447,9 +456,22 @@ function chatApp() {
             
             // Update tools list
             this.mcpConfigModal.tools = window.mcpBrowserClient.getAllTools();
-            this.mcpConfigModal.servers = servers;
+            this.mcpConfigModal.servers = window.mcpConfigManager.getServers();
+            this._rebuildToolsByServer();
             
             console.log(`[ChatApp Web] MCP initialization complete. Total tools: ${this.mcpConfigModal.tools.length}`);
+        },
+
+        // Rebuild toolsByServer map from the flat tools list (used by Tools tab in modal)
+        _rebuildToolsByServer() {
+            const byServer = {};
+            for (const tool of (this.mcpConfigModal.tools || [])) {
+                if (!byServer[tool.serverName]) {
+                    byServer[tool.serverName] = { type: 'remote-web', tools: [] };
+                }
+                byServer[tool.serverName].tools.push(tool);
+            }
+            this.mcpConfigModal.toolsByServer = byServer;
         },
         
         scrollToBottom() {
@@ -943,14 +965,41 @@ function chatApp() {
                 try {
                     const rawContent = this.messages[messageIndex].content;
                     
-                    // Check if content is already parsed HTML (contains HTML tags)
-                    if (rawContent.includes('<') && rawContent.includes('>')) {
+                    // Check if content is already parsed HTML (contains real HTML block tags)
+                    const htmlTagPattern = /<(p|div|h[1-6]|ul|ol|li|pre|code|blockquote|strong|em|a|table|thead|tbody|tr|td|th|br|hr)\b/i;
+                    if (htmlTagPattern.test(rawContent)) {
                         console.log('[ChatApp] Content already parsed, skipping markdown');
                         return;
                     }
                     
                     console.log('[ChatApp] Parsing markdown for message:', rawContent.substring(0, 50));
                     this.messages[messageIndex].content = window.marked.parse(rawContent);
+                    // Inject copy buttons into code blocks after DOM updates
+                    this.$nextTick(() => {
+                        const container = document.getElementById('messages-container');
+                        if (!container) return;
+                        container.querySelectorAll('pre:not([data-copy-added])').forEach(pre => {
+                            pre.setAttribute('data-copy-added', '1');
+                            const btn = document.createElement('button');
+                            btn.className = 'md-copy-btn';
+                            btn.title = 'Copy code';
+                            btn.innerHTML = '<i class="fas fa-copy"></i>';
+                            btn.addEventListener('click', () => {
+                                const code = pre.querySelector('code');
+                                navigator.clipboard.writeText(code ? code.innerText : pre.innerText).then(() => {
+                                    btn.innerHTML = '<i class="fas fa-check"></i>';
+                                    btn.style.background = 'var(--accent)';
+                                    btn.style.color = '#fff';
+                                    setTimeout(() => {
+                                        btn.innerHTML = '<i class="fas fa-copy"></i>';
+                                        btn.style.background = '';
+                                        btn.style.color = '';
+                                    }, 1800);
+                                });
+                            });
+                            pre.appendChild(btn);
+                        });
+                    });
                 } catch (parseError) {
                     console.error('[ChatApp] Markdown parsing error:', parseError);
                     // Keep the raw content if parsing fails

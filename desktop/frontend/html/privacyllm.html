@@ -1,1 +1,165 @@
-/home/demetrapaphitou/PrivacyLLM/privacyllm.html
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private LLM — ChatUCY</title>
+
+    <script>
+      (function () {
+        var t = localStorage.getItem('chatucy-theme');
+        document.documentElement.dataset.theme = (t === 'dark' || t === 'light') ? t : 'light';
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="../css/design-system.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+
+<body style="min-height:100vh; display:flex; flex-direction:column;">
+
+    <!-- Site Header -->
+    <header class="ds-site-header">
+        <div class="ds-container ds-site-header-inner">
+            <a href="/" class="ds-site-logo">ChatUCY</a>
+            <nav class="ds-site-nav" aria-label="Primary">
+                <a href="/" class="ds-link">Home</a>
+                <a href="/chat.html" class="ds-link">Chat</a>
+                <a href="/llmms.html" class="ds-link">LLM-MS</a>
+                <a href="/privacy.html" class="ds-link">Privacy</a>
+            </nav>
+            <div class="ds-theme-toggle" role="group" aria-label="Mode">
+                <span class="ds-theme-toggle-label">Mode</span>
+                <div class="ds-theme-toggle-buttons">
+                    <button type="button" data-theme-toggle="light">Light</button>
+                    <button type="button" data-theme-toggle="dark">Dark</button>
+                </div>
+            </div>
+            <details class="ds-mobile-nav">
+                <summary>Menu</summary>
+                <nav aria-label="Mobile">
+                    <a href="/" class="ds-link">Home</a>
+                    <a href="/chat.html" class="ds-link">Chat</a>
+                    <a href="/llmms.html" class="ds-link">LLM-MS</a>
+                    <a href="/privacy.html" class="ds-link">Privacy</a>
+                </nav>
+            </details>
+        </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="ds-hero" style="padding-bottom:var(--space-6);">
+        <div class="ds-container ds-hero-inner">
+            <h1 class="ds-hero-title" style="font-size:clamp(2rem,5vw,3.4rem);">Private LLM</h1>
+            <p class="ds-hero-subline">On-premise, privacy-preserving large language model inference — no data leaves the university network.</p>
+            <div class="ds-status-line">
+                <span>On-Premise Deployment</span>
+                <span>Zero External Calls</span>
+                <span>University of Cyprus Network</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Content -->
+    <main style="flex:1; padding-bottom:var(--space-8);">
+        <div class="ds-container">
+
+            <section class="ds-section" style="border-top:none; padding-top:0;">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">01</span>
+                    <div class="ds-section-title">What Is Private LLM?</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:780px; display:grid; gap:var(--space-4);">
+                    <div class="ds-tag-list">
+                        <span class="ds-chip">On-Premise</span>
+                        <span class="ds-chip">Locally Hosted</span>
+                        <span class="ds-chip">DMSL Infrastructure</span>
+                    </div>
+                    <p style="color:var(--muted); line-height:1.75;">
+                        The Private LLM module provides access to large language models deployed entirely within the University of Cyprus network. All inference runs on university-managed hardware — no queries, responses, or metadata are sent to external cloud services.
+                    </p>
+                    <div class="ds-callout">
+                        <strong style="color:var(--text-strong);">Research context:</strong> This interface supports confidential research workflows where data sovereignty is critical.
+                    </div>
+                </div>
+            </section>
+
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">02</span>
+                    <div class="ds-section-title">Capabilities</div>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:var(--space-5); max-width:780px;" class="cap-grid">
+                    <div class="ds-panel ds-panel--elevated">
+                        <div class="ds-tag-list" style="margin-bottom:var(--space-3);">
+                            <span class="ds-chip">Inference</span>
+                        </div>
+                        <h3 style="margin-bottom:var(--space-3);">Local Model Hosting</h3>
+                        <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">Open-source LLMs deployed on university GPU infrastructure with no dependency on cloud APIs.</p>
+                    </div>
+                    <div class="ds-panel ds-panel--elevated">
+                        <div class="ds-tag-list" style="margin-bottom:var(--space-3);">
+                            <span class="ds-chip">Privacy</span>
+                        </div>
+                        <h3 style="margin-bottom:var(--space-3);">Data Sovereignty</h3>
+                        <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">All conversations remain within the university network. No telemetry, no external logging, no third-party access.</p>
+                    </div>
+                    <div class="ds-panel ds-panel--elevated">
+                        <div class="ds-tag-list" style="margin-bottom:var(--space-3);">
+                            <span class="ds-chip">Integration</span>
+                        </div>
+                        <h3 style="margin-bottom:var(--space-3);">ChromaDB + RAG</h3>
+                        <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">Integrates with ChromaDB vector store for retrieval-augmented generation over private document collections.</p>
+                    </div>
+                    <div class="ds-panel ds-panel--elevated">
+                        <div class="ds-tag-list" style="margin-bottom:var(--space-3);">
+                            <span class="ds-chip">Access</span>
+                        </div>
+                        <h3 style="margin-bottom:var(--space-3);">UCY Network Access</h3>
+                        <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">Available to University of Cyprus researchers and staff connected to the UCY network or VPN.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ds-section">
+                <div class="ds-section-header">
+                    <span class="ds-section-number">03</span>
+                    <div class="ds-section-title">Access</div>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="max-width:540px; display:grid; gap:var(--space-4);">
+                    <p style="color:var(--muted);">This service is available to University of Cyprus members. Contact the DMSL lab for access credentials.</p>
+                    <div style="display:grid; gap:var(--space-3);">
+                        <div>
+                            <p class="ds-meta" style="margin-bottom:4px;">Email</p>
+                            <a href="mailto:dmsl@cs.ucy.ac.cy" class="ds-link ds-link--accent">dmsl@cs.ucy.ac.cy</a>
+                        </div>
+                        <div>
+                            <p class="ds-meta" style="margin-bottom:4px;">Lab</p>
+                            <a href="http://dmsl.cs.ucy.ac.cy/" target="_blank" class="ds-link ds-link--accent">Data Management Systems Laboratory</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+    <style>@media(max-width:640px){.cap-grid{grid-template-columns:1fr !important;}}</style>
+
+    <!-- Footer -->
+    <footer class="ds-footer">
+        <div class="ds-container ds-footer-inner">
+            <div><span>ChatUCY — </span><a href="http://dmsl.cs.ucy.ac.cy/" target="_blank">DMSL, University of Cyprus</a></div>
+            <div style="display:flex; gap:var(--space-5); align-items:center; flex-wrap:wrap;">
+                <a href="/terms.html">Terms</a>
+                <a href="/privacy.html">Privacy</a>
+                <span>© 2025 ChatUCY</span>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../js/ds-theme.js"></script>
+</body>
+</html>

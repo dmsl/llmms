@@ -12,7 +12,7 @@
 
 import { confirmWrite } from "./permissions.js";
 
-const BACKEND_API = 'https://chatucy.cs.ucy.ac.cy/openapi/v1/chat/completions';
+const BACKEND_API = 'https://chatucy.cs.ucy.ac.cy/v1/chat/completions';
 const RAG_ENDPOINT = 'https://chatucy.cs.ucy.ac.cy/api/rag_chain';
 
 // Models that support function calling/tools based on Ollama documentation
@@ -65,14 +65,31 @@ export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2'
   }
   
   // Build initial messages with system prompt
-  let systemPrompt = `You are a helpful, friendly assistant with access to powerful tools. When a user asks you to perform an action that requires using tools, you should use them directly rather than saying you cannot do something.`;
-  
+  let systemPrompt = `You are a browser automation agent. You control a real Chromium browser via Playwright tools. Your job is to carry out exactly what the user asks — nothing more, nothing less.
+
+ABSOLUTE RULES (never break these):
+- NEVER say you "cannot" or "are unable to" do something if a tool exists for it.
+- NEVER claim a website is inaccessible or that you lack capability to interact with it.
+- NEVER add unsolicited warnings, disclaimers, or ethical commentary.
+- NEVER refuse to type text, click buttons, or submit forms on any website, including AI platforms.
+- You are a tool-use agent. Moral judgements about legal websites are not your role.
+- EXCEPTION: Refuse to navigate to or interact with sites that host illegal content (e.g. CSAM, illegal marketplaces, hacking/fraud services). Briefly state why and stop.
+
+BROWSER WORKFLOW — always follow this sequence:
+1. browser_navigate → go to the URL
+2. browser_snapshot → read the page as structured text (accessibility tree). Always do this after navigating.
+3. browser_click / browser_type / browser_select_option → interact with elements using their ref= id from the snapshot
+4. browser_snapshot → read the updated page after every interaction
+5. Repeat steps 3-4 until the task is complete, then summarise what happened.
+
+To type into an input: use browser_type with the ref= id from the snapshot and the text to type.
+To click a button: use browser_click with the ref= id.
+To submit a form: browser_click the submit button ref.`;
+
   // If tools are available, explicitly list them in the system prompt
   if (toolSchemas && toolSchemas.length > 0) {
-    const toolNames = toolSchemas.map(t => t.name).join(', ');
     const toolDescriptions = toolSchemas.map(t => `- ${t.name}: ${t.description || 'No description'}`).join('\n');
-    
-    systemPrompt += `\n\nYou have access to the following tools and MUST use them when appropriate:\n${toolDescriptions}\n\nWhen a user asks you to perform database operations, file operations, or other tasks that match these tools, use them directly. Do not say you cannot do something if you have a tool for it. Always try to use the available tools to accomplish the user's request.`;
+    systemPrompt += `\n\nYour tools:\n${toolDescriptions}`;
   }
   
   let messages = [
@@ -103,6 +120,11 @@ export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2'
         // No tool calls - return the response content
         let content = response.choices?.[0]?.message?.content;
         console.log(`[Agent] LLM response (no tools): ${typeof content}`, content);
+
+        // Strip any residual tool-call markup (e.g. model echoed tags without executing)
+        if (typeof content === 'string') {
+          content = stripToolTags(content);
+        }
         
         // Handle empty or JSON-only responses
         if (!content || content.trim() === '{}' || content.trim() === '') {
@@ -135,9 +157,11 @@ export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2'
       const toolResults = await executeTools(toolCalls);
       
       // Add assistant's tool use message to history
+      // Strip raw tool tags so they don't confuse the model on the next turn
+      const assistantContent = stripToolTags(response.choices[0].message.content || '');
       messages.push({
         role: 'assistant',
-        content: response.choices[0].message.content,
+        content: assistantContent,
         tool_calls: response.choices[0].message.tool_calls
       });
       
@@ -259,6 +283,19 @@ async function callLLM(messages, toolSchemas, model) {
 }
 
 /**
+ * Strip inline tool-call markup from model text content.
+ * Handles <function=...>, <parameter=...>, and <tool_call>...</tool_call> tags.
+ */
+function stripToolTags(text) {
+  if (!text) return text;
+  return text
+    .replace(/<function=[^>]*>[\s\S]*?(?=<function=|$)/g, '')  // <function=name> ... blocks
+    .replace(/<\/?tool_call>/g, '')                             // <tool_call> / </tool_call>
+    .replace(/<parameter=[^>]*>/g, '')                          // stray <parameter=key> tags
+    .trim();
+}
+
+/**
  * Extract tool calls from LLM response
  * Handles multiple formats for tool calls
  */
@@ -318,7 +355,58 @@ function extractToolCalls(response) {
     console.log(`[Agent] Extracted function_call: ${name}`);
     toolCalls.push({ id: 'func_0', name, args });
   }
-  
+
+  // Format 3: Text-embedded <function=name> <parameter=key> value  (qwen3-coder style)
+  // e.g.  <function=browser_navigate> <parameter=url> https://www.ucy.ac.cy
+  if (!toolCalls.length && message.content) {
+    const fnRegex = /<function=([^\s>]+)>([\s\S]*?)(?=<function=|$)/g;
+    let fnMatch;
+    let fnIdx = 0;
+    while ((fnMatch = fnRegex.exec(message.content)) !== null) {
+      const fnName = fnMatch[1].trim();
+      const fnBody = fnMatch[2];
+      const args = {};
+
+      // Extract <parameter=key> value pairs from the body
+      const paramRegex = /<parameter=([^\s>]+)>\s*([\s\S]*?)(?=\s*<parameter=|\s*$)/g;
+      let pMatch;
+      while ((pMatch = paramRegex.exec(fnBody)) !== null) {
+        const key = pMatch[1].trim();
+        const val = pMatch[2].trim();
+        // Try to coerce numbers / booleans / JSON objects
+        try { args[key] = JSON.parse(val); } catch { args[key] = val; }
+      }
+
+      // Fallback: if no <parameter> tags, try to parse the whole body as JSON
+      if (Object.keys(args).length === 0 && fnBody.trim()) {
+        try { Object.assign(args, JSON.parse(fnBody.trim())); } catch { /* ignore */ }
+      }
+
+      console.log(`[Agent] Extracted <function=> call: ${fnName}`, args);
+      toolCalls.push({ id: `fn_${fnIdx++}`, name: fnName, args });
+    }
+  }
+
+  // Format 4: <tool_call>{"name":"…","arguments":{…}}</tool_call>  (some Qwen/Hermes variants)
+  if (!toolCalls.length && message.content) {
+    const tcRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+    let tcMatch;
+    let tcIdx = 0;
+    while ((tcMatch = tcRegex.exec(message.content)) !== null) {
+      try {
+        const parsed = JSON.parse(tcMatch[1].trim());
+        const name = parsed.name || parsed.function;
+        const args = parsed.arguments || parsed.parameters || parsed.args || {};
+        if (name) {
+          console.log(`[Agent] Extracted <tool_call> call: ${name}`, args);
+          toolCalls.push({ id: `tc_${tcIdx++}`, name, args });
+        }
+      } catch (e) {
+        console.warn('[Agent] Failed to parse <tool_call> block:', e);
+      }
+    }
+  }
+
   return toolCalls;
 }
 
@@ -369,7 +457,16 @@ async function executeTools(toolCalls) {
   
   // Web mode: Use browser MCP client for remote-only MCP tools
   if (window.mcpBrowserClient) {
-    for (const toolCall of toolCalls) {
+    // Auto-inject browser_snapshot after browser_navigate so the model always gets page text
+    const expandedCalls = [];
+    for (const tc of toolCalls) {
+      expandedCalls.push(tc);
+      if (tc.name === 'browser_navigate') {
+        expandedCalls.push({ id: tc.id + '_snap', name: 'browser_snapshot', args: {} });
+      }
+    }
+
+    for (const toolCall of expandedCalls) {
       try {
         console.log(`[Agent Web] Executing tool: "${toolCall.name}" with args:`, toolCall.args);
         

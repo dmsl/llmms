@@ -12,13 +12,99 @@ class MCPBrowserClient {
   }
 
   /**
-   * Connect to a remote MCP server via WebSocket
+   * Connect to a remote MCP server — auto-detects SSE (http/https) vs WebSocket (ws/wss)
    * @param {string} serverName - Unique identifier for this server
-   * @param {string} url - WebSocket URL (ws:// or wss://)
-   * @param {Object} connectionParams - Optional connection parameters (database, user, password)
+   * @param {string} url - Server URL
+   * @param {Object} connectionParams - Optional connection parameters
    * @returns {Promise<void>}
    */
   async connect(serverName, url, connectionParams = null) {
+    const isSSE = url.startsWith('http://') || url.startsWith('https://');
+    if (isSSE) return this.connectSSE(serverName, url);
+    return this._connectWebSocket(serverName, url, connectionParams);
+  }
+
+  /**
+   * Connect via HTTP SSE transport (used by @playwright/mcp and other HTTP MCP servers)
+   * Each connection gets its own browser/session context on the server side.
+   * @param {string} serverName
+   * @param {string} baseUrl - e.g. https://chatucy.cs.ucy.ac.cy/mcp/playwright
+   */
+  async connectSSE(serverName, baseUrl) {
+    if (this.servers.has(serverName)) {
+      console.log(`[MCP Browser] Server ${serverName} already connected`);
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const serverInfo = { type: 'sse', baseUrl, postUrl: null, eventSource: null, tools: [], status: 'connecting' };
+      this.servers.set(serverName, serverInfo);
+
+      const sseUrl = baseUrl.replace(/\/$/, '') + '/sse';
+      const es = new EventSource(sseUrl);
+      serverInfo.eventSource = es;
+
+      let settled = false;
+      const settle = (fn, val) => { if (!settled) { settled = true; fn(val); } };
+
+      const connectTimeout = setTimeout(() => {
+        es.close();
+        this.servers.delete(serverName);
+        settle(reject, new Error(`SSE connect timeout for ${serverName}`));
+      }, 15000);
+
+      // Server sends: event: endpoint, data: /message?sessionId=xxx
+      es.addEventListener('endpoint', async (event) => {
+        const path = event.data.trim();
+        // Build absolute POST URL relative to our proxy base (not the server origin)
+        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+        serverInfo.postUrl = baseUrl.replace(/\/$/, '') + '/' + cleanPath;
+        serverInfo.status = 'connected';
+
+        // Create a fake WebSocket adapter so callTool / listTools work unchanged
+        serverInfo.ws = {
+          readyState: 1, // WebSocket.OPEN
+          send: (data) => {
+            fetch(serverInfo.postUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: data
+            }).catch(err => console.error(`[MCP Browser] SSE POST failed for ${serverName}:`, err));
+          },
+          close: () => es.close()
+        };
+
+        console.log(`[MCP Browser] SSE connected to ${serverName}, postUrl: ${serverInfo.postUrl}`);
+
+        try { serverInfo.tools = await this.ingestTools(serverName); } catch (e) {
+          console.warn(`[MCP Browser] Tool ingestion failed for ${serverName}:`, e);
+        }
+        clearTimeout(connectTimeout);
+        settle(resolve);
+      });
+
+      // Server sends tool call responses back over the SSE stream
+      es.addEventListener('message', (event) => {
+        this._handleMessage({ data: event.data });
+      });
+
+      es.onerror = (err) => {
+        console.error(`[MCP Browser] SSE error for ${serverName}:`, err);
+        serverInfo.status = 'error';
+        this.servers.delete(serverName);
+        clearTimeout(connectTimeout);
+        settle(reject, new Error(`SSE connection error for ${serverName}`));
+      };
+    });
+  }
+
+  /**
+   * Connect to a remote MCP server via WebSocket (original implementation)
+   * @param {string} serverName
+   * @param {string} url - WebSocket URL (ws:// or wss://)
+   * @param {Object} connectionParams
+   */
+  async _connectWebSocket(serverName, url, connectionParams = null) {
     if (this.servers.has(serverName)) {
       console.log(`[MCP Browser] Server ${serverName} already connected`);
       return;
@@ -90,7 +176,7 @@ class MCPBrowserClient {
   }
 
   /**
-   * Handle incoming WebSocket messages
+   * Handle incoming messages (WebSocket or SSE)
    * @private
    */
   _handleMessage(event) {
@@ -285,8 +371,12 @@ class MCPBrowserClient {
    */
   disconnect(serverName) {
     const serverInfo = this.servers.get(serverName);
-    if (serverInfo && serverInfo.ws) {
-      serverInfo.ws.close();
+    if (serverInfo) {
+      if (serverInfo.type === 'sse' && serverInfo.eventSource) {
+        serverInfo.eventSource.close();
+      } else if (serverInfo.ws) {
+        serverInfo.ws.close();
+      }
       this.servers.delete(serverName);
       console.log(`[MCP Browser] Disconnected from ${serverName}`);
     }

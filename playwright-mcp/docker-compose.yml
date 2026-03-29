@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  playwright-mcp:
+    build: .
+    container_name: playwright-mcp
+    restart: unless-stopped
+    # Both ports bind to localhost only — Apache is the public edge
+    ports:
+      - "127.0.0.1:3001:3000"   # Playwright MCP  SSE
+      - "127.0.0.1:6080:6080"   # noVNC live-view
+    environment:
+      # Allow Chromium to run as root inside the container
+      PLAYWRIGHT_CHROMIUM_SANDBOX: "0"
+    shm_size: "512mb"           # Chromium needs shared memory
+    # ── Resource limits: prevent runaway sessions from OOM-killing the host ──
+    deploy:
+      resources:
+        limits:
+          memory: 2g            # Hard cap: 2 GB RAM  (raise if concurrent sessions needed)
+          cpus: "2.0"           # Cap at 2 vCPUs
+        reservations:
+          memory: 256m
+    # Stop the container if it exceeds the memory limit (no silent OOM kill)
+    stop_grace_period: 15s

@@ -6,3 +6,4 @@ embed_cache_compare/
 cache_ag_news_train[-20000]_k32_min2/
 cache*/
 mssql/
+chatucy-mcp.conf

@@ -1,10 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Chat UCY - LLM Meta Search</title>
-    
+    <title>Chat UCY — LLM Meta Search</title>
+
+    <!-- Theme: apply before paint -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('chatucy-theme');
+        document.documentElement.dataset.theme = (t === 'dark' || t === 'light') ? t : 'light';
+      })();
+    </script>
+
+    <!-- Design System -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="../css/design-system.css" rel="stylesheet">
+
     <!-- Tailwind CSS - Local compiled version -->
     <link href="../dist/output.css" rel="stylesheet">
     
@@ -122,52 +136,61 @@
         <!-- Main Content Area -->
         <main class="flex-1 flex flex-col h-full relative">
             <!-- Header -->
-            <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shadow-sm">
-                <!-- Left: Menu Toggle -->
-                <button 
-                    @click="sidebarOpen = !sidebarOpen"
-                    :class="sidebarOpen ? 'bg-primary text-white' : 'bg-primary-pale text-primary hover:bg-primary-light'"
-                    class="lg:hidden w-10 h-10 rounded-lg transition-all duration-200 flex items-center justify-center font-bold text-lg">
-                    <i :class="sidebarOpen ? 'fas fa-times' : 'fas fa-bars'"></i>
-                </button>
-                
-                <!-- Center: Title (optional) -->
-                <div class="flex-1 lg:ml-0 ml-4">
-                    <h1 class="text-lg font-semibold text-gray-800 hidden sm:block">LLM Meta Search</h1>
-                </div>
-                
-                <!-- Right: Logos & Menu -->
-                <div class="flex items-center gap-3">
-                    <a href="https://www.ucy.ac.cy/" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="UCY">
-                        <img src="/img/ucy_logo.png" alt="UCY" class="h-full object-contain" onerror="this.style.display='none'">
-                    </a>
-                    <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" class="h-8 hidden sm:block hover:opacity-75 transition-opacity" title="DMSL">
-                        <img src="/img/dmsllogobig.png" alt="DMSL" class="h-full object-contain" onerror="this.style.display='none'">
-                    </a>
-                    
-                    <!-- Navigation Dropdown -->
-                    <div class="relative" x-data="{ open: false }">
-                        <button 
-                            @click="open = !open"
-                            class="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center" title="Menu">
-                            <img src="/img/chatucy_logo.png" alt="ChatUCY" class="h-6 object-contain" onerror="this.innerHTML='☰'">
-                        </button>
-                        </button>
-                        <div 
-                            x-show="open"
-                            @click.away="open = false"
-                            x-transition
-                            class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                            <div class="px-4 py-2 text-sm text-gray-500 border-b border-gray-200">v1.2</div>
-                            <a href="/" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-home"></i> Home
-                            </a>
-                            <a href="/privacy" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-lock"></i> Privacy
-                            </a>
-                            <a href="/terms" class="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100">
-                                <i class="fas fa-file-text"></i> Terms
-                            </a>
+            <header class="ds-app-header">
+                <div class="ds-app-header-inner">
+                    <!-- Left: sidebar toggle -->
+                    <button
+                        @click="sidebarOpen = !sidebarOpen"
+                        class="ds-icon-btn"
+                        title="Toggle sidebar">
+                        <i class="fas fa-bars"></i>
+                    </button>
+
+                    <!-- Center: Title -->
+                    <span class="ds-app-header-title">LLM Meta Search</span>
+
+                    <!-- Right: nav + logos + menu -->
+                    <div style="display:flex; align-items:center; gap:var(--space-3);">
+                        <nav class="ds-app-nav">
+                            <a href="/" class="ds-link">Home</a>
+                            <a href="/chat.html" class="ds-link">Chat</a>
+                            <a href="/privacy.html" class="ds-link">Privacy</a>
+                        </nav>
+
+                        <a href="https://www.ucy.ac.cy/" target="_blank" style="height:28px;" title="UCY">
+                            <img src="/img/ucy_logo.png" alt="UCY" style="height:100%; object-fit:contain;" onerror="this.parentElement.style.display='none'">
+                        </a>
+                        <a href="https://dmsl.cs.ucy.ac.cy" target="_blank" style="height:28px;" title="DMSL">
+                            <img src="/img/dmsllogobig.png" alt="DMSL" style="height:100%; object-fit:contain;" onerror="this.parentElement.style.display='none'">
+                        </a>
+
+                        <!-- Theme toggle (compact) -->
+                        <div class="ds-theme-toggle">
+                            <div class="ds-theme-toggle-buttons">
+                                <button type="button" data-theme-toggle="light" title="Light mode">&#9788;</button>
+                                <button type="button" data-theme-toggle="dark" title="Dark mode">&#9790;</button>
+                            </div>
+                        </div>
+
+                        <!-- Navigation Dropdown -->
+                        <div class="relative" x-data="{ open: false }">
+                            <button
+                                @click="open = !open"
+                                class="ds-icon-btn"
+                                title="Menu">
+                                <img src="/img/chatucy_logo.png" alt="Menu" style="height:18px; object-fit:contain;" onerror="this.style.display='none'">
+                            </button>
+                            <div
+                                x-show="open"
+                                @click.away="open = false"
+                                x-transition
+                                class="ds-dropdown-menu"
+                                style="position:absolute; right:0; top:calc(100% + 8px); z-index:200;">
+                                <div class="ds-dropdown-version">v1.2</div>
+                                <a href="/"><i class="fas fa-home" style="width:14px;"></i> Home</a>
+                                <a href="/privacy.html"><i class="fas fa-lock" style="width:14px;"></i> Privacy</a>
+                                <a href="/terms.html"><i class="fas fa-file-alt" style="width:14px;"></i> Terms</a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -381,5 +404,6 @@
             </div>
         </div>
     </div>
+<script src="../js/ds-theme.js"></script>
 </body>
 </html>
