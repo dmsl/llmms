@@ -86,7 +86,7 @@ class IndexedDBVectorStore {
      * @param {number} limit - Maximum number of results to return
      * @returns {Promise<Array<Object>>} - Array of similar documents
      */
-    async findSimilar(queryEmbedding, limit = 5) {
+    async findSimilar(queryEmbedding, limit = 5, filters = {}) {
         await this.ensureDB();
 
         return new Promise((resolve, reject) => {
@@ -100,9 +100,10 @@ class IndexedDBVectorStore {
 
             request.onsuccess = (event) => {
                 const documents = event.target.result;
+                const filteredDocuments = documents.filter(doc => this.matchesMetadataFilters(doc, filters));
 
                 // Calculate cosine similarity for each document
-                const results = documents.map(doc => {
+                const results = filteredDocuments.map(doc => {
                     const similarity = this.cosineSimilarity(queryEmbedding, doc.embedding);
                     return {
                         ...doc,
@@ -115,6 +116,98 @@ class IndexedDBVectorStore {
                 resolve(results.slice(0, limit));
             };
         });
+    }
+
+    matchesMetadataFilters(document, filters = {}) {
+        if (!filters || Object.keys(filters).length === 0) {
+            return true;
+        }
+
+        const metadata = document?.metadata || {};
+
+        if (filters.workspaceId !== undefined && metadata.workspaceId !== filters.workspaceId) {
+            return false;
+        }
+
+        if (filters.chatId !== undefined && metadata.chatId !== filters.chatId) {
+            return false;
+        }
+
+        if (filters.sourceType !== undefined && metadata.sourceType !== filters.sourceType) {
+            return false;
+        }
+
+        if (filters.fileId !== undefined && metadata.fileId !== filters.fileId) {
+            return false;
+        }
+
+        if (Array.isArray(filters.fileIds) && filters.fileIds.length > 0) {
+            if (!filters.fileIds.includes(metadata.fileId)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    async getAllDocuments() {
+        await this.ensureDB();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readonly");
+            const store = transaction.objectStore(this.storeName);
+            const request = store.getAll();
+
+            request.onerror = (event) => {
+                reject("Error loading documents: " + event.target.error);
+            };
+
+            request.onsuccess = (event) => {
+                resolve(event.target.result || []);
+            };
+        });
+    }
+
+    async deleteDocumentsByFilter(filters = {}) {
+        await this.ensureDB();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([this.storeName], "readwrite");
+            const store = transaction.objectStore(this.storeName);
+            const request = store.openCursor();
+            let deletedCount = 0;
+
+            request.onerror = (event) => {
+                reject("Error deleting documents: " + event.target.error);
+            };
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (!cursor) {
+                    resolve(deletedCount);
+                    return;
+                }
+
+                const document = cursor.value;
+                if (this.matchesMetadataFilters(document, filters)) {
+                    cursor.delete();
+                    deletedCount += 1;
+                }
+                cursor.continue();
+            };
+        });
+    }
+
+    async countByFilter(filters = {}) {
+        const documents = await this.getAllDocuments();
+        return documents.filter(doc => this.matchesMetadataFilters(doc, filters)).length;
+    }
+
+    async sumEstimatedBytesByFilter(filters = {}) {
+        const documents = await this.getAllDocuments();
+        return documents
+            .filter(doc => this.matchesMetadataFilters(doc, filters))
+            .reduce((sum, doc) => sum + (Number(doc?.metadata?.estimatedBytes) || 0), 0);
     }
 
     /**

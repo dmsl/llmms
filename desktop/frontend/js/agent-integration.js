@@ -36,7 +36,7 @@ const TOOL_SUPPORTED_MODELS = [
  * @param {string} modelName - The model name (e.g., "llama3.2:3b" or "mistral")
  * @returns {boolean} - True if model supports tools
  */
-function supportsTools(modelName) {
+export function supportsTools(modelName) {
   if (!modelName) return false;
   
   // Extract base model name (remove size/variant suffix like :3b, :70b, etc.)
@@ -57,15 +57,21 @@ function supportsTools(modelName) {
  * @param {Array} conversationHistory - Previous messages for context
  * @param {File} uploadedFile - Optional file (images for vision models, documents for RAG)
  * @param {string} sessionId - Session ID for persistent RAG (optional)
+ * @param {'ask'|'agent'} mode - Ask does a single completion; Agent enables tool loop
  */
-export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2', conversationHistory = [], uploadedFile = null, sessionId = null) {
+export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2', conversationHistory = [], uploadedFile = null, sessionId = null, mode = 'agent') {
   // Handle document/large file RAG separately
   if (uploadedFile && !uploadedFile.type.startsWith('image/')) {
     return handleRagChain(userMessage, model, uploadedFile, conversationHistory, sessionId);
   }
+
+  const normalizedMode = mode === 'agent' && supportsTools(model) ? 'agent' : 'ask';
   
   // Build initial messages with system prompt
-  let systemPrompt = `You are a browser automation agent. You control a real Chromium browser via Playwright tools. Your job is to carry out exactly what the user asks — nothing more, nothing less.
+  let systemPrompt = `You are a helpful AI assistant. Give clear, direct answers and ask brief follow-up questions only when necessary.`;
+
+  if (normalizedMode === 'agent') {
+    systemPrompt = `You are a browser automation agent. You control a real Chromium browser via Playwright tools. Your job is to carry out exactly what the user asks — nothing more, nothing less.
 
 ABSOLUTE RULES (never break these):
 - NEVER say you "cannot" or "are unable to" do something if a tool exists for it.
@@ -85,9 +91,10 @@ BROWSER WORKFLOW — always follow this sequence:
 To type into an input: use browser_type with the ref= id from the snapshot and the text to type.
 To click a button: use browser_click with the ref= id.
 To submit a form: browser_click the submit button ref.`;
+  }
 
   // If tools are available, explicitly list them in the system prompt
-  if (toolSchemas && toolSchemas.length > 0) {
+  if (normalizedMode === 'agent' && toolSchemas && toolSchemas.length > 0) {
     const toolDescriptions = toolSchemas.map(t => `- ${t.name}: ${t.description || 'No description'}`).join('\n');
     systemPrompt += `\n\nYour tools:\n${toolDescriptions}`;
   }
@@ -100,10 +107,16 @@ To submit a form: browser_click the submit button ref.`;
   ];
   
   messages = messages.concat(await buildMessages(conversationHistory, userMessage, uploadedFile));
+
+  if (normalizedMode === 'ask') {
+    const response = await callLLM(messages, [], model);
+    return extractFinalContent(response);
+  }
   
   // Agentic loop - keep calling LLM until it stops using tools
   let iterations = 0;
-  const maxIterations = 10; // Prevent infinite loops
+  const maxIterations = 20; // Prevent infinite loops on complex tasks
+  let lastAssistantContent = '';
   
   while (iterations < maxIterations) {
     iterations++;
@@ -112,44 +125,17 @@ To submit a form: browser_click the submit button ref.`;
     try {
       // Call LLM with current messages and available tools
       const response = await callLLM(messages, toolSchemas, model);
+      const responseContent = response.choices?.[0]?.message?.content;
+      if (typeof responseContent === 'string' && responseContent.trim()) {
+        lastAssistantContent = stripToolTags(responseContent);
+      }
       
       // Check if LLM wants to use tools
       const toolCalls = extractToolCalls(response);
       
       if (toolCalls.length === 0) {
         // No tool calls - return the response content
-        let content = response.choices?.[0]?.message?.content;
-        console.log(`[Agent] LLM response (no tools): ${typeof content}`, content);
-
-        // Strip any residual tool-call markup (e.g. model echoed tags without executing)
-        if (typeof content === 'string') {
-          content = stripToolTags(content);
-        }
-        
-        // Handle empty or JSON-only responses
-        if (!content || content.trim() === '{}' || content.trim() === '') {
-          // LLM returned nothing - this might mean it's confused
-          // Return a helpful message
-          return 'I\'m ready to help! Feel free to ask me anything.';
-        }
-        
-        // Try to extract text from JSON if the content is JSON
-        if (typeof content === 'string' && content.trim().startsWith('{')) {
-          try {
-            const parsed = JSON.parse(content);
-            // If JSON has a "response" or "text" field, use that
-            if (parsed.response) return parsed.response;
-            if (parsed.text) return parsed.text;
-            if (parsed.message) return parsed.message;
-            // Otherwise return original if it's more than just {}
-            if (Object.keys(parsed).length > 0) return content;
-          } catch (e) {
-            // Not valid JSON, return as-is
-            return content;
-          }
-        }
-        
-        return content || 'I didn\'t receive a proper response from the model.';
+        return extractFinalContent(response);
       }
       
       // Execute tools and add results to conversation
@@ -177,7 +163,38 @@ To submit a form: browser_click the submit button ref.`;
     }
   }
   
-  throw new Error(`Agent exceeded maximum iterations (${maxIterations})`);
+  console.warn(`[Agent] Maximum iterations reached (${maxIterations})`);
+  if (lastAssistantContent) {
+    return `${lastAssistantContent}\n\n(Note: Agent stopped after ${maxIterations} steps to avoid an infinite loop.)`;
+  }
+  return `Agent reached the safety limit (${maxIterations} steps) before finishing.`;
+}
+
+function extractFinalContent(response) {
+  let content = response?.choices?.[0]?.message?.content;
+  console.log(`[Agent] LLM response (no tools): ${typeof content}`, content);
+
+  if (typeof content === 'string') {
+    content = stripToolTags(content);
+  }
+
+  if (!content || content.trim() === '{}' || content.trim() === '') {
+    return 'I\'m ready to help! Feel free to ask me anything.';
+  }
+
+  if (typeof content === 'string' && content.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed.response) return parsed.response;
+      if (parsed.text) return parsed.text;
+      if (parsed.message) return parsed.message;
+      if (Object.keys(parsed).length > 0) return content;
+    } catch (e) {
+      return content;
+    }
+  }
+
+  return content || 'I didn\'t receive a proper response from the model.';
 }
 
 /**

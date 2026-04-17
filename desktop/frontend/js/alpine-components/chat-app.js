@@ -6,6 +6,30 @@
 let ragLoaded = false;
 let ragLoadingPromise = null;
 
+const DEFAULT_RAG_LIMITS = {
+    MAX_FILE_SIZE_BYTES: 15 * 1024 * 1024,
+    MAX_FILES_PER_WORKSPACE: 15,
+    MAX_CHUNKS_PER_FILE: 200,
+    MAX_CHUNKS_PER_WORKSPACE: 1000,
+    MAX_CHUNKS_GLOBAL: 3000,
+    MAX_EXTRACTED_TEXT_BYTES_PER_FILE: 2 * 1024 * 1024,
+    MAX_ESTIMATED_BYTES_PER_WORKSPACE: 10 * 1024 * 1024,
+    MAX_ESTIMATED_BYTES_GLOBAL: 30 * 1024 * 1024,
+    WARN_THRESHOLD_RATIO: 0.8,
+    ESTIMATED_BYTES_PER_CHUNK: 4096,
+    EMBEDDING_BATCH_SIZE: 8,
+    RETRIEVAL_TOP_K: 5,
+    RETRIEVAL_MAX_PER_FILE: 2,
+    RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE: 20
+};
+
+function getRagLimits() {
+    return {
+        ...DEFAULT_RAG_LIMITS,
+        ...(window.RAG_LIMITS || {})
+    };
+}
+
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -30,9 +54,9 @@ async function ensureRagLoaded() {
     await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder");
 
     // Load browser-rag implementation only when needed
+    await loadScriptOnce("../js/browser-rag/rag-policy.js");
     await loadScriptOnce("../js/browser-rag/indexed-db-vector-store.js");
     await loadScriptOnce("../js/browser-rag/browser-retriever.js");
-    await loadScriptOnce("../js/browser-rag/script-rag.js");
 
     // Initialize the USE model (downloads ~50MB model shards)
     console.log('[RAG Loader] Initializing Universal Sentence Encoder model...');
@@ -49,14 +73,39 @@ async function ensureRagLoaded() {
 }
 
 // Import agent integration (handles both web and Electron modes)
-import { askAgent } from '../agent-integration.js';
+import { askAgent, supportsTools } from '../agent-integration.js';
 import { basicToolSchemas } from '../tools.js';
 import { ConversationManager } from '../conversation-manager.js';
+import {
+    createWorkspaceFileStorageKey,
+    putWorkspaceFileBlob,
+    getWorkspaceFileBlob,
+    deleteWorkspaceFileBlob,
+    clearWorkspaceFileBlobs,
+    dataUrlToBlob,
+    blobToDataUrl
+} from '../workspace-file-store.js';
 
 window.askAgent = askAgent;
 
 // API Base URL for model loading (Electron will use this to get available models)
 const API_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/api';
+const STORAGE_KEYS = {
+    appState: 'chat_app_state_v2',
+    legacySessions: 'chat_sessions',
+    workspaceStoragePolicy: 'workspace_storage_policy_v1',
+    localRagPrefs: 'local_rag_prefs_v1'
+};
+
+const WORKSPACE_STORAGE_LIMIT_DEFAULTS = {
+    maxFileBytes: 25 * 1024 * 1024,
+    maxWorkspaceBytes: 200 * 1024 * 1024,
+    maxGlobalBytes: 1024 * 1024 * 1024
+};
+
+function makeId(prefix) {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function chatApp() {
     // Initialize sidebar state from localStorage or based on screen size
@@ -75,11 +124,41 @@ function chatApp() {
         userInput: '',
         messages: [],
         sessions: [],
+        workspaces: [],
+        workspaceFiles: [],
         currentSession: null,
+        currentWorkspaceFilter: 'all', // all | unassigned | workspace
+        selectedWorkspaceId: null,
+        sidebarSearchQuery: '',
+        workspacesCollapsed: false,
+        allChatsCollapsed: false,
+        workspaceExpanded: {},
+        workspaceDetailsOpen: false,
+        draggedSessionId: null,
+        storageInfo: {
+            usedBytes: 0,
+            quotaBytes: 0,
+            loaded: false
+        },
+        storageSettingsOpen: false,
+        workspaceStoragePolicy: {
+            ...WORKSPACE_STORAGE_LIMIT_DEFAULTS
+        },
         isLoading: false,
         selectedModel: 'Select Model',
+        interactionMode: 'ask',
         availableModels: [],
         localRagEnabled: false,
+        localRagMode: 'hybrid-fallback',
+        localRagLastModeUsed: 'none',
+        localRagStatusText: '',
+        localRagFileStates: {},
+        ragWorker: null,
+        ragWorkerReady: false,
+        ragWorkerJobs: {},
+        ragWorkerJobSeq: 0,
+        activeIndexJobId: null,
+        activeRetrievalJobId: null,
         uploadedFile: null,
         uploadedFileName: '',
         uploadedFilePreview: null, // Base64 preview for images
@@ -89,6 +168,15 @@ function chatApp() {
             type: '', // 'edit' or 'delete'
             value: '',
             sessionId: null
+        },
+        workspaceModal: {
+            show: false,
+            mode: 'create', // create | edit | delete
+            workspaceId: null,
+            name: '',
+            icon: '',
+            color: '#6a42c2',
+            description: ''
         },
         jsonEditorModal: {
             show: false,
@@ -327,15 +415,15 @@ function chatApp() {
             // No automatic resize handling - let user control sidebar state
             // The CSS responsive classes (lg:w-60, lg:w-0, etc.) handle the visual adaptation
             
-            // Load sessions from sessionStorage
-            const savedSessions = sessionStorage.getItem('chat_sessions');
-            if (savedSessions) {
-                this.sessions = JSON.parse(savedSessions);
-                if (this.sessions.length > 0) {
-                    this.selectSession(this.sessions[0].id);
-                } else {
-                    this.newChat();
-                }
+            // Load state (with migration from legacy session storage)
+            this.loadWorkspaceStoragePolicy();
+            this.loadAppState();
+            this.loadLocalRagPrefs();
+            await this.refreshStorageEstimate();
+            await this.migrateLegacyWorkspaceFilesToIndexedDb();
+            if (this.sessions.length > 0) {
+                const first = this.currentSession || this.sessions[0].id;
+                this.selectSession(first);
             } else {
                 this.newChat();
             }
@@ -359,6 +447,7 @@ function chatApp() {
             
             // Watch localRagEnabled and lazy-load RAG dependencies when enabled
             this.$watch('localRagEnabled', async (enabled) => {
+                this.persistLocalRagPrefs();
                 if (enabled) {
                     // Show loading indicator
                     const loadingMsg = {
@@ -372,6 +461,7 @@ function chatApp() {
                     try {
                         console.log('[ChatApp] Local RAG enabled, loading dependencies...');
                         await ensureRagLoaded();
+                        await this.ensureLocalRetriever();
                         
                         // Update loading message to success
                         this.messages[loadingIndex].content = '✅ Local RAG ready! You can now upload documents for context-aware chat.';
@@ -400,6 +490,10 @@ function chatApp() {
                         console.log('[ChatApp] RAG documents cleared');
                     }
                 }
+            });
+
+            this.$watch('localRagFileStates', () => {
+                this.persistLocalRagPrefs();
             });
             
             // Set up MCP config modal and initialize MCP clients
@@ -472,6 +566,810 @@ function chatApp() {
                 byServer[tool.serverName].tools.push(tool);
             }
             this.mcpConfigModal.toolsByServer = byServer;
+        },
+
+        loadAppState() {
+            let loaded = false;
+            try {
+                const raw = localStorage.getItem(STORAGE_KEYS.appState);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    this.sessions = this.normalizeSessions(parsed.sessions || []);
+                    this.workspaces = this.normalizeWorkspaces(parsed.workspaces || []);
+                    this.workspaceFiles = this.normalizeWorkspaceFiles(parsed.workspaceFiles || []);
+                    this.currentSession = parsed.currentSession || null;
+                    loaded = true;
+                }
+            } catch (error) {
+                console.error('[ChatApp] Failed to load app state:', error);
+            }
+
+            if (!loaded) {
+                this.migrateLegacySessions();
+            }
+
+            // Clean up invalid references after migration or load
+            const workspaceIds = new Set(this.workspaces.map(w => w.id));
+            this.sessions = this.sessions.map(s => ({
+                ...s,
+                workspaceId: s.workspaceId && workspaceIds.has(s.workspaceId) ? s.workspaceId : null
+            }));
+        },
+
+        loadLocalRagPrefs() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEYS.localRagPrefs);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                this.localRagEnabled = !!parsed.localRagEnabled;
+                this.localRagFileStates = parsed.localRagFileStates || {};
+            } catch (error) {
+                console.warn('[ChatApp] Failed to load local RAG preferences:', error);
+            }
+        },
+
+        persistLocalRagPrefs() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.localRagPrefs, JSON.stringify({
+                    localRagEnabled: this.localRagEnabled,
+                    localRagFileStates: this.localRagFileStates
+                }));
+            } catch (error) {
+                console.warn('[ChatApp] Failed to persist local RAG preferences:', error);
+            }
+        },
+
+        async ensureLocalRetriever() {
+            await ensureRagLoaded();
+            if (!window.browserRetriever) {
+                const RetrieverClass = window.BrowserRetriever || (typeof BrowserRetriever !== 'undefined' ? BrowserRetriever : null);
+                if (!RetrieverClass) {
+                    throw new Error('Browser retriever is not available');
+                }
+                window.browserRetriever = new RetrieverClass();
+            }
+            return window.browserRetriever;
+        },
+
+        async ensureRagWorker() {
+            await ensureRagLoaded();
+            if (!window.Worker) {
+                throw new Error('Web Workers are not supported in this browser');
+            }
+
+            if (this.ragWorker && this.ragWorkerReady) {
+                return this.ragWorker;
+            }
+
+            if (!this.ragWorker) {
+                this.ragWorker = new Worker('../js/browser-rag/rag-worker.js');
+                this.ragWorker.onmessage = (event) => {
+                    const data = event.data || {};
+                    const job = this.ragWorkerJobs[data.jobId];
+                    if (!job) return;
+
+                    if (data.type === 'progress') {
+                        if (typeof job.onProgress === 'function') {
+                            job.onProgress(data.progress || {});
+                        }
+                        return;
+                    }
+
+                    if (data.type === 'result') {
+                        job.resolve(data.result);
+                    } else {
+                        job.reject(new Error(data.error || 'RAG worker task failed'));
+                    }
+
+                    delete this.ragWorkerJobs[data.jobId];
+                };
+
+                this.ragWorker.onerror = (error) => {
+                    console.error('[ChatApp] RAG worker error:', error);
+                };
+            }
+
+            if (!this.ragWorkerReady) {
+                this.ragWorkerJobSeq += 1;
+                const initJobId = `init_${Date.now()}_${this.ragWorkerJobSeq}`;
+                await new Promise((resolve, reject) => {
+                    this.ragWorkerJobs[initJobId] = { resolve, reject, onProgress: null };
+                    this.ragWorker.postMessage({ type: 'init', jobId: initJobId, payload: {} });
+                });
+                this.ragWorkerReady = true;
+            }
+
+            return this.ragWorker;
+        },
+
+        async postRagWorkerTask(type, payload, options = {}) {
+            await this.ensureRagWorker();
+            this.ragWorkerJobSeq += 1;
+            const jobId = `${type}_${Date.now()}_${this.ragWorkerJobSeq}`;
+
+            const promise = new Promise((resolve, reject) => {
+                this.ragWorkerJobs[jobId] = {
+                    resolve,
+                    reject,
+                    onProgress: options.onProgress || null
+                };
+
+                this.ragWorker.postMessage({
+                    type,
+                    jobId,
+                    payload
+                });
+            });
+
+            return { jobId, promise };
+        },
+
+        cancelRagWorkerTask(jobId) {
+            if (!this.ragWorker || !jobId) return;
+            this.ragWorker.postMessage({ type: 'cancel', jobId });
+        },
+
+        async extractTextForLocalRag(file) {
+            const type = (file.type || '').toLowerCase();
+
+            if (
+                type.includes('text') ||
+                type.includes('javascript') ||
+                type.includes('json') ||
+                type.includes('csv') ||
+                type.includes('html') ||
+                type === ''
+            ) {
+                return await file.text();
+            }
+
+            if (type.includes('officedocument.wordprocessingml.document') || type.includes('docx')) {
+                if (!window.mammoth?.extractRawText) {
+                    throw new Error('DOCX extraction runtime is not loaded');
+                }
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await window.mammoth.extractRawText({ arrayBuffer });
+                return result.value || '';
+            }
+
+            if (type.includes('pdf')) {
+                if (!window.pdfjsLib?.getDocument) {
+                    throw new Error('PDF extraction is unavailable in local mode for this session');
+                }
+                const pdfData = new Uint8Array(await file.arrayBuffer());
+                const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
+                let text = '';
+                for (let i = 1; i <= pdf.numPages; i += 1) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    text += content.items.map(item => item.str).join(' ') + '\n';
+                }
+                return text;
+            }
+
+            throw new Error(`Unsupported local extraction type: ${file.type || 'unknown'}`);
+        },
+
+        getCurrentWorkspaceIdForSession(sessionId = this.currentSession) {
+            const session = this.sessions.find(s => s.id === sessionId);
+            return session?.workspaceId || null;
+        },
+
+        getWorkspaceScopeKey(workspaceId) {
+            return workspaceId || 'unassigned';
+        },
+
+        buildLocalRagFileId(file, scope) {
+            const workspacePart = scope.workspaceId || 'unassigned';
+            const chatPart = scope.chatId || 'none';
+            return `${workspacePart}::${chatPart}::${file.name}::${file.size || 0}::${file.lastModified || 0}`;
+        },
+
+        setLocalRagFileState(fileId, patch) {
+            this.localRagFileStates = {
+                ...this.localRagFileStates,
+                [fileId]: {
+                    ...(this.localRagFileStates[fileId] || {}),
+                    ...patch,
+                    updatedAt: new Date().toISOString()
+                }
+            };
+        },
+
+        getIndexedLocalRagRecords() {
+            return Object.values(this.localRagFileStates || {}).filter(
+                item => item?.status === 'indexed'
+            );
+        },
+
+        getLocalRagWorkspaceUsage(workspaceId) {
+            const scopeKey = this.getWorkspaceScopeKey(workspaceId);
+            const records = this.getIndexedLocalRagRecords().filter(
+                item => this.getWorkspaceScopeKey(item.workspaceId) === scopeKey
+            );
+            const uniqueFiles = new Set(records.map(item => item.fileId));
+            const chunks = records.reduce((sum, item) => sum + (Number(item.chunkCount) || 0), 0);
+            const estimatedBytes = records.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
+            return {
+                files: uniqueFiles.size,
+                chunks,
+                estimatedBytes
+            };
+        },
+
+        getLocalRagGlobalUsage() {
+            const records = this.getIndexedLocalRagRecords();
+            const uniqueFiles = new Set(records.map(item => item.fileId));
+            const chunks = records.reduce((sum, item) => sum + (Number(item.chunkCount) || 0), 0);
+            const estimatedBytes = records.reduce((sum, item) => sum + (Number(item.estimatedBytes) || 0), 0);
+            return {
+                files: uniqueFiles.size,
+                chunks,
+                estimatedBytes
+            };
+        },
+
+        validateLocalRagFileSelection(file, workspaceId) {
+            const limits = getRagLimits();
+            if (file.size > limits.MAX_FILE_SIZE_BYTES) {
+                return `File is too large for local indexing (${this.formatBytes(limits.MAX_FILE_SIZE_BYTES)} max).`;
+            }
+
+            const workspaceUsage = this.getLocalRagWorkspaceUsage(workspaceId);
+            if (workspaceUsage.files >= limits.MAX_FILES_PER_WORKSPACE) {
+                return `Workspace full. Remove indexed files or create a new workspace.`;
+            }
+
+            return null;
+        },
+
+        getUploadedFileLocalRagState() {
+            if (!this.uploadedFile) return null;
+            const scope = {
+                workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
+                chatId: this.currentSession
+            };
+            const fileId = this.buildLocalRagFileId(this.uploadedFile, scope);
+            return this.localRagFileStates[fileId] || null;
+        },
+
+        getLocalRagStatusLabel() {
+            const state = this.getUploadedFileLocalRagState();
+            if (!state?.status) return this.localRagStatusText || '';
+            const labels = {
+                queued: 'Queued for local indexing',
+                indexing: 'Indexing locally...',
+                indexed: `Indexed locally (${state.chunkCount || 0} chunks)`,
+                failed: `Local indexing failed${state.error ? `: ${state.error}` : ''}`
+            };
+            return labels[state.status] || this.localRagStatusText || '';
+        },
+
+        updateLocalRagWarnings(workspaceId) {
+            const limits = getRagLimits();
+            const workspaceUsage = this.getLocalRagWorkspaceUsage(workspaceId);
+            const globalUsage = this.getLocalRagGlobalUsage();
+            const warnRatio = limits.WARN_THRESHOLD_RATIO || 0.8;
+
+            const workspaceChunkWarn = workspaceUsage.chunks >= Math.floor(limits.MAX_CHUNKS_PER_WORKSPACE * warnRatio);
+            const workspaceByteWarn = workspaceUsage.estimatedBytes >= Math.floor(limits.MAX_ESTIMATED_BYTES_PER_WORKSPACE * warnRatio);
+            const globalChunkWarn = globalUsage.chunks >= Math.floor(limits.MAX_CHUNKS_GLOBAL * warnRatio);
+            const globalByteWarn = globalUsage.estimatedBytes >= Math.floor(limits.MAX_ESTIMATED_BYTES_GLOBAL * warnRatio);
+
+            if (workspaceChunkWarn || workspaceByteWarn || globalChunkWarn || globalByteWarn) {
+                this.localRagStatusText = 'Workspace nearing indexing limit.';
+            }
+        },
+
+        buildRagContextBlock(query, context) {
+            return [
+                'Use only the context below when it is relevant. If context is insufficient, say so briefly.',
+                '',
+                'Context:',
+                context,
+                '',
+                `User question: ${query}`
+            ].join('\n');
+        },
+
+        async indexUploadedDocumentForLocalRag(file) {
+            const limits = getRagLimits();
+            const scope = {
+                workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
+                chatId: this.currentSession
+            };
+
+            const selectionError = this.validateLocalRagFileSelection(file, scope.workspaceId);
+            if (selectionError) {
+                return { ok: false, error: selectionError };
+            }
+
+            const fileId = this.buildLocalRagFileId(file, scope);
+            const existingState = this.localRagFileStates[fileId];
+            if (existingState?.status === 'indexed') {
+                return { ok: true, fileId, chunkCount: existingState.chunkCount || 0 };
+            }
+
+            this.setLocalRagFileState(fileId, {
+                status: 'indexing',
+                name: file.name,
+                sourceType: 'chatAttachment',
+                workspaceId: scope.workspaceId,
+                chatId: scope.chatId,
+                chunkCount: 0,
+                estimatedBytes: 0,
+                error: ''
+            });
+
+            if (this.activeIndexJobId) {
+                this.cancelRagWorkerTask(this.activeIndexJobId);
+            }
+
+            let extractedText = '';
+            try {
+                extractedText = await this.extractTextForLocalRag(file);
+            } catch (extractionError) {
+                this.setLocalRagFileState(fileId, {
+                    status: 'failed',
+                    error: extractionError.message || 'Extraction failed'
+                });
+                return { ok: false, fileId, error: extractionError.message || 'Extraction failed' };
+            }
+
+            const extractedTextBytes = new TextEncoder().encode(extractedText || '').length;
+
+            const workerTask = await this.postRagWorkerTask(
+                'indexText',
+                {
+                    text: extractedText,
+                    descriptor: {
+                        fileId,
+                        source: file.name,
+                        sourceName: file.name,
+                        sourceType: 'chatAttachment',
+                        workspaceId: scope.workspaceId,
+                        chatId: scope.chatId,
+                        replaceExisting: true,
+                        extractedTextBytes
+                    },
+                    limits
+                },
+                {
+                    onProgress: (progress) => {
+                        const processed = Number(progress?.processedChunks || 0);
+                        const total = Number(progress?.totalChunks || 0);
+                        this.localRagStatusText = `Indexing locally... ${processed}/${total}`;
+                    }
+                }
+            );
+            this.activeIndexJobId = workerTask.jobId;
+            let result;
+            try {
+                result = await workerTask.promise;
+            } finally {
+                this.activeIndexJobId = null;
+            }
+
+            if (!result?.success) {
+                const errorMessage = result?.error || 'Unknown local indexing error';
+                this.setLocalRagFileState(fileId, {
+                    status: 'failed',
+                    error: errorMessage
+                });
+                return { ok: false, fileId, error: errorMessage };
+            }
+
+            this.setLocalRagFileState(fileId, {
+                status: 'indexed',
+                chunkCount: result.chunkCount || 0,
+                estimatedBytes: result.estimatedBytes || 0,
+                extractedTextBytes: result.extractedTextBytes || 0,
+                error: ''
+            });
+            this.updateLocalRagWarnings(scope.workspaceId);
+            return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
+        },
+
+        async buildLocalContextForMessage(query, uploadedDocumentFile) {
+            const indexResult = await this.indexUploadedDocumentForLocalRag(uploadedDocumentFile);
+            if (!indexResult.ok) {
+                return { ok: false, reason: indexResult.error || 'index-failed' };
+            }
+
+            const scope = {
+                workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
+                chatId: this.currentSession
+            };
+
+            const limits = getRagLimits();
+            if (this.activeRetrievalJobId) {
+                this.cancelRagWorkerTask(this.activeRetrievalJobId);
+            }
+
+            const workerTask = await this.postRagWorkerTask('retrieve', {
+                query,
+                maxResults: limits.RETRIEVAL_TOP_K || 5,
+                filters: {
+                    sourceType: 'chatAttachment',
+                    workspaceId: scope.workspaceId,
+                    chatId: scope.chatId
+                },
+                options: {
+                    candidateLimitPerSource: limits.RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE || 20,
+                    maxPerFile: limits.RETRIEVAL_MAX_PER_FILE || 2
+                }
+            });
+            this.activeRetrievalJobId = workerTask.jobId;
+            let docs;
+            try {
+                docs = (await workerTask.promise) || [];
+            } finally {
+                this.activeRetrievalJobId = null;
+            }
+
+            if (!docs || docs.length === 0) {
+                return { ok: false, reason: 'no-local-results' };
+            }
+
+            const context = docs
+                .map((doc) => `[Source: ${doc.metadata?.source || 'document'}, Chunk: ${(doc.metadata?.chunkIndex ?? 0) + 1}]\n${doc.text}`)
+                .join('\n\n');
+
+            return {
+                ok: true,
+                context,
+                usedChunks: docs.length
+            };
+        },
+
+        migrateLegacySessions() {
+            let legacy = [];
+            try {
+                const fromSessionStorage = sessionStorage.getItem(STORAGE_KEYS.legacySessions);
+                const fromLocalStorage = localStorage.getItem(STORAGE_KEYS.legacySessions);
+                const raw = fromSessionStorage || fromLocalStorage;
+                if (raw) {
+                    legacy = JSON.parse(raw);
+                }
+            } catch (error) {
+                console.warn('[ChatApp] Legacy session migration failed:', error);
+            }
+            this.sessions = this.normalizeSessions(legacy || []);
+            this.workspaces = [];
+            this.workspaceFiles = [];
+            this.currentSession = this.sessions[0]?.id || null;
+            this.persistAppState();
+        },
+
+        normalizeSessions(sessions) {
+            return (sessions || []).map((s, idx) => ({
+                id: s.id || makeId('chat'),
+                name: s.name || `Chat ${idx + 1}`,
+                messages: Array.isArray(s.messages) ? s.messages : [],
+                workspaceId: s.workspaceId ?? null,
+                createdAt: s.createdAt || new Date().toISOString(),
+                updatedAt: s.updatedAt || new Date().toISOString()
+            }));
+        },
+
+        normalizeWorkspaces(workspaces) {
+            return (workspaces || []).map((w, idx) => ({
+                id: w.id || makeId('ws'),
+                name: (w.name || `Workspace ${idx + 1}`).trim(),
+                icon: w.icon || '',
+                color: w.color || '#6a42c2',
+                description: w.description || '',
+                pinnedNote: w.pinnedNote || '',
+                defaultModel: w.defaultModel || '',
+                defaultSettings: w.defaultSettings || {},
+                createdAt: w.createdAt || new Date().toISOString(),
+                updatedAt: w.updatedAt || new Date().toISOString()
+            }));
+        },
+
+        normalizeWorkspaceFiles(files) {
+            return (files || []).map(f => ({
+                id: f.id || makeId('wfile'),
+                workspaceId: f.workspaceId,
+                name: f.name || 'file',
+                mimeType: f.mimeType || 'application/octet-stream',
+                size: f.size || 0,
+                storageKey: f.storageKey || null,
+                dataUrl: f.dataUrl || '',
+                createdAt: f.createdAt || new Date().toISOString(),
+                updatedAt: f.updatedAt || new Date().toISOString()
+            }));
+        },
+
+        persistAppState() {
+            try {
+                const payload = {
+                    version: 2,
+                    sessions: this.sessions,
+                    workspaces: this.workspaces,
+                    workspaceFiles: this.workspaceFiles,
+                    currentSession: this.currentSession
+                };
+                localStorage.setItem(STORAGE_KEYS.appState, JSON.stringify(payload));
+            } catch (error) {
+                console.error('[ChatApp] Failed to persist app state:', error);
+            }
+        },
+
+        setWorkspaceFilter(scope, workspaceId = null) {
+            this.currentWorkspaceFilter = scope;
+            this.selectedWorkspaceId = scope === 'workspace' ? workspaceId : null;
+            if (scope !== 'workspace') {
+                this.workspaceDetailsOpen = false;
+            }
+        },
+
+        selectWorkspace(workspaceId) {
+            this.setWorkspaceFilter('workspace', workspaceId);
+            this.workspaceExpanded = {
+                ...this.workspaceExpanded,
+                [workspaceId]: true
+            };
+            this.workspaceDetailsOpen = true;
+        },
+
+        closeWorkspaceDetails() {
+            this.workspaceDetailsOpen = false;
+        },
+
+        getVisibleSessions() {
+            const query = (this.sidebarSearchQuery || '').trim().toLowerCase();
+            let items;
+            if (this.currentWorkspaceFilter === 'workspace' && this.selectedWorkspaceId) {
+                items = this.sessions.filter(s => s.workspaceId === this.selectedWorkspaceId);
+            } else if (this.currentWorkspaceFilter === 'unassigned') {
+                items = this.sessions.filter(s => !s.workspaceId);
+            } else {
+                items = this.sessions;
+            }
+
+            if (!query) return items;
+            return items.filter(s => (s.name || '').toLowerCase().includes(query));
+        },
+
+        clearSidebarSearch() {
+            this.sidebarSearchQuery = '';
+        },
+
+        toggleWorkspacesCollapsed() {
+            this.workspacesCollapsed = !this.workspacesCollapsed;
+        },
+
+        toggleAllChatsCollapsed() {
+            this.allChatsCollapsed = !this.allChatsCollapsed;
+        },
+
+        isWorkspaceExpanded(workspaceId) {
+            return !!this.workspaceExpanded[workspaceId];
+        },
+
+        toggleWorkspaceExpanded(workspaceId) {
+            this.workspaceExpanded = {
+                ...this.workspaceExpanded,
+                [workspaceId]: !this.workspaceExpanded[workspaceId]
+            };
+        },
+
+        getSearchResultCount() {
+            const query = (this.sidebarSearchQuery || '').trim();
+            if (!query) return null;
+            return this.getVisibleSessions().length;
+        },
+
+        getWorkspaceListForSidebar() {
+            const query = (this.sidebarSearchQuery || '').trim().toLowerCase();
+            if (!query) {
+                return this.workspaces;
+            }
+            return this.workspaces.filter(w => (w.name || '').toLowerCase().includes(query));
+        },
+
+        getSessionsForWorkspace(workspaceId) {
+            const query = (this.sidebarSearchQuery || '').trim().toLowerCase();
+            const items = this.sessions.filter(s => s.workspaceId === workspaceId);
+            if (!query) return items;
+            return items.filter(s => (s.name || '').toLowerCase().includes(query));
+        },
+
+        getUnassignedSessions() {
+            const query = (this.sidebarSearchQuery || '').trim().toLowerCase();
+            const items = this.sessions.filter(s => !s.workspaceId);
+            if (!query) return items;
+            return items.filter(s => (s.name || '').toLowerCase().includes(query));
+        },
+
+        isWorkspaceActive(workspaceId) {
+            return this.currentWorkspaceFilter === 'workspace' && this.selectedWorkspaceId === workspaceId;
+        },
+
+        getWorkspaceChatCount(workspaceId) {
+            return this.sessions.filter(s => s.workspaceId === workspaceId).length;
+        },
+
+        getUnassignedCount() {
+            return this.sessions.filter(s => !s.workspaceId).length;
+        },
+
+        getCurrentWorkspace() {
+            if (!this.selectedWorkspaceId) return null;
+            return this.workspaces.find(w => w.id === this.selectedWorkspaceId) || null;
+        },
+
+        getWorkspaceName(workspaceId) {
+            const workspace = this.workspaces.find(w => w.id === workspaceId);
+            return workspace ? workspace.name : 'Unassigned';
+        },
+
+        getWorkspaceFiles(workspaceId = this.selectedWorkspaceId) {
+            if (!workspaceId) return [];
+            return this.workspaceFiles.filter(f => f.workspaceId === workspaceId);
+        },
+
+        loadWorkspaceStoragePolicy() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEYS.workspaceStoragePolicy);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                this.workspaceStoragePolicy = {
+                    maxFileBytes: Math.max(1 * 1024 * 1024, Number(parsed.maxFileBytes) || WORKSPACE_STORAGE_LIMIT_DEFAULTS.maxFileBytes),
+                    maxWorkspaceBytes: Math.max(10 * 1024 * 1024, Number(parsed.maxWorkspaceBytes) || WORKSPACE_STORAGE_LIMIT_DEFAULTS.maxWorkspaceBytes),
+                    maxGlobalBytes: Math.max(50 * 1024 * 1024, Number(parsed.maxGlobalBytes) || WORKSPACE_STORAGE_LIMIT_DEFAULTS.maxGlobalBytes)
+                };
+            } catch (error) {
+                console.warn('[ChatApp] Failed to load workspace storage policy:', error);
+            }
+        },
+
+        persistWorkspaceStoragePolicy() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.workspaceStoragePolicy, JSON.stringify(this.workspaceStoragePolicy));
+            } catch (error) {
+                console.warn('[ChatApp] Failed to persist workspace storage policy:', error);
+            }
+        },
+
+        bytesToMb(value) {
+            const bytes = Number(value) || 0;
+            return Math.max(1, Math.round(bytes / (1024 * 1024)));
+        },
+
+        setWorkspaceStoragePolicyFromMb(key, rawValueMb) {
+            const valueMb = Number(rawValueMb);
+            if (!Number.isFinite(valueMb) || valueMb <= 0) return;
+
+            const bytes = Math.round(valueMb * 1024 * 1024);
+            this.workspaceStoragePolicy = {
+                ...this.workspaceStoragePolicy,
+                [key]: bytes
+            };
+            this.persistWorkspaceStoragePolicy();
+        },
+
+        resetWorkspaceStoragePolicy() {
+            this.workspaceStoragePolicy = {
+                ...WORKSPACE_STORAGE_LIMIT_DEFAULTS
+            };
+            this.persistWorkspaceStoragePolicy();
+        },
+
+        formatBytes(value) {
+            const bytes = Number(value) || 0;
+            if (bytes < 1024) return `${bytes} B`;
+            const units = ['KB', 'MB', 'GB', 'TB'];
+            let size = bytes / 1024;
+            let unitIndex = 0;
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex += 1;
+            }
+            return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+        },
+
+        async refreshStorageEstimate() {
+            if (!navigator.storage?.estimate) {
+                this.storageInfo = {
+                    usedBytes: 0,
+                    quotaBytes: 0,
+                    loaded: true
+                };
+                return;
+            }
+
+            try {
+                const estimate = await navigator.storage.estimate();
+                this.storageInfo = {
+                    usedBytes: estimate.usage || 0,
+                    quotaBytes: estimate.quota || 0,
+                    loaded: true
+                };
+            } catch (error) {
+                console.warn('[ChatApp] Failed to estimate storage:', error);
+            }
+        },
+
+        getWorkspaceStorageUsage(workspaceId = this.selectedWorkspaceId) {
+            return this.getWorkspaceFiles(workspaceId).reduce((sum, file) => sum + (file.size || 0), 0);
+        },
+
+        getGlobalWorkspaceStorageUsage() {
+            return this.workspaceFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+        },
+
+        getWorkspaceStorageLimit() {
+            return this.workspaceStoragePolicy.maxWorkspaceBytes;
+        },
+
+        getGlobalStorageLimit() {
+            return this.workspaceStoragePolicy.maxGlobalBytes;
+        },
+
+        getPerFileStorageLimit() {
+            return this.workspaceStoragePolicy.maxFileBytes;
+        },
+
+        getWorkspaceStorageUsagePercent(workspaceId = this.selectedWorkspaceId) {
+            const limit = this.getWorkspaceStorageLimit();
+            if (!limit) return 0;
+            return Math.min(100, Math.round((this.getWorkspaceStorageUsage(workspaceId) / limit) * 100));
+        },
+
+        getGlobalStorageUsagePercent() {
+            const limit = this.getGlobalStorageLimit();
+            if (!limit) return 0;
+            return Math.min(100, Math.round((this.getGlobalWorkspaceStorageUsage() / limit) * 100));
+        },
+
+        validateWorkspaceFileUpload(file, workspaceId) {
+            if (!file) return 'No file selected.';
+
+            if (file.size > this.getPerFileStorageLimit()) {
+                return `File is too large. Max per file is ${this.formatBytes(this.getPerFileStorageLimit())}.`;
+            }
+
+            const workspaceUsage = this.getWorkspaceStorageUsage(workspaceId);
+            if (workspaceUsage + file.size > this.getWorkspaceStorageLimit()) {
+                return `Workspace storage limit reached (${this.formatBytes(this.getWorkspaceStorageLimit())}).`;
+            }
+
+            const globalUsage = this.getGlobalWorkspaceStorageUsage();
+            if (globalUsage + file.size > this.getGlobalStorageLimit()) {
+                return `Global storage limit reached (${this.formatBytes(this.getGlobalStorageLimit())}).`;
+            }
+
+            if (this.storageInfo?.loaded && this.storageInfo?.quotaBytes > 0) {
+                const projected = (this.storageInfo.usedBytes || 0) + file.size;
+                if (projected > this.storageInfo.quotaBytes) {
+                    return 'Not enough browser storage quota available for this file.';
+                }
+            }
+
+            return null;
+        },
+
+        async migrateLegacyWorkspaceFilesToIndexedDb() {
+            const legacyFiles = this.workspaceFiles.filter(f => f.dataUrl && !f.storageKey);
+            if (legacyFiles.length === 0) return;
+
+            for (const file of legacyFiles) {
+                try {
+                    const storageKey = createWorkspaceFileStorageKey(file.workspaceId, file.id);
+                    const blob = await dataUrlToBlob(file.dataUrl);
+                    await putWorkspaceFileBlob(storageKey, blob);
+                    file.storageKey = storageKey;
+                    delete file.dataUrl;
+                    file.updatedAt = new Date().toISOString();
+                } catch (error) {
+                    console.warn('[ChatApp] Failed to migrate workspace file to IndexedDB:', file.name, error);
+                }
+            }
+
+            this.persistAppState();
+            await this.refreshStorageEstimate();
         },
         
         scrollToBottom() {
@@ -551,15 +1449,28 @@ function chatApp() {
             }
         },
         
-        newChat() {
+        newChat(targetWorkspaceId = undefined) {
+            const workspaceId = targetWorkspaceId === undefined
+                ? (this.currentWorkspaceFilter === 'workspace' ? this.selectedWorkspaceId : null)
+                : targetWorkspaceId;
+            const workspaceDefaults = workspaceId
+                ? this.workspaces.find(w => w.id === workspaceId)
+                : null;
             const newSession = {
-                id: Date.now(),
+                id: makeId('chat'),
                 name: `Chat ${this.sessions.length + 1}`,
-                messages: []
+                messages: [],
+                workspaceId: workspaceId || null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                modelOverride: workspaceDefaults?.defaultModel || null
             };
             this.sessions.unshift(newSession); // Add to the beginning of the array
             this.currentSession = newSession.id;
             this.messages = [];
+            if (workspaceDefaults?.defaultModel) {
+                this.selectedModel = workspaceDefaults.defaultModel;
+            }
             this.saveSessions();
         },
         
@@ -600,6 +1511,7 @@ function chatApp() {
         
         selectSession(sessionId) {
             this.currentSession = sessionId;
+            this.workspaceDetailsOpen = false;
             const session = this.sessions.find(s => s.id === sessionId);
             if (session) {
                 this.messages = session.messages;
@@ -684,19 +1596,389 @@ function chatApp() {
             
             this.modal.show = false;
         },
+
+        assignSessionToWorkspace(sessionId, workspaceId) {
+            const session = this.sessions.find(s => s.id === sessionId);
+            if (!session) return;
+            session.workspaceId = workspaceId || null;
+            if (workspaceId) {
+                this.workspaceExpanded = {
+                    ...this.workspaceExpanded,
+                    [workspaceId]: true
+                };
+            }
+            session.updatedAt = new Date().toISOString();
+            this.saveSessions();
+        },
+
+        startSessionDrag(event, sessionId) {
+            this.draggedSessionId = sessionId;
+            if (event?.dataTransfer) {
+                event.dataTransfer.setData('text/plain', String(sessionId));
+                event.dataTransfer.effectAllowed = 'move';
+            }
+        },
+
+        allowWorkspaceDrop(event) {
+            if (event?.preventDefault) event.preventDefault();
+            if (event?.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        },
+
+        handleWorkspaceDrop(event, workspaceId) {
+            if (event?.preventDefault) event.preventDefault();
+            const droppedSessionId = event?.dataTransfer?.getData('text/plain') || this.draggedSessionId;
+            if (droppedSessionId) {
+                this.assignSessionToWorkspace(droppedSessionId, workspaceId);
+            }
+            this.draggedSessionId = null;
+        },
+
+        openCreateWorkspace() {
+            this.workspaceModal = {
+                show: true,
+                mode: 'create',
+                workspaceId: null,
+                name: '',
+                icon: '',
+                color: '#6a42c2',
+                description: ''
+            };
+        },
+
+        openEditWorkspace(workspaceId) {
+            const workspace = this.workspaces.find(w => w.id === workspaceId);
+            if (!workspace) return;
+            this.workspaceModal = {
+                show: true,
+                mode: 'edit',
+                workspaceId,
+                name: workspace.name,
+                icon: workspace.icon || '',
+                color: workspace.color || '#6a42c2',
+                description: workspace.description || ''
+            };
+        },
+
+        openDeleteWorkspace(workspaceId) {
+            const workspace = this.workspaces.find(w => w.id === workspaceId);
+            if (!workspace) return;
+            this.workspaceModal = {
+                show: true,
+                mode: 'delete',
+                workspaceId,
+                name: workspace.name,
+                icon: workspace.icon || '',
+                color: workspace.color || '#6a42c2',
+                description: workspace.description || ''
+            };
+        },
+
+        async confirmWorkspaceModal() {
+            const mode = this.workspaceModal.mode;
+            const name = (this.workspaceModal.name || '').trim();
+            if (mode !== 'delete' && !name) {
+                return;
+            }
+
+            if (mode === 'create') {
+                const newWorkspaceId = makeId('ws');
+                this.workspaces.unshift({
+                    id: newWorkspaceId,
+                    name: name.slice(0, 60),
+                    icon: (this.workspaceModal.icon || '').slice(0, 4),
+                    color: this.workspaceModal.color || '#6a42c2',
+                    description: (this.workspaceModal.description || '').slice(0, 200),
+                    pinnedNote: '',
+                    defaultModel: '',
+                    defaultSettings: {},
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
+                this.workspaceExpanded = {
+                    ...this.workspaceExpanded,
+                    [newWorkspaceId]: true
+                };
+            }
+
+            if (mode === 'edit') {
+                const workspace = this.workspaces.find(w => w.id === this.workspaceModal.workspaceId);
+                if (workspace) {
+                    workspace.name = name.slice(0, 60);
+                    workspace.icon = (this.workspaceModal.icon || '').slice(0, 4);
+                    workspace.color = this.workspaceModal.color || '#6a42c2';
+                    workspace.description = (this.workspaceModal.description || '').slice(0, 200);
+                    workspace.updatedAt = new Date().toISOString();
+                }
+            }
+
+            if (mode === 'delete') {
+                const workspaceId = this.workspaceModal.workspaceId;
+                const storageKeys = this.workspaceFiles
+                    .filter(f => f.workspaceId === workspaceId)
+                    .map(f => f.storageKey)
+                    .filter(Boolean);
+
+                await clearWorkspaceFileBlobs(storageKeys);
+                this.workspaces = this.workspaces.filter(w => w.id !== workspaceId);
+                this.workspaceFiles = this.workspaceFiles.filter(f => f.workspaceId !== workspaceId);
+                const { [workspaceId]: _removed, ...restExpanded } = this.workspaceExpanded;
+                this.workspaceExpanded = restExpanded;
+                this.sessions = this.sessions.map(s => {
+                    if (s.workspaceId === workspaceId) {
+                        return { ...s, workspaceId: null, updatedAt: new Date().toISOString() };
+                    }
+                    return s;
+                });
+                if (this.selectedWorkspaceId === workspaceId) {
+                    this.setWorkspaceFilter('all');
+                    this.workspaceDetailsOpen = false;
+                }
+            }
+
+            this.workspaceModal.show = false;
+            this.persistAppState();
+            await this.refreshStorageEstimate();
+        },
+
+        updateCurrentWorkspacePinnedNote(note) {
+            const workspace = this.getCurrentWorkspace();
+            if (!workspace) return;
+            workspace.pinnedNote = note;
+            workspace.updatedAt = new Date().toISOString();
+            this.persistAppState();
+        },
+
+        setCurrentWorkspaceDefaultModel(modelId) {
+            const workspace = this.getCurrentWorkspace();
+            if (!workspace) return;
+            workspace.defaultModel = modelId || '';
+            workspace.updatedAt = new Date().toISOString();
+            this.persistAppState();
+        },
+
+        async handleWorkspaceFileUpload(event) {
+            const workspace = this.getCurrentWorkspace();
+            if (!workspace) return;
+            const files = Array.from(event.target.files || []);
+            for (const file of files) {
+                const validationError = this.validateWorkspaceFileUpload(file, workspace.id);
+                if (validationError) {
+                    alert(validationError);
+                    continue;
+                }
+
+                const fileId = makeId('wfile');
+                const storageKey = createWorkspaceFileStorageKey(workspace.id, fileId);
+                await putWorkspaceFileBlob(storageKey, file);
+                this.workspaceFiles.unshift({
+                    id: fileId,
+                    workspaceId: workspace.id,
+                    name: file.name,
+                    mimeType: file.type || 'application/octet-stream',
+                    size: file.size || 0,
+                    storageKey,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
+            }
+            event.target.value = '';
+            this.persistAppState();
+            await this.refreshStorageEstimate();
+        },
+
+        async removeWorkspaceFile(fileId) {
+            const file = this.workspaceFiles.find(f => f.id === fileId);
+            if (!file) return;
+
+            if (file.storageKey) {
+                await deleteWorkspaceFileBlob(file.storageKey);
+            }
+
+            this.workspaceFiles = this.workspaceFiles.filter(f => f.id !== fileId);
+            this.persistAppState();
+            await this.refreshStorageEstimate();
+        },
+
+        async downloadWorkspaceFile(fileId) {
+            const file = this.workspaceFiles.find(f => f.id === fileId);
+            if (!file) return;
+
+            let href = file.dataUrl || '';
+            let objectUrl = null;
+
+            if (!href && file.storageKey) {
+                const blob = await getWorkspaceFileBlob(file.storageKey);
+                if (!blob) return;
+                objectUrl = URL.createObjectURL(blob);
+                href = objectUrl;
+            }
+
+            if (!href) return;
+
+            const a = document.createElement('a');
+            a.href = href;
+            a.download = file.name || 'workspace-file';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        },
+
+        async exportCurrentWorkspace() {
+            const workspace = this.getCurrentWorkspace();
+            if (!workspace) return;
+
+            const scopedFiles = this.workspaceFiles.filter(f => f.workspaceId === workspace.id);
+            const exportFiles = [];
+
+            for (const file of scopedFiles) {
+                let dataUrl = file.dataUrl || null;
+                if (!dataUrl && file.storageKey) {
+                    const blob = await getWorkspaceFileBlob(file.storageKey);
+                    if (blob) {
+                        dataUrl = await blobToDataUrl(blob);
+                    }
+                }
+
+                exportFiles.push({
+                    ...file,
+                    dataUrl,
+                    storageKey: undefined
+                });
+            }
+
+            const payload = {
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                workspace,
+                chats: this.sessions.filter(s => s.workspaceId === workspace.id),
+                workspaceFiles: exportFiles
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${workspace.name.replace(/\s+/g, '_').toLowerCase() || 'workspace'}.workspace.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+
+        async importWorkspaceFromFile(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                if (!data.workspace) {
+                    throw new Error('Invalid workspace export format.');
+                }
+                const importedWorkspaceId = makeId('ws');
+                const baseName = (data.workspace.name || 'Imported Workspace').trim();
+                const existingNames = new Set(this.workspaces.map(w => w.name));
+                const name = existingNames.has(baseName) ? `${baseName} (Imported)` : baseName;
+
+                const workspace = {
+                    ...data.workspace,
+                    id: importedWorkspaceId,
+                    name,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+
+                const chats = (data.chats || []).map((chat, idx) => ({
+                    ...chat,
+                    id: makeId(`chati${idx}`),
+                    workspaceId: importedWorkspaceId,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                }));
+
+                const files = [];
+                for (let idx = 0; idx < (data.workspaceFiles || []).length; idx += 1) {
+                    const wf = data.workspaceFiles[idx];
+                    const fileId = makeId(`wfilei${idx}`);
+                    const storageKey = createWorkspaceFileStorageKey(importedWorkspaceId, fileId);
+
+                    if (wf.dataUrl) {
+                        const blob = await dataUrlToBlob(wf.dataUrl);
+                        const validationError = this.validateWorkspaceFileUpload(
+                            { size: blob.size || wf.size || 0 },
+                            importedWorkspaceId
+                        );
+                        if (validationError) {
+                            throw new Error(`Cannot import ${wf.name || 'workspace file'}: ${validationError}`);
+                        }
+                        await putWorkspaceFileBlob(storageKey, blob);
+                    }
+
+                    files.push({
+                        ...wf,
+                        id: fileId,
+                        workspaceId: importedWorkspaceId,
+                        storageKey,
+                        dataUrl: undefined,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    });
+                }
+
+                this.workspaces.unshift(workspace);
+                this.sessions = [...chats, ...this.sessions];
+                this.workspaceFiles = [...files, ...this.workspaceFiles];
+                this.setWorkspaceFilter('workspace', importedWorkspaceId);
+                if (chats.length > 0) {
+                    this.selectSession(chats[0].id);
+                }
+                this.persistAppState();
+                await this.refreshStorageEstimate();
+            } catch (error) {
+                alert(`Workspace import failed: ${error.message}`);
+            } finally {
+                event.target.value = '';
+            }
+        },
+
+        readFileAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        },
         
         clearAllSessions() {
             if (confirm('Are you sure you want to clear all sessions?')) {
                 this.sessions = [];
                 this.messages = [];
                 this.currentSession = null;
-                sessionStorage.removeItem('chat_sessions');
+                this.persistAppState();
                 this.newChat();
             }
         },
         
         selectModel(modelId) {
             this.selectedModel = modelId;
+            if (!this.modelSupportsAgent(modelId) && this.interactionMode === 'agent') {
+                this.interactionMode = 'ask';
+            }
+        },
+
+        selectInteractionMode(mode) {
+            if (mode === 'agent' && !this.modelSupportsAgent(this.selectedModel)) {
+                this.interactionMode = 'ask';
+                return;
+            }
+            this.interactionMode = mode;
+        },
+
+        modelSupportsAgent(modelId = this.selectedModel) {
+            return supportsTools(modelId);
         },
         
         getSelectedModelName() {
@@ -740,6 +2022,7 @@ function chatApp() {
             if (file) {
                 this.uploadedFile = file;
                 this.uploadedFileName = file.name;
+                this.localRagStatusText = '';
                 console.log('[ChatApp] File selected:', file.name, 'Type:', file.type);
                 
                 // If it's an image, create preview for vision models
@@ -756,15 +2039,22 @@ function chatApp() {
                     }
                 }
                 
-                // If Local RAG is enabled, process the file
-                if (this.localRagEnabled && window.processFileForRAG) {
+                // If Local RAG is enabled, queue local indexing for document files
+                if (this.localRagEnabled && !file.type.startsWith('image/')) {
                     try {
-                        // Ensure RAG dependencies are loaded before processing
-                        await ensureRagLoaded();
-                        await window.processFileForRAG(file);
-                        console.log('[ChatApp] File processed for Local RAG');
+                        const workspaceId = this.getCurrentWorkspaceIdForSession(this.currentSession);
+                        const selectionError = this.validateLocalRagFileSelection(file, workspaceId);
+                        if (selectionError) {
+                            this.localRagStatusText = selectionError;
+                            return;
+                        }
+                        this.localRagStatusText = 'Queued for local indexing';
+                        await this.indexUploadedDocumentForLocalRag(file);
+                        this.localRagStatusText = this.getLocalRagStatusLabel();
+                        console.log('[ChatApp] File indexed for Local RAG');
                     } catch (error) {
                         console.error('[ChatApp] Error processing file for RAG:', error);
+                        this.localRagStatusText = `Local indexing failed: ${error.message}`;
                     }
                 }
             }
@@ -774,6 +2064,7 @@ function chatApp() {
             this.uploadedFile = null;
             this.uploadedFileName = '';
             this.uploadedFilePreview = null;
+            this.localRagStatusText = '';
             if (this.$refs.fileInput) {
                 this.$refs.fileInput.value = '';
             }
@@ -781,6 +2072,9 @@ function chatApp() {
         
         async sendMessage() {
             if (!this.userInput.trim() || this.isLoading) return;
+
+            // Sending a message should return to normal chat view.
+            this.workspaceDetailsOpen = false;
             
             // If Local RAG is enabled, ensure scripts are loaded
             if (this.localRagEnabled) {
@@ -838,10 +2132,12 @@ function chatApp() {
                     content: m.content
                 }));
                 
-                // Get MCP tools (don't start with basicToolSchemas in web mode)
+                const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
+
+                // Get MCP tools only for Agent mode (don't start with basicToolSchemas in web mode)
                 let toolSchemas = [];
                 
-                if (window.desktop?.isElectron && window.desktop?.getMCPToolSchemas) {
+                if (canUseAgent && window.desktop?.isElectron && window.desktop?.getMCPToolSchemas) {
                     // Electron mode: Get desktop MCP tools + basic filesystem tools
                     toolSchemas = [...basicToolSchemas];
                     try {
@@ -853,7 +2149,7 @@ function chatApp() {
                     } catch (error) {
                         console.warn('[ChatApp] Failed to load MCP tool schemas:', error);
                     }
-                } else if (window.mcpBrowserClient) {
+                } else if (canUseAgent && window.mcpBrowserClient) {
                     // Web mode: Get browser MCP tools (no filesystem tools)
                     const browserTools = window.mcpBrowserClient.getAllTools();
                     if (browserTools && Array.isArray(browserTools)) {
@@ -866,8 +2162,40 @@ function chatApp() {
                     }
                 }
                 
+                let finalQuery = query;
+                let fileForAgent = this.uploadedFile;
+                this.localRagLastModeUsed = 'none';
+
+                const isDocumentUpload = !!(this.uploadedFile && !this.uploadedFile.type.startsWith('image/'));
+                if (isDocumentUpload && this.localRagEnabled) {
+                    try {
+                        const localResult = await this.buildLocalContextForMessage(query, this.uploadedFile);
+                        if (localResult.ok) {
+                            finalQuery = this.buildRagContextBlock(query, localResult.context);
+                            fileForAgent = null; // Prevent backend rag_chain route when local context is available
+                            this.localRagLastModeUsed = 'local';
+                            this.localRagStatusText = `Using local retrieval (${localResult.usedChunks} chunks)`;
+                        } else {
+                            this.localRagLastModeUsed = 'backend';
+                            this.localRagStatusText = 'Local retrieval unavailable. Using backend document processing.';
+                        }
+                    } catch (localError) {
+                        console.warn('[ChatApp] Local retrieval failed, falling back to backend:', localError);
+                        this.localRagLastModeUsed = 'backend';
+                        this.localRagStatusText = 'Local retrieval unavailable. Using backend document processing.';
+                    }
+                }
+
                 // Call agent integration (supports file uploads and conversation context)
-                const result = await window.askAgent(query, toolSchemas, this.selectedModel, conversationHistory, this.uploadedFile, this.currentSession);
+                const result = await window.askAgent(
+                    finalQuery,
+                    toolSchemas,
+                    this.selectedModel,
+                    conversationHistory,
+                    fileForAgent,
+                    this.currentSession,
+                    canUseAgent ? 'agent' : 'ask'
+                );
                 
                 // Parse and stream the result
                 await this.streamResponse(result, messageIndex);
@@ -889,10 +2217,14 @@ function chatApp() {
                 
             } catch (error) {
                 console.error('Error sending message:', error);
+                const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
+                const suffix = canUseAgent
+                    ? 'Please ensure the agent backend is accessible.'
+                    : 'Please ensure the chat backend is accessible.';
                 // Update the existing assistant message with the error
                 const messageIndex = this.messages.length - 1;
                 if (this.messages[messageIndex] && this.messages[messageIndex].role === 'assistant') {
-                    this.messages[messageIndex].content = `Error: ${error.message}. Please ensure the agent is accessible.`;
+                    this.messages[messageIndex].content = `Error: ${error.message}. ${suffix}`;
                     this.messages[messageIndex].isStreaming = false;
                     this.messages[messageIndex].isTyping = false;
                 } else {
@@ -900,7 +2232,7 @@ function chatApp() {
                     this.messages.push({
                         id: Date.now() + 2,
                         role: 'assistant',
-                        content: `Error: ${error.message}. Please ensure the agent is accessible.`
+                        content: `Error: ${error.message}. ${suffix}`
                     });
                 }
             } finally {
@@ -1101,14 +2433,10 @@ function chatApp() {
                     content: msg.content,
                     model: msg.model
                 }));
+                session.updatedAt = new Date().toISOString();
             }
-            // Save to sessionStorage
-            try {
-                sessionStorage.setItem('chat_sessions', JSON.stringify(this.sessions));
-                console.log('[ChatApp] Sessions saved to localStorage');
-            } catch (error) {
-                console.error('[ChatApp] Failed to save sessions:', error);
-            }
+            this.persistAppState();
+            console.log('[ChatApp] Sessions saved to app state');
         },
         
         getModelIcon(modelName) {
