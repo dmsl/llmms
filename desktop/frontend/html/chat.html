@@ -621,6 +621,22 @@
             color: var(--text) !important;
         }
         .px-6.py-3.bg-primary { background: var(--accent) !important; color: #fff !important; }
+
+        /* Shared modal alignment and layering */
+        .chatucy-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10,6,20,0.45);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .chatucy-modal-panel {
+            margin: 0 auto;
+        }
     </style>
 </head>
 
@@ -644,7 +660,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:55; display:flex; align-items:center; justify-content:center; padding:16px;">
+        class="chatucy-modal-overlay"
+        style="display:none;">
         <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
@@ -653,6 +670,7 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
+            class="chatucy-modal-panel"
             style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 32px rgba(106,66,194,0.16); max-width:420px; width:100%; padding:18px;">
 
             <template x-if="workspaceModal.mode !== 'delete'">
@@ -800,7 +818,7 @@
                                                         <i class="fas fa-message" style="font-size:0.6rem; flex-shrink:0; color:var(--muted); margin-top:2px;"></i>
                                                         <span style="font-size:0.76rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-strong);" x-text="session.name"></span>
                                                     </button>
-                                                    <div x-data="{ open:false, moveOpen:false }" class="chatucy-session-actions" style="position:relative; display:flex; align-items:center; gap:4px; flex-shrink:0;">
+                                                    <div x-data="{ open:false, moveOpen:false }" class="chatucy-session-actions" style="position:relative; z-index:420; display:flex; align-items:center; gap:4px; flex-shrink:0;">
                                                         <button @click.stop="open = !open" class="ds-icon-btn" style="width:22px; height:22px; border:none; background:transparent;" title="Chat actions">
                                                             <i class="fas fa-ellipsis" style="font-size:0.62rem;"></i>
                                                         </button>
@@ -825,7 +843,7 @@
                                                                     @mouseenter="moveOpen = true"
                                                                     @mouseleave="moveOpen = false"
                                                                     x-transition
-                                                                    style="position:absolute; left:calc(100% + 6px); top:0; z-index:330; min-width:180px; max-height:220px; overflow:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.18); padding:4px;">
+                                                                    style="position:absolute; right:calc(100% + 6px); left:auto; top:0; z-index:1100; min-width:180px; max-height:220px; overflow:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.18); padding:4px;">
                                                                     <button @click="assignSessionToWorkspace(session.id, null); open = false; moveOpen = false" style="width:100%; text-align:left; border:none; background:none; color:var(--text); font-size:0.72rem; padding:6px 8px; border-radius:6px; cursor:pointer;" onmouseover="this.style.background='rgba(106,66,194,0.08)'" onmouseout="this.style.background='none'">All chats</button>
                                                                     <template x-for="targetWorkspace in workspaces" :key="targetWorkspace.id">
                                                                         <button @click="assignSessionToWorkspace(session.id, targetWorkspace.id); open = false; moveOpen = false" style="width:100%; text-align:left; border:none; background:none; color:var(--text); font-size:0.72rem; padding:6px 8px; border-radius:6px; cursor:pointer;" onmouseover="this.style.background='rgba(106,66,194,0.08)'" onmouseout="this.style.background='none'" x-text="targetWorkspace.name"></button>
@@ -876,7 +894,7 @@
                                             <i class="fas fa-message" style="font-size:0.6rem; flex-shrink:0; color:var(--muted); margin-top:2px;"></i>
                                             <span style="font-size:0.76rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-strong);" x-text="session.name"></span>
                                         </button>
-                                        <div x-data="{ open:false, moveOpen:false }" class="chatucy-session-actions" style="position:relative; display:flex; align-items:center; gap:4px; flex-shrink:0;">
+                                        <div x-data="{ open:false, moveOpen:false }" class="chatucy-session-actions" style="position:relative; z-index:420; display:flex; align-items:center; gap:4px; flex-shrink:0;">
                                             <button @click.stop="open = !open" class="ds-icon-btn" style="width:22px; height:22px; border:none; background:transparent;" title="Chat actions">
                                                 <i class="fas fa-ellipsis" style="font-size:0.62rem;"></i>
                                             </button>
@@ -902,7 +920,7 @@
                                                         @mouseenter="moveOpen = true"
                                                         @mouseleave="moveOpen = false"
                                                         x-transition
-                                                        style="position:absolute; left:calc(100% + 6px); top:0; z-index:330; min-width:180px; max-height:220px; overflow:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.18); padding:4px;">
+                                                        style="position:absolute; right:calc(100% + 6px); left:auto; top:0; z-index:1100; min-width:180px; max-height:220px; overflow:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.18); padding:4px;">
                                                         <button @click="assignSessionToWorkspace(session.id, null); open = false; moveOpen = false" style="width:100%; text-align:left; border:none; background:none; color:var(--text); font-size:0.72rem; padding:6px 8px; border-radius:6px; cursor:pointer;" onmouseover="this.style.background='rgba(106,66,194,0.08)'" onmouseout="this.style.background='none'">All chats</button>
                                                         <template x-for="workspace in workspaces" :key="workspace.id">
                                                             <button @click="assignSessionToWorkspace(session.id, workspace.id); open = false; moveOpen = false" style="width:100%; text-align:left; border:none; background:none; color:var(--text); font-size:0.72rem; padding:6px 8px; border-radius:6px; cursor:pointer;" onmouseover="this.style.background='rgba(106,66,194,0.08)'" onmouseout="this.style.background='none'" x-text="workspace.name"></button>
@@ -949,23 +967,6 @@
                             style="justify-content:center; font-size:0.65rem; padding:8px;"
                             title="Configure MCP servers">
                             <i class="fas fa-gear"></i> Settings
-                        </button>
-                        <button
-                            @click="$refs.workspaceImportInput.click()"
-                            class="ds-btn"
-                            style="justify-content:center; font-size:0.65rem; padding:8px;"
-                            title="Import workspace">
-                            <i class="fas fa-upload"></i> Import
-                        </button>
-                    </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-                        <button
-                            @click="exportCurrentWorkspace()"
-                            class="ds-btn"
-                            :disabled="!getCurrentWorkspace()"
-                            style="justify-content:center; font-size:0.65rem; padding:8px;"
-                            title="Export selected workspace">
-                            <i class="fas fa-download"></i> Export
                         </button>
                         <button
                             @click="clearAllSessions()"
@@ -1064,7 +1065,7 @@
                 x-transition:leave-start="opacity-100 translate-x-0"
                 x-transition:leave-end="opacity-0 translate-x-2"
                 class="flex-1 overflow-y-auto scrollbar-hidden"
-                style="background:var(--bg); padding:72px 24px 190px;">
+                style="background:var(--bg); padding:72px 24px calc(var(--chat-input-offset) + 160px);">
                 <div style="max-width:920px; margin:0 auto; border:1px solid var(--border); border-radius:10px; background:var(--surface-elevated); overflow:hidden; display:flex; flex-direction:column;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border);">
                     <div style="min-width:0;">
@@ -1330,15 +1331,16 @@
                                     :style="localRagEnabled
                                         ? 'border-color:var(--accent); background:rgba(106,66,194,0.08); color:var(--accent);'
                                         : 'border-color:var(--border); background:transparent; color:var(--muted);'"
-                                    title="Use local retrieval first; falls back to backend document processing if local indexing/retrieval is unavailable.">
+                                    title="Use your private document store first. If unavailable, it falls back to backend document processing.">
                                     <input type="checkbox" x-model="localRagEnabled" style="display:none;">
                                     <i class="fas fa-database" style="font-size:0.65rem;"></i>
-                                    <span>Local Retrieval (Beta)</span>
+                                    <span>Private Document Store</span>
                                     <i class="fas fa-check" style="font-size:0.6rem;" x-show="localRagEnabled"></i>
                                 </label>
 
                                 <!-- Live Browser View Toggle -->
                                 <button
+                                    x-show="window.desktop?.isElectron"
                                     @click="browserViewOpen = !browserViewOpen"
                                     class="ds-icon-btn"
                                     :style="browserViewOpen ? 'background:var(--accent); color:#fff; border-color:var(--accent);' : ''"
@@ -1424,7 +1426,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;">
+        class="chatucy-modal-overlay"
+        style="display:none;">
         <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
@@ -1433,6 +1436,7 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
+            class="chatucy-modal-panel"
             style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 32px rgba(106,66,194,0.16); max-width:380px; width:100%; padding:20px;">
 
             <!-- Edit Session -->
@@ -1569,7 +1573,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;">
+        class="chatucy-modal-overlay"
+        style="display:none;">
         <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
@@ -1578,6 +1583,7 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
+            class="chatucy-modal-panel"
             style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 8px 40px rgba(106,66,194,0.18); max-width:640px; width:100%; max-height:85vh; overflow:hidden; display:flex; flex-direction:column;">
 
             <!-- Header -->
@@ -1594,6 +1600,10 @@
             <!-- Tabs -->
             <div style="display:flex; gap:0; border-bottom:1px solid var(--border); padding:0 18px; flex-shrink:0;">
                 <button
+                    @click="mcpConfigModal.activeTab = 'llm'"
+                    :style="mcpConfigModal.activeTab === 'llm' ? 'color:var(--accent); border-bottom:2px solid var(--accent);' : 'color:var(--muted); border-bottom:2px solid transparent;'"
+                    style="padding:8px 14px; font-size:0.8rem; font-weight:500; background:none; border:none; border-top:none; border-left:none; border-right:none; cursor:pointer; transition:color 0.15s;">LLM</button>
+                <button
                     @click="mcpConfigModal.activeTab = 'servers'"
                     :style="mcpConfigModal.activeTab === 'servers' ? 'color:var(--accent); border-bottom:2px solid var(--accent);' : 'color:var(--muted); border-bottom:2px solid transparent;'"
                     style="padding:8px 14px; font-size:0.8rem; font-weight:500; background:none; border:none; border-top:none; border-left:none; border-right:none; cursor:pointer; transition:color 0.15s;">Servers</button>
@@ -1605,6 +1615,33 @@
 
             <!-- Scrollable body -->
             <div style="flex:1; overflow-y:auto; padding:14px 18px;">
+
+                <!-- LLM Tab -->
+                <template x-if="mcpConfigModal.activeTab === 'llm'">
+                    <div style="display:grid; gap:12px;">
+                        <div style="padding:12px 14px; background:rgba(106,66,194,0.05); border:1px solid var(--border); border-radius:8px;">
+                            <div style="font-size:0.78rem; color:var(--text-strong); font-weight:600; margin-bottom:6px;">OpenAI-Compatible Base URL</div>
+                            <div style="font-size:0.7rem; color:var(--muted); line-height:1.5; margin-bottom:10px;">
+                                This is the base URL only. The app appends <span style="font-family:monospace;">/v1/chat/completions</span> internally.
+                            </div>
+                            <input
+                                type="text"
+                                x-model="mcpConfigModal.llmBaseUrl"
+                                placeholder="https://chatucy.cs.ucy.ac.cy/v1"
+                                style="width:100%; padding:8px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:6px; font-size:0.82rem; color:var(--text); outline:none; box-sizing:border-box;"
+                                onfocus="this.style.borderColor='var(--accent)'"
+                                onblur="this.style.borderColor='var(--border)'">
+                            <div style="display:flex; gap:8px; margin-top:10px;">
+                                <button @click="mcpConfigModal.saveLLMSettings()" class="ds-btn ds-btn--solid" style="flex:1; font-size:0.78rem; padding:6px 0; justify-content:center;">Save</button>
+                                <button @click="mcpConfigModal.resetLLMSettings()" class="ds-btn" style="flex:1; font-size:0.78rem; padding:6px 0; justify-content:center;">Reset Default</button>
+                            </div>
+                        </div>
+
+                        <div style="padding:10px 12px; background:rgba(106,66,194,0.05); border:1px solid var(--border); border-radius:8px; font-size:0.75rem; color:var(--muted); line-height:1.5;">
+                            Default: <span style="color:var(--text-strong); font-family:monospace;" x-text="mcpConfigModal.llmBaseUrl"></span>
+                        </div>
+                    </div>
+                </template>
 
                 <!-- Servers Tab -->
                 <template x-if="mcpConfigModal.activeTab === 'servers'">
@@ -1751,7 +1788,8 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        style="display:none; position:fixed; inset:0; background:rgba(10,6,20,0.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;">
+        class="chatucy-modal-overlay"
+        style="display:none;">
         <div
             @click.stop
             x-transition:enter="transition ease-out duration-200"
@@ -1760,6 +1798,7 @@
             x-transition:leave="transition ease-in duration-150"
             x-transition:leave-start="opacity-100 scale-100"
             x-transition:leave-end="opacity-0 scale-95"
+            class="chatucy-modal-panel"
             style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 8px 40px rgba(106,66,194,0.18); max-width:800px; width:100%; max-height:90vh; overflow:hidden; display:flex; flex-direction:column;">
 
             <!-- Header -->

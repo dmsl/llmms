@@ -76,6 +76,9 @@ async function ensureRagLoaded() {
 import { askAgent, supportsTools } from '../agent-integration.js';
 import { basicToolSchemas } from '../tools.js';
 import { ConversationManager } from '../conversation-manager.js';
+import { getEventManager, cleanupComponent } from '../utils/event-manager.js';
+import { getTimerManager, cleanupTimers } from '../utils/timer-manager.js';
+import { safeInnerHTML, safeText } from '../utils/html-safe.js';
 import {
     createWorkspaceFileStorageKey,
     putWorkspaceFileBlob,
@@ -92,10 +95,14 @@ window.askAgent = askAgent;
 const API_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/api';
 const STORAGE_KEYS = {
     appState: 'chat_app_state_v2',
+    appStateBackup: 'chat_app_state_v2_backup',
     legacySessions: 'chat_sessions',
     workspaceStoragePolicy: 'workspace_storage_policy_v1',
-    localRagPrefs: 'local_rag_prefs_v1'
+    localRagPrefs: 'local_rag_prefs_v1',
+    llmBaseUrl: 'llm_base_url_v1'
 };
+
+const DEFAULT_LLM_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/v1';
 
 const WORKSPACE_STORAGE_LIMIT_DEFAULTS = {
     maxFileBytes: 25 * 1024 * 1024,
@@ -105,6 +112,50 @@ const WORKSPACE_STORAGE_LIMIT_DEFAULTS = {
 
 function makeId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function deepCloneSerializable(value, fallback) {
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return fallback;
+    }
+}
+
+function stripTypingCursor(content) {
+    if (typeof content !== 'string') return content;
+    return content.replace(/<span class="typing-cursor"><\/span>/g, '');
+}
+
+function sanitizeMessageForPersistence(msg) {
+    const safe = {
+        ...deepCloneSerializable(msg, {})
+    };
+
+    if (!safe.id) {
+        safe.id = Date.now() + Math.floor(Math.random() * 1000);
+    }
+
+    if (!safe.role) {
+        safe.role = 'assistant';
+    }
+
+    // Persist completed content only; drop transient typing cursor artifacts.
+    safe.content = stripTypingCursor(safe.content ?? '');
+
+    // Remove transient UI flags that should not survive reloads.
+    delete safe.isTyping;
+    delete safe.isStreaming;
+    delete safe.showModelInfo;
+
+    return safe;
+}
+
+function hydrateMessageFromPersistence(msg) {
+    const safe = sanitizeMessageForPersistence(msg || {});
+    safe.isTyping = false;
+    safe.isStreaming = false;
+    return safe;
 }
 
 function chatApp() {
@@ -259,16 +310,33 @@ function chatApp() {
         },
         mcpConfigModal: {
             show: false,
-            activeTab: 'servers',
+            activeTab: 'llm',
             servers: [],
             tools: [], // Flat list of all tools
             toolsByServer: {}, // Organized by server
+            llmBaseUrl: DEFAULT_LLM_BASE_URL,
             newServerForm: {
                 show: false,
                 name: '',
                 url: '',
                 autoConnect: true,
                 error: ''
+            },
+            loadLLMSettings() {
+                const saved = localStorage.getItem(STORAGE_KEYS.llmBaseUrl);
+                const value = (saved || DEFAULT_LLM_BASE_URL).trim();
+                this.llmBaseUrl = value || DEFAULT_LLM_BASE_URL;
+                window.OLLAMA_BASE_URL = this.llmBaseUrl;
+            },
+            saveLLMSettings() {
+                const value = (this.llmBaseUrl || '').trim() || DEFAULT_LLM_BASE_URL;
+                this.llmBaseUrl = value;
+                localStorage.setItem(STORAGE_KEYS.llmBaseUrl, value);
+                window.OLLAMA_BASE_URL = value;
+            },
+            resetLLMSettings() {
+                this.llmBaseUrl = DEFAULT_LLM_BASE_URL;
+                this.saveLLMSettings();
             },
             async loadServers() {
                 if (window.desktop?.isElectron && window.desktop?.getMCPConfig) {
@@ -411,6 +479,8 @@ function chatApp() {
             this.$watch('sidebarOpen', (value) => {
                 localStorage.setItem('sidebar_open', value.toString());
             });
+
+            this.mcpConfigModal.loadLLMSettings();
             
             // No automatic resize handling - let user control sidebar state
             // The CSS responsive classes (lg:w-60, lg:w-0, etc.) handle the visual adaptation
@@ -503,7 +573,8 @@ function chatApp() {
                 await this.mcpConfigModal.loadTools();
                 
                 // Listen for tools registered event
-                window.addEventListener('mcp-tools-registered', async (e) => {
+                const eventMgr = getEventManager('chat-app-mcp');
+                eventMgr.add(window, 'mcp-tools-registered', async (e) => {
                     console.log('[ChatApp] Tools registered:', e.detail);
                     await this.mcpConfigModal.loadTools();
                     await this.mcpConfigModal.loadServers();
@@ -571,7 +642,10 @@ function chatApp() {
         loadAppState() {
             let loaded = false;
             try {
-                const raw = localStorage.getItem(STORAGE_KEYS.appState);
+                let raw = localStorage.getItem(STORAGE_KEYS.appState);
+                if (!raw) {
+                    raw = localStorage.getItem(STORAGE_KEYS.appStateBackup);
+                }
                 if (raw) {
                     const parsed = JSON.parse(raw);
                     this.sessions = this.normalizeSessions(parsed.sessions || []);
@@ -1045,10 +1119,13 @@ function chatApp() {
             return (sessions || []).map((s, idx) => ({
                 id: s.id || makeId('chat'),
                 name: s.name || `Chat ${idx + 1}`,
-                messages: Array.isArray(s.messages) ? s.messages : [],
+                messages: Array.isArray(s.messages)
+                    ? s.messages.map(m => hydrateMessageFromPersistence(m))
+                    : [],
                 workspaceId: s.workspaceId ?? null,
                 createdAt: s.createdAt || new Date().toISOString(),
-                updatedAt: s.updatedAt || new Date().toISOString()
+                updatedAt: s.updatedAt || new Date().toISOString(),
+                modelOverride: s.modelOverride || null
             }));
         },
 
@@ -1090,7 +1167,9 @@ function chatApp() {
                     workspaceFiles: this.workspaceFiles,
                     currentSession: this.currentSession
                 };
-                localStorage.setItem(STORAGE_KEYS.appState, JSON.stringify(payload));
+                const serialized = JSON.stringify(payload);
+                localStorage.setItem(STORAGE_KEYS.appState, serialized);
+                localStorage.setItem(STORAGE_KEYS.appStateBackup, serialized);
             } catch (error) {
                 console.error('[ChatApp] Failed to persist app state:', error);
             }
@@ -1408,6 +1487,68 @@ function chatApp() {
                          name.includes('gpt-oss') || name.includes('magistral') || name.includes('qwen3') && !name.includes('coder')
             };
         },
+
+        parseModelVersionTuple(modelId) {
+            const id = String(modelId || '').toLowerCase();
+            // Prefer semantic-like versions in names (e.g. llama3.3, qwen2.5, mistral-small3.2)
+            const matches = [...id.matchAll(/(\d+(?:\.\d+){0,2})/g)].map(m => m[1]);
+            if (!matches.length) return [0, 0, 0];
+
+            // Use the highest tuple found in the id.
+            const tuples = matches.map(v => {
+                const parts = v.split('.').map(n => Number(n) || 0);
+                return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+            });
+
+            tuples.sort((a, b) => {
+                if (b[0] !== a[0]) return b[0] - a[0];
+                if (b[1] !== a[1]) return b[1] - a[1];
+                return b[2] - a[2];
+            });
+
+            return tuples[0];
+        },
+
+        parseModelSizeScore(modelId) {
+            const id = String(modelId || '').toLowerCase();
+
+            // Common forms: :70b, :8b, -32b, _14b, 500m
+            const m = id.match(/[:\-_](\d+(?:\.\d+)?)([bm])/i) || id.match(/\b(\d+(?:\.\d+)?)([bm])\b/i);
+            if (!m) return 0;
+
+            const value = Number(m[1]) || 0;
+            const unit = (m[2] || 'b').toLowerCase();
+            return unit === 'b' ? value * 1000 : value;
+        },
+
+        compareVersionTupleDesc(a, b) {
+            if (a[0] !== b[0]) return b[0] - a[0];
+            if (a[1] !== b[1]) return b[1] - a[1];
+            return b[2] - a[2];
+        },
+
+        pickPreferredDefaultModel(models) {
+            if (!Array.isArray(models) || models.length === 0) return null;
+
+            const toolCapable = models.filter(m => supportsTools(m.id) || m.tools);
+            const pool = toolCapable.length ? toolCapable : models;
+
+            const ranked = [...pool].sort((a, b) => {
+                const verCmp = this.compareVersionTupleDesc(
+                    this.parseModelVersionTuple(a.id),
+                    this.parseModelVersionTuple(b.id)
+                );
+                if (verCmp !== 0) return verCmp;
+
+                const sizeCmp = this.parseModelSizeScore(b.id) - this.parseModelSizeScore(a.id);
+                if (sizeCmp !== 0) return sizeCmp;
+
+                // Stable tiebreaker
+                return String(a.id).localeCompare(String(b.id));
+            });
+
+            return ranked[0]?.id || models[0]?.id || null;
+        },
         
         async loadModels() {
             try {
@@ -1432,7 +1573,10 @@ function chatApp() {
                         };
                     });
                     if (this.availableModels.length > 0) {
-                        this.selectedModel = this.availableModels[0].id;
+                        const preferred = this.pickPreferredDefaultModel(this.availableModels);
+                        if (preferred) {
+                            this.selectedModel = preferred;
+                        }
                     }
                     console.log('[ChatApp] Successfully loaded models');
                 }
@@ -1445,7 +1589,10 @@ function chatApp() {
                     { id: 'neural-chat', displayName: 'Neural Chat', context_length: -1, vision: false, tools: false, thinking: false },
                     { id: 'dolphin-mixtral', displayName: 'Dolphin Mixtral', context_length: -1, vision: false, tools: true, thinking: false }
                 ];
-                this.selectedModel = this.availableModels[0].id;
+                const preferred = this.pickPreferredDefaultModel(this.availableModels);
+                if (preferred) {
+                    this.selectedModel = preferred;
+                }
             }
         },
         
@@ -1514,7 +1661,9 @@ function chatApp() {
             this.workspaceDetailsOpen = false;
             const session = this.sessions.find(s => s.id === sessionId);
             if (session) {
-                this.messages = session.messages;
+                this.messages = Array.isArray(session.messages)
+                    ? session.messages.map(m => hydrateMessageFromPersistence(m))
+                    : [];
                 
                 // Update showModelInfo for loaded messages
                 // Show icon on first assistant message and when model changes
@@ -2219,8 +2368,8 @@ function chatApp() {
                 console.error('Error sending message:', error);
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
                 const suffix = canUseAgent
-                    ? 'Please ensure the agent backend is accessible.'
-                    : 'Please ensure the chat backend is accessible.';
+                    ? 'Please ensure the model server and MCP tools are accessible.'
+                    : 'Please ensure the model server is accessible.';
                 // Update the existing assistant message with the error
                 const messageIndex = this.messages.length - 1;
                 if (this.messages[messageIndex] && this.messages[messageIndex].role === 'assistant') {
@@ -2315,15 +2464,16 @@ function chatApp() {
                             const btn = document.createElement('button');
                             btn.className = 'md-copy-btn';
                             btn.title = 'Copy code';
-                            btn.innerHTML = '<i class="fas fa-copy"></i>';
+                            safeInnerHTML(btn, '<i class="fas fa-copy"></i>');
                             btn.addEventListener('click', () => {
                                 const code = pre.querySelector('code');
                                 navigator.clipboard.writeText(code ? code.innerText : pre.innerText).then(() => {
-                                    btn.innerHTML = '<i class="fas fa-check"></i>';
+                                    safeInnerHTML(btn, '<i class="fas fa-check"></i>');
                                     btn.style.background = 'var(--accent)';
                                     btn.style.color = '#fff';
-                                    setTimeout(() => {
-                                        btn.innerHTML = '<i class="fas fa-copy"></i>';
+                                    const timerMgr = getTimerManager('chat-app-copy-btn');
+                                    timerMgr.schedule(() => {
+                                        safeInnerHTML(btn, '<i class="fas fa-copy"></i>');
                                         btn.style.background = '';
                                         btn.style.color = '';
                                     }, 1800);
@@ -2459,13 +2609,8 @@ function chatApp() {
             // Find the current session and sync messages
             const session = this.sessions.find(s => s.id === this.currentSession);
             if (session) {
-                // Create a deep copy of messages, filtering out UI-only properties
-                session.messages = this.messages.map(msg => ({
-                    id: msg.id,
-                    role: msg.role,
-                    content: msg.content,
-                    model: msg.model
-                }));
+                // Keep full serializable message structure so tool calls/results survive reloads.
+                session.messages = this.messages.map(msg => sanitizeMessageForPersistence(msg));
                 session.updatedAt = new Date().toISOString();
             }
             this.persistAppState();

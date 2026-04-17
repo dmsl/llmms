@@ -11,8 +11,9 @@
  */
 
 import { confirmWrite } from "./permissions.js";
+import { TimerManager, getTimerManager } from '../utils/timer-manager.js';
 
-const BACKEND_API = 'https://chatucy.cs.ucy.ac.cy/v1/chat/completions';
+const DEFAULT_OLLAMA_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/v1';
 const RAG_ENDPOINT = 'https://chatucy.cs.ucy.ac.cy/api/rag_chain';
 const LLM_REQUEST_TIMEOUT_MS = 90000;
 const LLM_MAX_RETRIES = 2;
@@ -69,6 +70,7 @@ export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2'
   }
 
   const normalizedMode = mode === 'agent' && supportsTools(model) ? 'agent' : 'ask';
+  console.log(`[Agent] Using frontend-only LLM path via ${resolveLLMApiUrl()}`);
   
   // Build initial messages with system prompt
   let systemPrompt = `You are a helpful AI assistant. Give clear, direct answers and ask brief follow-up questions only when necessary.`;
@@ -128,15 +130,17 @@ To submit a form: browser_click the submit button ref.`;
     try {
       // Call LLM with current messages and available tools
       const response = await callLLM(messages, toolSchemas, model);
-      const responseContent = response.choices?.[0]?.message?.content;
+      const assistantMessage = getAssistantMessageFromResponse(response);
+      const responseContent = assistantMessage?.content;
       if (typeof responseContent === 'string' && responseContent.trim()) {
         lastAssistantContent = stripToolTags(responseContent);
       }
       
       // Check if LLM wants to use tools
-      const toolCalls = extractToolCalls(response);
-      const normalizedToolCalls = toolCalls.map((toolCall, index) => ({
-        id: toolCall.id || `tool_${iterations}_${index}`,
+      const toolCalls = extractToolCalls(response, toolSchemas);
+      const executionPlan = buildExecutionPlan(toolCalls);
+      const normalizedToolCalls = executionPlan.map((toolCall) => ({
+        id: toolCall.id,
         function: {
           name: toolCall.name,
           arguments: JSON.stringify(toolCall.args || {})
@@ -149,12 +153,12 @@ To submit a form: browser_click the submit button ref.`;
       }
       
       // Execute tools and add results to conversation
-      console.log(`[Agent] Executing ${toolCalls.length} tool(s)`);
-      const toolResults = await executeTools(toolCalls);
+      console.log(`[Agent] Executing ${executionPlan.length} planned tool call(s)`);
+      const toolResults = await executeTools(executionPlan, { alreadyPlanned: true });
       
       // Add assistant's tool use message to history
       // Strip raw tool tags so they don't confuse the model on the next turn
-      const assistantContent = stripToolTags(response.choices[0].message.content || '');
+      const assistantContent = stripToolTags(getMessageContentText(assistantMessage?.content));
       messages.push({
         role: 'assistant',
         content: assistantContent,
@@ -226,10 +230,45 @@ function extractFinalContent(response) {
   return content || 'I didn\'t receive a proper response from the model.';
 }
 
+function resolveLLMApiUrl() {
+  const candidates = [
+    window.OLLAMA_BASE_URL,
+    window.OLLAMA_API_URL,
+    window.desktop?.ollamaBaseUrl,
+    window.desktop?.ollamaApiUrl,
+    localStorage.getItem('llm_base_url_v1'),
+    localStorage.getItem('ollama_api_url'),
+    localStorage.getItem('ollama_base_url'),
+    localStorage.getItem('openai_api_url')
+  ].filter(Boolean);
+
+  const rawUrl = candidates.length > 0 ? String(candidates[0]).trim() : DEFAULT_OLLAMA_BASE_URL;
+  if (!rawUrl) {
+    return `${DEFAULT_OLLAMA_BASE_URL}/v1/chat/completions`;
+  }
+
+  if (/\/v1\/chat\/completions\/?$/i.test(rawUrl)) {
+    return rawUrl.replace(/\/?$/, '');
+  }
+
+  const normalized = rawUrl.replace(/\/$/, '');
+  if (normalized.endsWith('/v1')) {
+    return `${normalized}/chat/completions`;
+  }
+
+  if (/\/v1$/i.test(normalized)) {
+    return `${normalized}/chat/completions`;
+  }
+
+  return `${normalized}/v1/chat/completions`;
+}
+
 /**
- * Call the LLM backend API
+ * Call the LLM server directly from the frontend.
+ * This keeps ask/agent browser-first and removes the FastAPI hop.
  */
 async function callLLM(messages, toolSchemas, model) {
+  const llmApiUrl = resolveLLMApiUrl();
   const payload = {
     model,
     messages,
@@ -240,29 +279,22 @@ async function callLLM(messages, toolSchemas, model) {
   // Format tools correctly for OpenAI-compatible API
   if (toolSchemas && toolSchemas.length > 0 && supportsTools(model)) {
     const validTools = toolSchemas
-      .filter(tool => {
-        if (tool.parameters?.$schema && !tool.parameters?.properties) {
-          console.warn(`[Agent] Skipping malformed schema for ${tool.name} - no properties defined`);
-          return false;
-        }
-        return true;
-      })
+      .map(normalizeToolSchema)
+      .filter(Boolean)
       .map(tool => ({
         type: 'function',
         function: {
           name: tool.name,
-          description: tool.description || 'No description available',
-          parameters: tool.parameters || tool.inputSchema || {
-            type: 'object',
-            properties: {},
-            required: []
-          }
+          description: tool.description,
+          strict: isStrictSchemaCompatible(tool.parameters),
+          parameters: tool.parameters
         }
       }));
 
     if (validTools.length > 0) {
       payload.tools = validTools;
       payload.tool_choice = 'auto';
+      payload.parallel_tool_calls = false;
       console.log(`[Agent] Sending ${validTools.length} tools to LLM:`, validTools.map(t => t.function.name));
     } else {
       console.log('[Agent] No valid tool schemas found, proceeding without tools');
@@ -271,12 +303,15 @@ async function callLLM(messages, toolSchemas, model) {
     console.warn(`[Agent] Model '${model}' does not support tools, proceeding without them`);
   }
 
+  // Get timer manager for LLM request lifecycle
+  const timerMgr = getTimerManager('askAgent');
+
   for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
+    const timeout = timerMgr.schedule(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(BACKEND_API, {
+      const response = await fetch(llmApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -286,12 +321,15 @@ async function callLLM(messages, toolSchemas, model) {
       if (!response.ok) {
         const errorData = await parseResponseJsonSafe(response);
 
-        if (response.status === 400 && errorData?.error?.message?.includes('does not support tools')) {
+        const errorMessage = String(errorData?.error?.message || errorData?.message || '').toLowerCase();
+
+        if (response.status === 400 && errorMessage.includes('does not support tools')) {
           console.warn('[Agent] Model does not support tools, retrying without tools');
           delete payload.tools;
           delete payload.tool_choice;
+          delete payload.parallel_tool_calls;
 
-          const retryResponse = await fetch(BACKEND_API, {
+          const retryResponse = await fetch(llmApiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -305,6 +343,33 @@ async function callLLM(messages, toolSchemas, model) {
 
           const retryResult = await retryResponse.json();
           console.log('[Agent] LLM Response (without tools):', JSON.stringify(retryResult, null, 2));
+          return retryResult;
+        }
+
+        if (response.status === 400 && payload.tools && errorMessage.includes('strict')) {
+          console.warn('[Agent] Strict tool schema rejected, retrying with non-strict tool definitions');
+          payload.tools = payload.tools.map(tool => ({
+            ...tool,
+            function: {
+              ...tool.function,
+              strict: false
+            }
+          }));
+
+          const retryResponse = await fetch(llmApiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+
+          if (!retryResponse.ok) {
+            const retryErrorText = await safeReadErrorText(retryResponse);
+            throw new Error(`API Error: ${retryResponse.status} ${retryResponse.statusText}${retryErrorText ? ` - ${retryErrorText}` : ''}`);
+          }
+
+          const retryResult = await retryResponse.json();
+          console.log('[Agent] LLM Response (non-strict tools):', JSON.stringify(retryResult, null, 2));
           return retryResult;
         }
 
@@ -327,9 +392,9 @@ async function callLLM(messages, toolSchemas, model) {
 
       const backoffMs = 400 * Math.pow(2, attempt);
       console.warn(`[Agent] Transient LLM error, retrying in ${backoffMs}ms (attempt ${attempt + 1})`);
-      await new Promise(resolve => setTimeout(resolve, backoffMs));
+      await new Promise(resolve => timerMgr.schedule(resolve, backoffMs));
     } finally {
-      clearTimeout(timeout);
+      timerMgr.clearTimeout(timeout);
     }
   }
 
@@ -374,106 +439,295 @@ function stripToolTags(text) {
     .trim();
 }
 
-/**
- * Extract tool calls from LLM response
- * Handles multiple formats for tool calls
- */
-function extractToolCalls(response) {
-  const toolCalls = [];
-  const message = response.choices?.[0]?.message;
-
-  if (!message) {
-    console.log('[Agent] No message in response');
-    return toolCalls;
+function getAssistantMessageFromResponse(response) {
+  const fromChoices = response?.choices?.[0]?.message;
+  if (fromChoices && typeof fromChoices === 'object') {
+    return fromChoices;
   }
 
-  console.log('[Agent] Message structure:', {
-    hasToolCalls: !!message.tool_calls,
-    hasFunctionCall: !!message.function_call,
-    hasContent: !!message.content
-  });
+  // Responses-style compatibility: synthesize a message with text and function tool calls.
+  if (Array.isArray(response?.output)) {
+    const fnCalls = response.output.filter(item => item?.type === 'function_call');
+    const contentBlocks = response.output
+      .filter(item => item?.type === 'message' && Array.isArray(item.content))
+      .flatMap(item => item.content || []);
+
+    const messageContent = contentBlocks
+      .map(part => (part?.type === 'output_text' ? part?.text || '' : ''))
+      .join('')
+      .trim();
+
+    return {
+      content: messageContent || response.output_text || '',
+      tool_calls: fnCalls.map((item, idx) => ({
+        id: item.call_id || item.id || `out_${idx}`,
+        function: {
+          name: item.name,
+          arguments: item.arguments
+        }
+      }))
+    };
+  }
+
+  return {
+    content: response?.output_text || '',
+    tool_calls: []
+  };
+}
+
+function getMessageContentText(content) {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return part?.text || '';
+        if (part?.type === 'output_text') return part?.text || '';
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+
+  if (content == null) {
+    return '';
+  }
+
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
+}
+
+function buildExecutionPlan(toolCalls) {
+  const base = (Array.isArray(toolCalls) ? toolCalls : []).map((toolCall, index) => ({
+    id: toolCall?.id || `tool_${index}`,
+    name: toolCall?.name,
+    args: isPlainObject(toolCall?.args) ? toolCall.args : {}
+  }));
+
+  const hasBrowserToolCall = base.some(tc => typeof tc?.name === 'string' && tc.name.startsWith('browser_'));
+  const plan = [];
+
+  if (hasBrowserToolCall) {
+    const hasNavigate = base.some(tc => tc.name === 'browser_navigate');
+    const hasSnapshot = base.some(tc => tc.name === 'browser_snapshot');
+    if (!hasNavigate && !hasSnapshot) {
+      plan.push({ id: `prefetch_${Date.now()}`, name: 'browser_snapshot', args: {} });
+    }
+  }
+
+  for (const tc of base) {
+    plan.push(tc);
+    if (tc.name === 'browser_navigate') {
+      plan.push({ id: `${tc.id}_snap`, name: 'browser_snapshot', args: {} });
+    }
+  }
+
+  return plan;
+}
+
+function normalizeToolSchema(tool) {
+  if (!tool || typeof tool !== 'object') {
+    return null;
+  }
+
+  const rawName = tool.name || tool.function?.name;
+  const name = typeof rawName === 'string' ? rawName.trim() : '';
+  if (!name) {
+    return null;
+  }
+
+  const rawSchema =
+    tool.parameters ||
+    tool.inputSchema ||
+    tool.input_schema ||
+    tool.function?.parameters ||
+    tool.function?.input_schema ||
+    {};
+
+  const parameters = isPlainObject(rawSchema)
+    ? { ...rawSchema }
+    : { type: 'object', properties: {}, required: [] };
+
+  if (!parameters.type && isPlainObject(parameters.properties)) {
+    parameters.type = 'object';
+  }
+
+  if (parameters.type === 'object') {
+    if (!isPlainObject(parameters.properties)) {
+      parameters.properties = {};
+    }
+
+    if (!Array.isArray(parameters.required)) {
+      parameters.required = [];
+    }
+  }
+
+  // Standardized function schema shape for tool calling.
+  return {
+    name,
+    description: typeof (tool.description || tool.function?.description) === 'string' && (tool.description || tool.function?.description).trim()
+      ? (tool.description || tool.function?.description).trim()
+      : 'No description available',
+    parameters
+  };
+}
+
+function isStrictSchemaCompatible(schema) {
+  if (!isPlainObject(schema)) return false;
+  if (schema.type !== 'object') return false;
+  if (!isPlainObject(schema.properties)) return false;
+  if (!Array.isArray(schema.required)) return false;
+
+  const propertyKeys = Object.keys(schema.properties);
+  const requiredSet = new Set(schema.required.filter(k => typeof k === 'string'));
+  const allRequired = propertyKeys.every(k => requiredSet.has(k));
+
+  return allRequired && schema.additionalProperties === false;
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseToolArguments(argsRaw, toolName) {
+  if (isPlainObject(argsRaw)) {
+    return argsRaw;
+  }
+
+  if (argsRaw == null || argsRaw === '') {
+    return {};
+  }
+
+  if (typeof argsRaw !== 'string') {
+    console.warn(`[Agent] Invalid arguments format for ${toolName}; defaulting to empty object`);
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(argsRaw);
+    if (isPlainObject(parsed)) {
+      return parsed;
+    }
+    console.warn(`[Agent] Arguments for ${toolName} are not an object; defaulting to empty object`);
+    return {};
+  } catch (e) {
+    console.warn(`[Agent] Failed to parse JSON arguments for ${toolName}:`, e);
+    return {};
+  }
+}
+
+function pruneArgsBySchema(args, schema) {
+  if (!isPlainObject(args)) {
+    return {};
+  }
+
+  const properties = isPlainObject(schema?.properties) ? schema.properties : {};
+  const hasProperties = Object.keys(properties).length > 0;
+  const additionalProps = schema?.additionalProperties;
+
+  // No explicit field map means we should not silently drop model-provided args.
+  if (!hasProperties) {
+    return args;
+  }
+
+  if (additionalProps !== false) {
+    return args;
+  }
+
+  const pruned = {};
+  for (const key of Object.keys(args)) {
+    if (Object.prototype.hasOwnProperty.call(properties, key)) {
+      pruned[key] = args[key];
+    }
+  }
+  return pruned;
+}
+
+/**
+ * Extract tool calls from LLM response
+ * Uses standardized OpenAI tool-call formats only.
+ */
+function extractToolCalls(response, toolSchemas = []) {
+  const toolCalls = [];
+  const message = response.choices?.[0]?.message;
+  const allowedTools = new Map();
+  const enforceAllowList = Array.isArray(toolSchemas) && toolSchemas.length > 0;
+
+  for (const tool of toolSchemas || []) {
+    const normalized = normalizeToolSchema(tool);
+    if (normalized) {
+      allowedTools.set(normalized.name, normalized);
+    }
+  }
+
+  if (!message) {
+    console.log('[Agent] No choices[0].message in response, trying alternative structured formats');
+  } else {
+    console.log('[Agent] Message structure:', {
+      hasToolCalls: !!message.tool_calls,
+      hasFunctionCall: !!message.function_call,
+      hasContent: !!message.content
+    });
+  }
 
   // Format 1: OpenAI standard (tool_calls array)
-  if (message.tool_calls && Array.isArray(message.tool_calls)) {
+  if (message?.tool_calls && Array.isArray(message.tool_calls)) {
     console.log(`[Agent] Found ${message.tool_calls.length} tool_calls in response`);
 
-    for (const toolCall of message.tool_calls) {
-      if (toolCall.function) {
-        const { name, arguments: argsString } = toolCall.function;
-
-        let args = {};
-        try {
-          args = typeof argsString === 'string' ? JSON.parse(argsString) : argsString;
-        } catch (e) {
-          console.warn(`[Agent] Failed to parse arguments for ${name}:`, e);
-        }
-
-        toolCalls.push({ id: toolCall.id, name, args });
+    for (const [index, toolCall] of message.tool_calls.entries()) {
+      const functionPayload = toolCall?.function || toolCall;
+      if (!functionPayload?.name) {
+        continue;
       }
+
+      const name = String(functionPayload.name).trim();
+      if (enforceAllowList && !allowedTools.has(name)) {
+        console.warn(`[Agent] Ignoring unregistered tool call: ${name}`);
+        continue;
+      }
+
+      const toolDef = allowedTools.get(name);
+      const parsedArgs = parseToolArguments(functionPayload.arguments, name);
+      const args = toolDef ? pruneArgsBySchema(parsedArgs, toolDef.parameters) : parsedArgs;
+      toolCalls.push({ id: toolCall.id || `tool_${index}`, name, args });
     }
   }
   
-  // Format 2: Single function_call property
-  if (message.function_call && !toolCalls.length) {
+  // Format 2: Legacy single function_call property (compat path)
+  if (message?.function_call && !toolCalls.length) {
     const { name, arguments: argsString } = message.function_call;
-    let args = {};
-    try {
-      args = typeof argsString === 'string' ? JSON.parse(argsString) : argsString;
-    } catch (e) {
-      console.warn(`[Agent] Failed to parse arguments for ${name}:`, e);
-    }
-    console.log(`[Agent] Extracted function_call: ${name}`);
-    toolCalls.push({ id: 'func_0', name, args });
-  }
-
-  // Format 3: Text-embedded <function=name> <parameter=key> value  (qwen3-coder style)
-  // e.g.  <function=browser_navigate> <parameter=url> https://www.ucy.ac.cy
-  if (!toolCalls.length && message.content) {
-    const fnRegex = /<function=([^\s>]+)>([\s\S]*?)(?=<function=|$)/g;
-    let fnMatch;
-    let fnIdx = 0;
-    while ((fnMatch = fnRegex.exec(message.content)) !== null) {
-      const fnName = fnMatch[1].trim();
-      const fnBody = fnMatch[2];
-      const args = {};
-
-      // Extract <parameter=key> value pairs from the body
-      const paramRegex = /<parameter=([^\s>]+)>\s*([\s\S]*?)(?=\s*<parameter=|\s*$)/g;
-      let pMatch;
-      while ((pMatch = paramRegex.exec(fnBody)) !== null) {
-        const key = pMatch[1].trim();
-        const val = pMatch[2].trim();
-        // Try to coerce numbers / booleans / JSON objects
-        try { args[key] = JSON.parse(val); } catch { args[key] = val; }
-      }
-
-      // Fallback: if no <parameter> tags, try to parse the whole body as JSON
-      if (Object.keys(args).length === 0 && fnBody.trim()) {
-        try { Object.assign(args, JSON.parse(fnBody.trim())); } catch { /* ignore */ }
-      }
-
-      console.log(`[Agent] Extracted <function=> call: ${fnName}`, args);
-      toolCalls.push({ id: `fn_${fnIdx++}`, name: fnName, args });
+    if (name && (!enforceAllowList || allowedTools.has(name))) {
+      const toolDef = allowedTools.get(name);
+      const parsedArgs = parseToolArguments(argsString, name);
+      const args = toolDef ? pruneArgsBySchema(parsedArgs, toolDef.parameters) : parsedArgs;
+      console.log(`[Agent] Extracted legacy function_call: ${name}`);
+      toolCalls.push({ id: 'func_0', name, args });
+    } else if (name) {
+      console.warn(`[Agent] Ignoring unregistered legacy function_call: ${name}`);
     }
   }
 
-  // Format 4: <tool_call>{"name":"…","arguments":{…}}</tool_call>  (some Qwen/Hermes variants)
-  if (!toolCalls.length && message.content) {
-    const tcRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
-    let tcMatch;
-    let tcIdx = 0;
-    while ((tcMatch = tcRegex.exec(message.content)) !== null) {
-      try {
-        const parsed = JSON.parse(tcMatch[1].trim());
-        const name = parsed.name || parsed.function;
-        const args = parsed.arguments || parsed.parameters || parsed.args || {};
-        if (name) {
-          console.log(`[Agent] Extracted <tool_call> call: ${name}`, args);
-          toolCalls.push({ id: `tc_${tcIdx++}`, name, args });
-        }
-      } catch (e) {
-        console.warn('[Agent] Failed to parse <tool_call> block:', e);
+  // Format 3: Responses API style output items with function_call
+  if (!toolCalls.length && Array.isArray(response.output)) {
+    const fnItems = response.output.filter(item => item?.type === 'function_call');
+    for (const [index, item] of fnItems.entries()) {
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name) continue;
+      if (enforceAllowList && !allowedTools.has(name)) {
+        console.warn(`[Agent] Ignoring unregistered output function_call: ${name}`);
+        continue;
       }
+
+      const toolDef = allowedTools.get(name);
+      const parsedArgs = parseToolArguments(item.arguments, name);
+      const args = toolDef ? pruneArgsBySchema(parsedArgs, toolDef.parameters) : parsedArgs;
+      toolCalls.push({ id: item.call_id || item.id || `out_${index}`, name, args });
     }
   }
 
@@ -483,19 +737,11 @@ function extractToolCalls(response) {
 /**
  * Execute tools by calling IPC (Electron) or browser MCP client (Web)
  */
-async function executeTools(toolCalls) {
+async function executeTools(toolCalls, options = {}) {
+  const { alreadyPlanned = false } = options;
   const results = [];
 
-  // Browser-first execution: if a browser tool set is available and the model
-  // attempts interaction without context, inject a snapshot first.
-  const hasBrowserToolCall = toolCalls.some(tc => typeof tc?.name === 'string' && tc.name.startsWith('browser_'));
-  if (hasBrowserToolCall) {
-    const hasNavigate = toolCalls.some(tc => tc.name === 'browser_navigate');
-    const hasSnapshot = toolCalls.some(tc => tc.name === 'browser_snapshot');
-    if (!hasNavigate && !hasSnapshot) {
-      toolCalls = [{ id: `prefetch_${Date.now()}`, name: 'browser_snapshot', args: {} }, ...toolCalls];
-    }
-  }
+  const plannedCalls = alreadyPlanned ? (Array.isArray(toolCalls) ? toolCalls : []) : buildExecutionPlan(toolCalls);
   
   // Desktop mode: Use Electron IPC for local + remote MCP tools
   if (window.desktop?.isElectron) {
@@ -503,16 +749,8 @@ async function executeTools(toolCalls) {
       console.error('[Agent] mcpCall not available in desktop API');
       throw new Error('MCP tools not available');
     }
-    
-    const expandedCalls = [];
-    for (const tc of toolCalls) {
-      expandedCalls.push(tc);
-      if (tc.name === 'browser_navigate') {
-        expandedCalls.push({ id: tc.id + '_snap', name: 'browser_snapshot', args: {} });
-      }
-    }
 
-    for (const toolCall of expandedCalls) {
+    for (const toolCall of plannedCalls) {
       try {
         console.log(`[Agent Desktop] Executing tool: "${toolCall.name}" with args:`, toolCall.args);
         
@@ -535,7 +773,7 @@ async function executeTools(toolCalls) {
         results.push({
           id: toolCall.id,
           name: toolCall.name,
-          error: error.message,
+          error: String(error?.message || error),
           success: false
         });
       }
@@ -546,16 +784,7 @@ async function executeTools(toolCalls) {
   
   // Web mode: Use browser MCP client for remote-only MCP tools
   if (window.mcpBrowserClient) {
-    // Auto-inject browser_snapshot after browser_navigate so the model always gets page text
-    const expandedCalls = [];
-    for (const tc of toolCalls) {
-      expandedCalls.push(tc);
-      if (tc.name === 'browser_navigate') {
-        expandedCalls.push({ id: tc.id + '_snap', name: 'browser_snapshot', args: {} });
-      }
-    }
-
-    for (const toolCall of expandedCalls) {
+    for (const toolCall of plannedCalls) {
       try {
         console.log(`[Agent Web] Executing tool: "${toolCall.name}" with args:`, toolCall.args);
         
@@ -590,7 +819,7 @@ async function executeTools(toolCalls) {
         results.push({
           id: toolCall.id,
           name: toolCall.name,
-          error: error.message,
+          error: String(error?.message || error),
           success: false
         });
       }

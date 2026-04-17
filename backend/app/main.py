@@ -127,6 +127,8 @@ try:
             model,
             llmms,
             session_rag,
+            mcp_agent,
+            structured_output,
         )
 
         app.include_router(chat.router)
@@ -135,6 +137,8 @@ try:
         app.include_router(model.router)
         app.include_router(llmms.router)
         app.include_router(session_rag.router)
+        app.include_router(mcp_agent.router)
+        app.include_router(structured_output.router)
         logger.info("Successfully included all additional API routers")
     except ImportError as e:
         logger.warning(f"Some additional API routers could not be imported: {str(e)}")

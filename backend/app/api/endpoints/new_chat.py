@@ -9,6 +9,14 @@ from typing import Optional, Dict, Any, Iterator, List, Union
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 
+# Optional validation utilities (non-breaking enhancement)
+try:
+    from app.core.validation import validate_message_length, validate_chat_request
+    VALIDATION_AVAILABLE = True
+except ImportError:
+    VALIDATION_AVAILABLE = False
+    print("[new_chat] Validation module not available, skipping optional validation")
+
 
 # Use standard logger
 logger = logging.getLogger("new_chat")
@@ -248,6 +256,15 @@ async def send_message_llmms_dev_endpoint(request: Request): # Renamed function 
     try:
         # Parse the request data
         data = await request.json()
+        
+        # Optional validation (non-breaking: only rejects extreme cases)
+        if VALIDATION_AVAILABLE:
+            try:
+                validate_chat_request(data)
+            except Exception as validation_error:
+                logger.warning(f"[new_chat] Validation warning: {validation_error}")
+                # Don't block request; validation is optional enhancement
+        
         # Extract messages array, algorithm type, and configuration
         messages = data.get("messages", [])
         algorithm_type = data.get("algorithm_type", "stepwise")

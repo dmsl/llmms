@@ -5,7 +5,7 @@ This handles the agent loop on the Ollama server and forwards tool requests to s
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 from typing import List, Dict, Any, Optional
 import json
 import asyncio
@@ -16,6 +16,12 @@ import uuid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+try:
+    from app.core.structured_llm import StructuredLLMService, StructuredLLMError
+    STRUCTURED_LLM_AVAILABLE = True
+except Exception:
+    STRUCTURED_LLM_AVAILABLE = False
 
 # Store active student sessions
 active_sessions = {}  # session_id -> SessionInfo
@@ -49,6 +55,25 @@ class AgentChatRequest(BaseModel):
     messages: List[Dict[str, str]]
     model: str = "llama3.2:latest"
     stream: bool = True
+
+
+class ToolCallFunction(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+
+
+class NormalizedToolCall(BaseModel):
+    id: str
+    function: ToolCallFunction
+
+
+class StructuredToolCall(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StructuredToolCallEnvelope(BaseModel):
+    tool_calls: List[StructuredToolCall] = Field(default_factory=list)
 
 
 @router.post("/api/mcp/register_session")
@@ -170,6 +195,171 @@ async def forward_tool_call_to_desktop(session_id: str, tool_name: str, argument
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _safe_parse_arguments(arguments: Any) -> Dict[str, Any]:
+    if isinstance(arguments, dict):
+        return arguments
+
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            logger.warning("Received non-JSON tool arguments string; defaulting to empty args")
+            return {}
+
+    return {}
+
+
+def _build_tool_registry(session_tools: List[Dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    tools: List[Dict[str, Any]] = []
+    registry: Dict[str, Dict[str, Any]] = {}
+
+    for tool in session_tools:
+        name = tool.get("name")
+        if not name:
+            continue
+
+        parameters = tool.get("parameters") or {}
+        if not isinstance(parameters, dict):
+            parameters = {}
+
+        if "type" not in parameters:
+            parameters["type"] = "object"
+        if "properties" not in parameters or not isinstance(parameters.get("properties"), dict):
+            parameters["properties"] = {}
+        if "required" not in parameters or not isinstance(parameters.get("required"), list):
+            parameters["required"] = []
+
+        parameters["additionalProperties"] = False
+
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": tool.get("description", ""),
+                "parameters": parameters,
+            },
+        }
+        tools.append(tool_schema)
+        registry[name] = tool_schema["function"]
+
+    return tools, registry
+
+
+def _normalize_tool_calls(raw_tool_calls: Any, tool_registry: Dict[str, Dict[str, Any]]) -> List[NormalizedToolCall]:
+    normalized: List[NormalizedToolCall] = []
+
+    if not isinstance(raw_tool_calls, list):
+        return normalized
+
+    for index, raw_call in enumerate(raw_tool_calls):
+        try:
+            function_data = raw_call.get("function", {}) if isinstance(raw_call, dict) else {}
+            tool_name = function_data.get("name")
+            if not tool_name or tool_name not in tool_registry:
+                logger.warning("Ignoring unknown tool call: %s", tool_name)
+                continue
+
+            arguments = _safe_parse_arguments(function_data.get("arguments", {}))
+            parameters = tool_registry[tool_name].get("parameters", {})
+            allowed_props = parameters.get("properties", {}) if isinstance(parameters, dict) else {}
+            if isinstance(allowed_props, dict) and allowed_props:
+                arguments = {k: v for k, v in arguments.items() if k in allowed_props}
+
+            normalized_call = NormalizedToolCall.model_validate(
+                {
+                    "id": raw_call.get("id") if isinstance(raw_call, dict) and raw_call.get("id") else f"call_{index}",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": arguments,
+                    },
+                }
+            )
+            normalized.append(normalized_call)
+        except ValidationError as exc:
+            logger.warning("Skipping invalid tool call payload: %s", exc)
+
+    return normalized
+
+
+def _recover_tool_calls_with_instructor(
+    assistant_content: str,
+    tool_registry: Dict[str, Dict[str, Any]],
+) -> List[NormalizedToolCall]:
+    if not STRUCTURED_LLM_AVAILABLE or not assistant_content.strip():
+        return []
+
+    tool_specs = []
+    for name, info in tool_registry.items():
+        tool_specs.append(
+            {
+                "name": name,
+                "description": info.get("description", ""),
+                "parameters": info.get("parameters", {}),
+            }
+        )
+
+    prompt = (
+        "Extract zero or more MCP tool calls from the assistant content. "
+        "Return only tool calls that match available tool names and pass JSON-object arguments.\n\n"
+        f"Available tools: {json.dumps(tool_specs)}\n\n"
+        f"Assistant content:\n{assistant_content}"
+    )
+
+    try:
+        service = StructuredLLMService()
+        extracted = service.extract(prompt, StructuredToolCallEnvelope)
+    except StructuredLLMError as exc:
+        logger.warning("Structured recovery unavailable for tool calls: %s", exc)
+        return []
+    except Exception as exc:
+        logger.warning("Structured recovery failed for tool calls: %s", exc)
+        return []
+
+    recovered_raw = []
+    for idx, call in enumerate(extracted.tool_calls):
+        recovered_raw.append(
+            {
+                "id": f"recovered_{idx}",
+                "function": {
+                    "name": call.name,
+                    "arguments": call.arguments,
+                },
+            }
+        )
+
+    return _normalize_tool_calls(recovered_raw, tool_registry)
+
+
+async def _execute_tool_calls_and_append_results(
+    session_id: str,
+    normalized_tool_calls: List[NormalizedToolCall],
+    messages: List[Dict[str, Any]],
+) -> None:
+    for tool_call in normalized_tool_calls:
+        tool_name = tool_call.function.name
+        tool_args = tool_call.function.arguments
+
+        try:
+            result = await forward_tool_call_to_desktop(session_id, tool_name, tool_args)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_name": tool_name,
+                    "content": json.dumps(result),
+                }
+            )
+        except Exception as exc:
+            logger.error("Tool execution error (%s): %s", tool_name, exc)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_name": tool_name,
+                    "content": json.dumps({"error": str(exc)}),
+                }
+            )
+
+
 @router.post("/api/mcp/agent_chat")
 async def agent_chat(request: AgentChatRequest):
     """
@@ -181,18 +371,8 @@ async def agent_chat(request: AgentChatRequest):
     
     session = active_sessions[request.session_id]
     
-    # Convert MCP tools to Ollama tool schema
-    tools = []
-    for tool in session.tools:
-        tool_schema = {
-            "type": "function",
-            "function": {
-                "name": tool.get("name"),
-                "description": tool.get("description", ""),
-                "parameters": tool.get("parameters", {})
-            }
-        }
-        tools.append(tool_schema)
+    # Convert MCP tools to Ollama tool schema + indexed registry for validation
+    tools, tool_registry = _build_tool_registry(session.tools)
     
     async def generate_response():
         """
@@ -226,35 +406,23 @@ async def agent_chat(request: AgentChatRequest):
                     # Check if model wants to call tools
                     if "tool_calls" in data.get("message", {}):
                         tool_calls = data["message"]["tool_calls"]
+                        normalized_tool_calls = _normalize_tool_calls(tool_calls, tool_registry)
+                        if not normalized_tool_calls:
+                            recovered = _recover_tool_calls_with_instructor(
+                                str(data.get("message", {}).get("content", "")),
+                                tool_registry,
+                            )
+                            normalized_tool_calls = recovered
                         
                         # Add assistant message to history
                         messages.append(data["message"])
                         
-                        # Execute each tool call
-                        for tool_call in tool_calls:
-                            tool_name = tool_call["function"]["name"]
-                            tool_args = tool_call["function"]["arguments"]
-                            
-                            # Forward to desktop
-                            try:
-                                result = await forward_tool_call_to_desktop(
-                                    request.session_id,
-                                    tool_name,
-                                    tool_args
-                                )
-                                
-                                # Add tool result to messages
-                                messages.append({
-                                    "role": "tool",
-                                    "content": json.dumps(result)
-                                })
-                                
-                            except Exception as e:
-                                logger.error(f"Tool execution error: {str(e)}")
-                                messages.append({
-                                    "role": "tool",
-                                    "content": json.dumps({"error": str(e)})
-                                })
+                        # Execute each validated tool call
+                        await _execute_tool_calls_and_append_results(
+                            request.session_id,
+                            normalized_tool_calls,
+                            messages,
+                        )
                         
                         # Continue loop to get next response
                         continue
@@ -283,36 +451,27 @@ async def agent_chat(request: AgentChatRequest):
                                 # Check if done
                                 if chunk.get("done", False):
                                     if tool_calls:
+                                        normalized_tool_calls = _normalize_tool_calls(tool_calls, tool_registry)
+                                        if not normalized_tool_calls:
+                                            recovered = _recover_tool_calls_with_instructor(
+                                                full_response,
+                                                tool_registry,
+                                            )
+                                            normalized_tool_calls = recovered
+
                                         # Model wants to call tools
                                         messages.append({
                                             "role": "assistant",
                                             "content": full_response,
                                             "tool_calls": tool_calls
                                         })
-                                        
+
                                         # Execute tools (similar to non-streaming)
-                                        for tool_call in tool_calls:
-                                            tool_name = tool_call["function"]["name"]
-                                            tool_args = tool_call["function"]["arguments"]
-                                            
-                                            try:
-                                                result = await forward_tool_call_to_desktop(
-                                                    request.session_id,
-                                                    tool_name,
-                                                    tool_args
-                                                )
-                                                
-                                                messages.append({
-                                                    "role": "tool",
-                                                    "content": json.dumps(result)
-                                                })
-                                                
-                                            except Exception as e:
-                                                logger.error(f"Tool execution error: {str(e)}")
-                                                messages.append({
-                                                    "role": "tool",
-                                                    "content": json.dumps({"error": str(e)})
-                                                })
+                                        await _execute_tool_calls_and_append_results(
+                                            request.session_id,
+                                            normalized_tool_calls,
+                                            messages,
+                                        )
                                         
                                         # Break inner loop to continue outer agent loop
                                         break

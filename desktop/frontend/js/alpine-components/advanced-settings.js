@@ -1,4 +1,22 @@
 // Advanced Settings Modal Script for new_chat.html
+// Utilities for safe performance optimization (debounce)
+const { debounce } = (() => {
+  // Import debounce if available, otherwise provide simple inline version
+  if (typeof window.debounceUtil !== 'undefined') {
+    return window.debounceUtil;
+  }
+  // Fallback: simple debounce implementation
+  return {
+    debounce: function(fn, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn.apply(this, args), wait);
+      };
+    }
+  };
+})();
+
 document.addEventListener('DOMContentLoaded', function () {
     // Set default model button text
     const modelButton = document.getElementById('modelbutton');
@@ -6,24 +24,26 @@ document.addEventListener('DOMContentLoaded', function () {
         modelButton.textContent = "LLM-MS-OUA";
     }
 
-    // Token allocation slider
+    // Token allocation slider (with debounce for performance)
     const tokenSlider = document.getElementById('tokenAllocation');
     const tokenValue = document.getElementById('tokenValue');
 
     if (tokenSlider && tokenValue) {
-        tokenSlider.addEventListener('input', function () {
-            tokenValue.textContent = this.value;
-        });
+        const updateTokenValue = debounce(function() {
+            tokenValue.textContent = tokenSlider.value;
+        }, 100);
+        tokenSlider.addEventListener('input', updateTokenValue);
     }
 
-    // MAB exploration coefficient slider
+    // MAB exploration coefficient slider (with debounce for performance)
     const xploreCoeffSlider = document.getElementById('xploreCoeff');
     const xploreCoeffValue = document.getElementById('xploreCoeffValue');
 
     if (xploreCoeffSlider && xploreCoeffValue) {
-        xploreCoeffSlider.addEventListener('input', function () {
-            xploreCoeffValue.textContent = this.value;
-        });
+        const updateXploreValue = debounce(function() {
+            xploreCoeffValue.textContent = xploreCoeffSlider.value;
+        }, 100);
+        xploreCoeffSlider.addEventListener('input', updateXploreValue);
     }
 
     // Handle alpha and beta weights to ensure they always sum to 1.0
