@@ -73,7 +73,7 @@ async function ensureRagLoaded() {
 }
 
 // Import agent integration (handles both web and Electron modes)
-import { askAgent, supportsTools } from '../agent-integration.js';
+import { askAgent, supportsTools, refreshModelToolCapabilities, supportsToolsFromProvider } from '../agent-integration.js';
 import { basicToolSchemas } from '../tools.js';
 import { ConversationManager } from '../conversation-manager.js';
 import { getEventManager, cleanupComponent } from '../utils/event-manager.js';
@@ -301,7 +301,9 @@ function chatApp() {
                                 name: 'playwright',
                                 url: 'https://chatucy.cs.ucy.ac.cy/mcp/playwright',
                                 type: 'sse',
-                                autoConnect: true
+                                autoConnect: false,
+                                enabled: false,
+                                toolStates: {}
                             }
                         ],
                         version: '1.0'
@@ -321,7 +323,7 @@ function chatApp() {
                 show: false,
                 name: '',
                 url: '',
-                autoConnect: true,
+                autoConnect: false,
                 error: ''
             },
             loadLLMSettings() {
@@ -394,7 +396,46 @@ function chatApp() {
             onToolToggle(tool) {
                 if (window.desktop?.isElectron && window.desktop?.toggleTool) {
                     window.desktop.toggleTool(tool.name, tool.enabled);
+                } else if (window.mcpConfigManager && window.mcpBrowserClient && tool?.serverName && tool?.name) {
+                    window.mcpBrowserClient.setToolEnabled(tool.serverName, tool.name, tool.enabled);
+                    window.mcpConfigManager.setToolState(tool.serverName, tool.name, !!tool.enabled);
                 }
+            },
+            async toggleWebServerEnabled(server) {
+                if (window.desktop?.isElectron || !server?.name || !window.mcpConfigManager || !window.mcpBrowserClient) {
+                    return;
+                }
+
+                const isEnabled = !!server.enabled;
+                window.mcpConfigManager.setServerEnabled(server.name, isEnabled);
+
+                if (isEnabled) {
+                    if (!window.mcpBrowserClient.isConnected(server.name)) {
+                        await window.mcpBrowserClient.connect(server.name, server.url, server.connectionParams);
+                    }
+
+                    const tools = window.mcpBrowserClient.getAllTools().filter(t => t.serverName === server.name);
+                    const toolNames = tools.map(t => t.name);
+                    window.mcpBrowserClient.setAllToolsEnabled(server.name, true);
+                    window.mcpConfigManager.enableAllTools(server.name, toolNames);
+                } else {
+                    if (window.mcpBrowserClient.isConnected(server.name)) {
+                        window.mcpBrowserClient.disconnect(server.name);
+                    }
+                }
+
+                await this.loadServers();
+                await this.loadTools();
+            },
+            setWebServerAutoConnect(server) {
+                if (window.desktop?.isElectron || !server?.name || !window.mcpConfigManager) {
+                    return;
+                }
+
+                window.mcpConfigManager.saveServer({
+                    ...server,
+                    autoConnect: !!server.autoConnect
+                });
             },
             async addWebServer() {
                 // Web-only: Add new remote MCP server
@@ -421,7 +462,9 @@ function chatApp() {
                     window.mcpConfigManager.saveServer({
                         name: this.newServerForm.name,
                         url: this.newServerForm.url,
-                        autoConnect: this.newServerForm.autoConnect
+                        autoConnect: this.newServerForm.autoConnect,
+                        enabled: this.newServerForm.autoConnect,
+                        toolStates: {}
                     });
                     
                     // Connect if autoConnect is enabled
@@ -440,7 +483,7 @@ function chatApp() {
                     this.newServerForm.show = false;
                     this.newServerForm.name = '';
                     this.newServerForm.url = '';
-                    this.newServerForm.autoConnect = true;
+                    this.newServerForm.autoConnect = false;
                     
                     console.log('[ChatApp Web] Server added successfully');
                 } catch (error) {
@@ -624,6 +667,15 @@ function chatApp() {
             
             // Set up callback for when tools are received
             window.mcpBrowserClient.setToolsCallback((serverName, tools) => {
+                const serverConfig = window.mcpConfigManager.getServer(serverName);
+                const toolStates = window.mcpConfigManager.getToolStates(serverName);
+
+                if (serverConfig?.enabled) {
+                    window.mcpBrowserClient.setAllToolsEnabled(serverName, true);
+                    window.mcpConfigManager.enableAllTools(serverName, tools.map(tool => tool.name));
+                    window.mcpBrowserClient.applyToolStates(serverName, toolStates);
+                }
+
                 console.log(`[ChatApp Web] Received ${tools.length} tools from ${serverName}`);
                 this.mcpConfigModal.tools = window.mcpBrowserClient.getAllTools();
                 this._rebuildToolsByServer();
@@ -1501,12 +1553,7 @@ function chatApp() {
                 vision: name.includes('vision') || name.includes('llava') || name.includes('minicpm-v') || 
                         name.includes('moondream') || name.includes('bakllava') || name.includes('qwen') && name.includes('vl') ||
                         name.includes('gemma3') || name.includes('llama3.2-vision') || name.includes('llama4'),
-                tools: name.includes('llama3') || name.includes('llama4') || name.includes('mistral') || 
-                       name.includes('qwen') || name.includes('deepseek') || name.includes('command-r') ||
-                       name.includes('granite') || name.includes('hermes') || name.includes('nemotron') ||
-                       name.includes('mixtral') || name.includes('firefunction') || name.includes('ministral') ||
-                       name.includes('gpt-oss') || name.includes('cogito') || name.includes('devstral') ||
-                       name.includes('phi4') || name.includes('smollm'),
+                tools: false,
                 thinking: name.includes('deepseek-r1') || name.includes('deepseek-v3') || name.includes('qwq') ||
                          name.includes('gpt-oss') || name.includes('magistral') || name.includes('qwen3') && !name.includes('coder')
             };
@@ -1576,6 +1623,8 @@ function chatApp() {
         
         async loadModels() {
             try {
+                const providerToolsMap = await refreshModelToolCapabilities();
+
                 // Use regular fetch - will work with proper CORS (app://localhost origin)
                 console.log('[ChatApp] Fetching models from:', `${API_BASE_URL}/get_models`);
                 const response = await fetch(`${API_BASE_URL}/get_models`);
@@ -1588,12 +1637,24 @@ function chatApp() {
                 if (data.models && Array.isArray(data.models)) {
                     this.availableModels = data.models.map(m => {
                         const modelId = m.id || m.name || m;
+                        const normalizedId = String(modelId || '').toLowerCase();
+                        const baseId = normalizedId.split(':')[0];
+                        const providerTools = providerToolsMap?.get?.(normalizedId);
+                        const providerToolsBase = providerToolsMap?.get?.(baseId);
+                        const toolSupport = typeof providerTools === 'boolean'
+                            ? providerTools
+                            : typeof providerToolsBase === 'boolean'
+                                ? providerToolsBase
+                                : typeof m.tools === 'boolean'
+                                    ? m.tools
+                                    : supportsTools(modelId);
                         const capabilities = this.detectModelCapabilities(modelId);
                         return {
                             id: modelId,
                             displayName: this.formatModelName(modelId),
                             context_length: m.context_length || -1,
-                            ...capabilities
+                            ...capabilities,
+                            tools: toolSupport
                         };
                     });
                     if (this.availableModels.length > 0) {
@@ -2137,6 +2198,22 @@ function chatApp() {
         
         selectModel(modelId) {
             this.selectedModel = modelId;
+            // Refresh provider-backed capability for newly selected model.
+            supportsToolsFromProvider(modelId).then((isToolCapable) => {
+                const model = this.availableModels.find(m => m.id === modelId);
+                if (model) {
+                    model.tools = !!isToolCapable;
+                }
+
+                if (!isToolCapable && this.interactionMode === 'agent' && this.selectedModel === modelId) {
+                    this.interactionMode = 'ask';
+                }
+            }).catch(() => {
+                if (!this.modelSupportsAgent(modelId) && this.interactionMode === 'agent') {
+                    this.interactionMode = 'ask';
+                }
+            });
+
             if (!this.modelSupportsAgent(modelId) && this.interactionMode === 'agent') {
                 this.interactionMode = 'ask';
             }
@@ -2151,6 +2228,10 @@ function chatApp() {
         },
 
         modelSupportsAgent(modelId = this.selectedModel) {
+            const model = this.availableModels.find(m => m.id === modelId);
+            if (model && typeof model.tools === 'boolean') {
+                return model.tools;
+            }
             return supportsTools(modelId);
         },
         
@@ -2325,8 +2406,9 @@ function chatApp() {
                 } else if (canUseAgent && window.mcpBrowserClient) {
                     // Web mode: Get browser MCP tools (no filesystem tools)
                     const browserTools = window.mcpBrowserClient.getAllTools();
-                    if (browserTools && Array.isArray(browserTools)) {
-                        toolSchemas = browserTools.map(tool => ({
+                    const enabledBrowserTools = browserTools.filter(tool => tool.enabled !== false);
+                    if (enabledBrowserTools && Array.isArray(enabledBrowserTools)) {
+                        toolSchemas = enabledBrowserTools.map(tool => ({
                             name: tool.name,
                             description: tool.description,
                             parameters: tool.schema || tool.inputSchema || tool.parameters

@@ -310,7 +310,8 @@ class MCPBrowserClient {
         description: tool.description || '',
         schema: tool.inputSchema || {},
         serverName: serverName,
-        serverType: 'remote-web'
+        serverType: 'remote-web',
+        enabled: true
       }));
 
       console.log(`[MCP Browser] Ingested ${formattedTools.length} tools from ${serverName}`);
@@ -339,14 +340,71 @@ class MCPBrowserClient {
    * Get all tools from all connected servers
    * @returns {Array}
    */
-  getAllTools() {
+  getAllTools(enabledOnly = false) {
     const allTools = [];
     for (const [serverName, serverInfo] of this.servers) {
       if (serverInfo.tools) {
-        allTools.push(...serverInfo.tools);
+        const tools = enabledOnly
+          ? serverInfo.tools.filter(tool => tool.enabled !== false)
+          : serverInfo.tools;
+        allTools.push(...tools);
       }
     }
     return allTools;
+  }
+
+  /**
+   * Enable/disable a specific tool for a server.
+   * @param {string} serverName
+   * @param {string} toolName
+   * @param {boolean} enabled
+   */
+  setToolEnabled(serverName, toolName, enabled) {
+    const serverInfo = this.servers.get(serverName);
+    if (!serverInfo || !Array.isArray(serverInfo.tools)) return false;
+
+    const tool = serverInfo.tools.find(t => t.name === toolName);
+    if (!tool) return false;
+
+    tool.enabled = !!enabled;
+    return true;
+  }
+
+  /**
+   * Enable/disable all tools for a server.
+   * @param {string} serverName
+   * @param {boolean} enabled
+   */
+  setAllToolsEnabled(serverName, enabled) {
+    const serverInfo = this.servers.get(serverName);
+    if (!serverInfo || !Array.isArray(serverInfo.tools)) return 0;
+
+    for (const tool of serverInfo.tools) {
+      tool.enabled = !!enabled;
+    }
+
+    return serverInfo.tools.length;
+  }
+
+  /**
+   * Apply persisted tool states to currently loaded tools.
+   * @param {string} serverName
+   * @param {Object} toolStates
+   */
+  applyToolStates(serverName, toolStates = {}) {
+    const serverInfo = this.servers.get(serverName);
+    if (!serverInfo || !Array.isArray(serverInfo.tools)) return 0;
+
+    let updated = 0;
+    for (const tool of serverInfo.tools) {
+      const persisted = toolStates[tool.name];
+      if (typeof persisted === 'boolean') {
+        tool.enabled = persisted;
+        updated += 1;
+      }
+    }
+
+    return updated;
   }
 
   /**

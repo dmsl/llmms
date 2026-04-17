@@ -18,6 +18,10 @@ const RAG_ENDPOINT = 'https://chatucy.cs.ucy.ac.cy/api/rag_chain';
 const LLM_REQUEST_TIMEOUT_MS = 90000;
 const LLM_MAX_RETRIES = 2;
 const TOOL_RESULT_CHAR_LIMIT = 8000;
+const MODEL_CAPABILITY_CACHE_TTL_MS = 5 * 60 * 1000;
+let modelCapabilityCache = new Map();
+let modelCapabilityCacheLoadedAt = 0;
+let modelCapabilityInFlight = null;
 const BROWSER_SESSION_START_TOOL_PATTERNS = [
   /^browser_start(?:_|$)/i,
   /(?:^|_)start_session(?:_|$)/i,
@@ -31,21 +35,240 @@ const BROWSER_SESSION_STOP_TOOL_PATTERNS = [
   /(?:^|_)end_session(?:_|$)/i
 ];
 
-// Models that support function calling/tools based on Ollama documentation
-const TOOL_SUPPORTED_MODELS = [
-  'llama3.1', 'llama3.2', 'llama3.3', 'llama4', 'llama3-groq-tool-use',
-  'mistral', 'mistral-nemo', 'mistral-small', 'mistral-small3.1', 'mistral-small3.2', 'mistral-large', 'mixtral',
-  'qwen2', 'qwen2.5', 'qwen2.5-coder', 'qwen3', 'qwen3-coder', 'qwen3-vl', 'qwq',
-  'deepseek-r1', 'deepseek-v3.1',
-  'granite3-dense', 'granite3-moe', 'granite3.1-dense', 'granite3.1-moe', 'granite3.2', 'granite3.2-vision', 'granite3.3', 'granite4',
-  'command-r', 'command-r-plus', 'command-r7b', 'command-r7b-arabic', 'command-a',
-  'gpt-oss', 'gpt-oss-safeguard',
-  'ministral-3', 'devstral',
-  'phi4-mini',
-  'hermes3', 'nemotron', 'nemotron-mini',
-  'athene-v2', 'aya-expanse', 'firefunction-v2',
-  'cogito', 'magistral', 'smollm2'
-];
+function normalizeModelId(modelName) {
+  return String(modelName || '').trim().toLowerCase();
+}
+
+function baseModelId(modelName) {
+  return normalizeModelId(modelName).split(':')[0];
+}
+
+function resolveOllamaApiBaseUrl() {
+  const candidates = [
+    window.OLLAMA_NATIVE_BASE_URL,
+    localStorage.getItem('ollama_native_base_url')
+  ].filter(Boolean);
+
+  if (candidates.length > 0) {
+    return String(candidates[0]).replace(/\/$/, '');
+  }
+
+  const llmApiUrl = resolveLLMApiUrl();
+
+  try {
+    const parsed = new URL(llmApiUrl);
+    return `${parsed.origin}/ollama/api`;
+  } catch {
+    const base = llmApiUrl
+      .replace(/\/v1\/chat\/completions\/?$/i, '')
+      .replace(/\/$/, '');
+    return `${base}/ollama/api`;
+  }
+}
+
+function resolveOllamaTagsUrl() {
+  return `${resolveOllamaApiBaseUrl()}/tags`;
+}
+
+function resolveOllamaShowUrl() {
+  return `${resolveOllamaApiBaseUrl()}/show`;
+}
+
+function extractModelNamesFromTags(payload) {
+  const models = Array.isArray(payload?.models) ? payload.models : [];
+  return models
+    .map((entry) => String(entry?.name || entry?.model || entry?.id || '').trim())
+    .filter(Boolean);
+}
+
+function hasToolsCapabilityFromShow(payload) {
+  const caps = payload?.capabilities;
+  if (Array.isArray(caps)) {
+    const normalizedCaps = caps.map((cap) => String(cap || '').toLowerCase());
+    return normalizedCaps.includes('tools') || normalizedCaps.includes('tool_use') || normalizedCaps.includes('function_calling');
+  }
+
+  const direct = readBooleanCapability(
+    payload?.tools,
+    payload?.supports_tools,
+    payload?.supportsTools,
+    payload?.function_calling,
+    payload?.supports_function_calling
+  );
+
+  return direct === true;
+}
+
+function readBooleanCapability(...candidates) {
+  for (const value of candidates) {
+    if (typeof value === 'boolean') return value;
+  }
+  return null;
+}
+
+function extractToolsCapability(modelDescriptor) {
+  if (!modelDescriptor || typeof modelDescriptor !== 'object') {
+    return null;
+  }
+
+  const direct = readBooleanCapability(
+    modelDescriptor.tools,
+    modelDescriptor.supports_tools,
+    modelDescriptor.supportsTools,
+    modelDescriptor.tool_use,
+    modelDescriptor.toolUse,
+    modelDescriptor.function_calling,
+    modelDescriptor.functionCalling,
+    modelDescriptor.supports_function_calling,
+    modelDescriptor.supportsFunctionCalling
+  );
+
+  if (direct !== null) {
+    return direct;
+  }
+
+  const capabilities = modelDescriptor.capabilities;
+  if (capabilities && typeof capabilities === 'object') {
+    const fromCapabilities = readBooleanCapability(
+      capabilities.tools,
+      capabilities.tool_use,
+      capabilities.toolUse,
+      capabilities.function_calling,
+      capabilities.functionCalling
+    );
+
+    if (fromCapabilities !== null) {
+      return fromCapabilities;
+    }
+  }
+
+  const params = modelDescriptor.supported_parameters || modelDescriptor.supportedParameters;
+  if (Array.isArray(params)) {
+    const lowered = params.map((item) => String(item || '').toLowerCase());
+    if (lowered.includes('tools') || lowered.includes('tool_choice') || lowered.includes('function_call')) {
+      return true;
+    }
+  }
+
+  return null;
+}
+
+function updateModelCapabilityCacheFromDescriptors(descriptors) {
+  const next = new Map();
+
+  for (const descriptor of descriptors || []) {
+    const modelId = descriptor?.id || descriptor?.name;
+    const normalized = normalizeModelId(modelId);
+    if (!normalized) continue;
+
+    const tools = extractToolsCapability(descriptor);
+    if (tools !== null) {
+      next.set(normalized, tools);
+      next.set(baseModelId(normalized), tools);
+    }
+  }
+
+  modelCapabilityCache = next;
+  modelCapabilityCacheLoadedAt = Date.now();
+  return next;
+}
+
+export async function refreshModelToolCapabilities({ force = false } = {}) {
+  const cacheFresh = Date.now() - modelCapabilityCacheLoadedAt < MODEL_CAPABILITY_CACHE_TTL_MS;
+  if (!force && cacheFresh && modelCapabilityCache.size > 0) {
+    return modelCapabilityCache;
+  }
+
+  if (!force && modelCapabilityInFlight) {
+    return modelCapabilityInFlight;
+  }
+
+  modelCapabilityInFlight = (async () => {
+    const tagsUrl = resolveOllamaTagsUrl();
+    const showUrl = resolveOllamaShowUrl();
+
+    try {
+      // Primary flow: Ollama native tags + show
+      const tagsResponse = await fetch(tagsUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!tagsResponse.ok) {
+        throw new Error(`Failed to fetch model tags: ${tagsResponse.status}`);
+      }
+
+      const tagsPayload = await tagsResponse.json();
+      const modelNames = extractModelNamesFromTags(tagsPayload);
+
+      const next = new Map();
+
+      for (const modelName of modelNames) {
+        try {
+          const showResponse = await fetch(showUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: modelName })
+          });
+
+          if (!showResponse.ok) {
+            console.warn(`[Agent] Failed to fetch model details for ${modelName}: ${showResponse.status}`);
+            continue;
+          }
+
+          const showPayload = await showResponse.json();
+          const hasTools = hasToolsCapabilityFromShow(showPayload);
+
+          const normalized = normalizeModelId(modelName);
+          next.set(normalized, hasTools);
+          next.set(baseModelId(normalized), hasTools);
+        } catch (showError) {
+          console.warn(`[Agent] Failed to inspect capabilities for ${modelName}:`, showError);
+        }
+      }
+
+      modelCapabilityCache = next;
+      modelCapabilityCacheLoadedAt = Date.now();
+
+      console.log(`[Agent] Loaded tool capability metadata for ${next.size} model keys from Ollama provider`);
+      return modelCapabilityCache;
+    } catch (error) {
+      console.warn('[Agent] Could not fetch Ollama model capabilities, attempting OpenAI-style /v1/models fallback:', error);
+
+      // Compatibility fallback: OpenAI-style models endpoint
+      try {
+        const fallbackModelsUrl = resolveLLMApiUrl().replace(/\/chat\/completions\/?$/i, '/models');
+        const response = await fetch(fallbackModelsUrl, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Fallback /models failed: ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const descriptors = Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.models)
+            ? payload.models
+            : [];
+
+        const cache = updateModelCapabilityCacheFromDescriptors(descriptors);
+        console.log(`[Agent] Loaded tool capability metadata for ${cache.size} model keys from fallback /models endpoint`);
+        return cache;
+      } catch (fallbackError) {
+        console.warn('[Agent] Capability discovery failed on both Ollama and fallback endpoints; using cached values only:', fallbackError);
+      }
+
+      return modelCapabilityCache;
+    } finally {
+      modelCapabilityInFlight = null;
+    }
+  })();
+
+  return modelCapabilityInFlight;
+}
 
 /**
  * Check if a model supports function calling/tools
@@ -53,15 +276,28 @@ const TOOL_SUPPORTED_MODELS = [
  * @returns {boolean} - True if model supports tools
  */
 export function supportsTools(modelName) {
-  if (!modelName) return false;
-  
-  // Extract base model name (remove size/variant suffix like :3b, :70b, etc.)
-  const baseModel = modelName.split(':')[0].toLowerCase();
-  
-  // Check if base model is in the supported list
-  return TOOL_SUPPORTED_MODELS.some(supported => 
-    baseModel.includes(supported.toLowerCase()) || supported.toLowerCase().includes(baseModel)
-  );
+  const normalized = normalizeModelId(modelName);
+  if (!normalized) return false;
+
+  if (modelCapabilityCache.has(normalized)) {
+    return !!modelCapabilityCache.get(normalized);
+  }
+
+  const baseId = baseModelId(normalized);
+  if (modelCapabilityCache.has(baseId)) {
+    return !!modelCapabilityCache.get(baseId);
+  }
+
+  return false;
+}
+
+export async function supportsToolsFromProvider(modelName) {
+  if (supportsTools(modelName)) {
+    return true;
+  }
+
+  await refreshModelToolCapabilities();
+  return supportsTools(modelName);
 }
 
 /**
@@ -81,7 +317,8 @@ export async function askAgent(userMessage, toolSchemas = [], model = 'llama3.2'
     return handleRagChain(userMessage, model, uploadedFile, conversationHistory, sessionId);
   }
 
-  const normalizedMode = mode === 'agent' && supportsTools(model) ? 'agent' : 'ask';
+  const modelSupportsTooling = await supportsToolsFromProvider(model);
+  const normalizedMode = mode === 'agent' && modelSupportsTooling ? 'agent' : 'ask';
   console.log(`[Agent] Using frontend-only LLM path via ${resolveLLMApiUrl()}`);
   
   // Build initial messages with system prompt
@@ -126,7 +363,7 @@ To submit a form: browser_click the submit button ref.`;
   messages = messages.concat(await buildMessages(conversationHistory, userMessage, uploadedFile));
 
   if (normalizedMode === 'ask') {
-    const response = await callLLM(messages, [], model);
+    const response = await callLLM(messages, [], model, false);
     return extractFinalContent(response);
   }
   
@@ -141,7 +378,7 @@ To submit a form: browser_click the submit button ref.`;
     
     try {
       // Call LLM with current messages and available tools
-      const response = await callLLM(messages, toolSchemas, model);
+      const response = await callLLM(messages, toolSchemas, model, modelSupportsTooling);
       const assistantMessage = getAssistantMessageFromResponse(response);
       const responseContent = assistantMessage?.content;
       if (typeof responseContent === 'string' && responseContent.trim()) {
@@ -279,7 +516,7 @@ function resolveLLMApiUrl() {
  * Call the LLM server directly from the frontend.
  * This keeps ask/agent browser-first and removes the FastAPI hop.
  */
-async function callLLM(messages, toolSchemas, model) {
+async function callLLM(messages, toolSchemas, model, allowTools = false) {
   const llmApiUrl = resolveLLMApiUrl();
   const payload = {
     model,
@@ -289,7 +526,7 @@ async function callLLM(messages, toolSchemas, model) {
   };
 
   // Format tools correctly for OpenAI-compatible API
-  if (toolSchemas && toolSchemas.length > 0 && supportsTools(model)) {
+  if (toolSchemas && toolSchemas.length > 0 && allowTools) {
     const validTools = toolSchemas
       .map(normalizeToolSchema)
       .filter(Boolean)

@@ -26,7 +26,21 @@ class MCPConfigManager {
         if (s.name === 'playwright' && (s.url.startsWith('ws://') || s.url.startsWith('wss://'))) {
           s.url  = 'https://chatucy.cs.ucy.ac.cy/mcp/playwright';
           s.type = 'sse';
-          s.autoConnect = true;
+          dirty = true;
+        }
+
+        if (typeof s.enabled !== 'boolean') {
+          s.enabled = false;
+          dirty = true;
+        }
+
+        if (typeof s.autoConnect !== 'boolean') {
+          s.autoConnect = false;
+          dirty = true;
+        }
+
+        if (!s.toolStates || typeof s.toolStates !== 'object' || Array.isArray(s.toolStates)) {
+          s.toolStates = {};
           dirty = true;
         }
       }
@@ -50,7 +64,9 @@ class MCPConfigManager {
             name: 'playwright',
             url: 'https://chatucy.cs.ucy.ac.cy/mcp/playwright',
             type: 'sse',
-            autoConnect: true
+            autoConnect: false,
+            enabled: false,
+            toolStates: {}
           }
         ],
         version: '1.0'
@@ -109,6 +125,14 @@ class MCPConfigManager {
         servers[existingIndex] = {
           ...servers[existingIndex],
           ...serverConfig,
+          enabled: typeof serverConfig.enabled === 'boolean'
+            ? serverConfig.enabled
+            : !!servers[existingIndex].enabled,
+          autoConnect: !!serverConfig.autoConnect,
+          toolStates: {
+            ...(servers[existingIndex].toolStates || {}),
+            ...(serverConfig.toolStates || {})
+          },
           updatedAt: new Date().toISOString()
         };
         console.log(`[MCP Config] Updated server: ${serverConfig.name}`);
@@ -116,6 +140,9 @@ class MCPConfigManager {
         // Add new server
         servers.push({
           ...serverConfig,
+          autoConnect: !!serverConfig.autoConnect,
+          enabled: typeof serverConfig.enabled === 'boolean' ? serverConfig.enabled : false,
+          toolStates: serverConfig.toolStates || {},
           createdAt: new Date().toISOString(),
           type: 'remote-web' // Web version only supports remote servers
         });
@@ -166,7 +193,77 @@ class MCPConfigManager {
    */
   getAutoConnectServers() {
     const servers = this.getServers();
-    return servers.filter(s => s.autoConnect === true);
+    return servers.filter(s => s.autoConnect === true && s.enabled === true);
+  }
+
+  /**
+   * Enable or disable a server.
+   * @param {string} serverName
+   * @param {boolean} enabled
+   */
+  setServerEnabled(serverName, enabled) {
+    const server = this.getServer(serverName);
+    if (!server) return false;
+
+    return this.saveServer({
+      ...server,
+      enabled: !!enabled,
+      autoConnect: !!server.autoConnect && !!enabled
+    });
+  }
+
+  /**
+   * Set one tool enablement state for a server.
+   * @param {string} serverName
+   * @param {string} toolName
+   * @param {boolean} enabled
+   */
+  setToolState(serverName, toolName, enabled) {
+    const server = this.getServer(serverName);
+    if (!server) return false;
+
+    const toolStates = {
+      ...(server.toolStates || {}),
+      [toolName]: !!enabled
+    };
+
+    return this.saveServer({
+      ...server,
+      toolStates
+    });
+  }
+
+  /**
+   * Enable all provided tools for a server.
+   * @param {string} serverName
+   * @param {string[]} toolNames
+   */
+  enableAllTools(serverName, toolNames = []) {
+    const server = this.getServer(serverName);
+    if (!server) return false;
+
+    const toolStates = { ...(server.toolStates || {}) };
+    for (const toolName of toolNames) {
+      if (toolName) {
+        toolStates[toolName] = true;
+      }
+    }
+
+    return this.saveServer({
+      ...server,
+      enabled: true,
+      toolStates
+    });
+  }
+
+  /**
+   * Return tool state map for a server.
+   * @param {string} serverName
+   * @returns {Object}
+   */
+  getToolStates(serverName) {
+    const server = this.getServer(serverName);
+    return server?.toolStates || {};
   }
 
   /**
