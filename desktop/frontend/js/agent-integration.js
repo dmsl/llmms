@@ -14,6 +14,9 @@ import { confirmWrite } from "./permissions.js";
 
 const BACKEND_API = 'https://chatucy.cs.ucy.ac.cy/v1/chat/completions';
 const RAG_ENDPOINT = 'https://chatucy.cs.ucy.ac.cy/api/rag_chain';
+const LLM_REQUEST_TIMEOUT_MS = 90000;
+const LLM_MAX_RETRIES = 2;
+const TOOL_RESULT_CHAR_LIMIT = 8000;
 
 // Models that support function calling/tools based on Ollama documentation
 const TOOL_SUPPORTED_MODELS = [
@@ -132,6 +135,13 @@ To submit a form: browser_click the submit button ref.`;
       
       // Check if LLM wants to use tools
       const toolCalls = extractToolCalls(response);
+      const normalizedToolCalls = toolCalls.map((toolCall, index) => ({
+        id: toolCall.id || `tool_${iterations}_${index}`,
+        function: {
+          name: toolCall.name,
+          arguments: JSON.stringify(toolCall.args || {})
+        }
+      }));
       
       if (toolCalls.length === 0) {
         // No tool calls - return the response content
@@ -148,14 +158,18 @@ To submit a form: browser_click the submit button ref.`;
       messages.push({
         role: 'assistant',
         content: assistantContent,
-        tool_calls: response.choices[0].message.tool_calls
+        tool_calls: normalizedToolCalls
       });
-      
-      // Add tool results as user message
-      messages.push({
-        role: 'user',
-        content: buildToolResultsMessage(toolResults)
-      });
+
+      // Add one OpenAI-compatible tool message per tool result.
+      for (const result of toolResults) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: result.id,
+          name: result.name,
+          content: serializeToolResultForModel(result)
+        });
+      }
       
     } catch (error) {
       console.error('[Agent] Agentic loop error:', error);
@@ -173,6 +187,21 @@ To submit a form: browser_click the submit button ref.`;
 function extractFinalContent(response) {
   let content = response?.choices?.[0]?.message?.content;
   console.log(`[Agent] LLM response (no tools): ${typeof content}`, content);
+
+  if (Array.isArray(content)) {
+    content = content
+      .map(part => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text') return part?.text || '';
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+
+  if (typeof content === 'object' && content !== null) {
+    content = JSON.stringify(content);
+  }
 
   if (typeof content === 'string') {
     content = stripToolTags(content);
@@ -201,101 +230,134 @@ function extractFinalContent(response) {
  * Call the LLM backend API
  */
 async function callLLM(messages, toolSchemas, model) {
-  try {
-    const payload = {
-      model,
-      messages,
-      stream: false,
-      temperature: 0.7
-    };
-    
-    // Format tools correctly for OpenAI-compatible API
-    // Only add tools if model supports them
-    if (toolSchemas && toolSchemas.length > 0 && supportsTools(model)) {
-      // Filter out malformed schemas and normalize them
-      const validTools = toolSchemas
-        .filter(tool => {
-          // Skip if schema is just "$schema" without properties
-          if (tool.parameters?.$schema && !tool.parameters?.properties) {
-            console.warn(`[Agent] Skipping malformed schema for ${tool.name} - no properties defined`);
-            return false;
+  const payload = {
+    model,
+    messages,
+    stream: false,
+    temperature: 0.7
+  };
+
+  // Format tools correctly for OpenAI-compatible API
+  if (toolSchemas && toolSchemas.length > 0 && supportsTools(model)) {
+    const validTools = toolSchemas
+      .filter(tool => {
+        if (tool.parameters?.$schema && !tool.parameters?.properties) {
+          console.warn(`[Agent] Skipping malformed schema for ${tool.name} - no properties defined`);
+          return false;
+        }
+        return true;
+      })
+      .map(tool => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description || 'No description available',
+          parameters: tool.parameters || tool.inputSchema || {
+            type: 'object',
+            properties: {},
+            required: []
           }
-          return true;
-        })
-        .map(tool => ({
-          type: 'function',
-          function: {
-            name: tool.name,
-            description: tool.description || 'No description available',
-            parameters: tool.parameters || tool.inputSchema || {
-              type: 'object',
-              properties: {},
-              required: []
-            }
-          }
-        }));
-      
-      if (validTools.length > 0) {
-        payload.tools = validTools;
-        // Enable function-calling mode - tell LLM to use tools
-        payload.tool_choice = 'auto';
-        
-        console.log(`[Agent] Sending ${validTools.length} tools to LLM:`, 
-          validTools.map(t => t.function.name));
-        console.log(`[Agent] Tool descriptions:`, 
-          validTools.map(t => `${t.function.name}: ${t.function.description}`));
-      } else {
-        console.log('[Agent] No valid tool schemas found, proceeding without tools');
-      }
-    } else if (toolSchemas && toolSchemas.length > 0) {
-      console.warn(`[Agent] Model '${model}' does not support tools, proceeding without them`);
+        }
+      }));
+
+    if (validTools.length > 0) {
+      payload.tools = validTools;
+      payload.tool_choice = 'auto';
+      console.log(`[Agent] Sending ${validTools.length} tools to LLM:`, validTools.map(t => t.function.name));
+    } else {
+      console.log('[Agent] No valid tool schemas found, proceeding without tools');
     }
+  } else if (toolSchemas && toolSchemas.length > 0) {
+    console.warn(`[Agent] Model '${model}' does not support tools, proceeding without them`);
+  }
 
-    const response = await fetch(BACKEND_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
+  for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
 
-    if (!response.ok) {
-      // Check if model doesn't support tools
-      if (response.status === 400) {
-        const errorData = await response.json();
-        if (errorData.error?.message?.includes('does not support tools')) {
+    try {
+      const response = await fetch(BACKEND_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const errorData = await parseResponseJsonSafe(response);
+
+        if (response.status === 400 && errorData?.error?.message?.includes('does not support tools')) {
           console.warn('[Agent] Model does not support tools, retrying without tools');
-          // Retry without tools
           delete payload.tools;
           delete payload.tool_choice;
-          
+
           const retryResponse = await fetch(BACKEND_API, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
           });
-          
+
           if (!retryResponse.ok) {
-            throw new Error(`API Error: ${retryResponse.status} ${retryResponse.statusText}`);
+            const retryErrorText = await safeReadErrorText(retryResponse);
+            throw new Error(`API Error: ${retryResponse.status} ${retryResponse.statusText}${retryErrorText ? ` - ${retryErrorText}` : ''}`);
           }
-          
+
           const retryResult = await retryResponse.json();
           console.log('[Agent] LLM Response (without tools):', JSON.stringify(retryResult, null, 2));
           return retryResult;
         }
-      }
-      
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
-    }
 
-    const result = await response.json();
-    console.log('[Agent] LLM Response:', JSON.stringify(result, null, 2));
-    return result;
-  } catch (error) {
-    console.error('[Agent] LLM call failed:', error);
-    throw error;
+        const errorText = await safeReadErrorText(response, errorData);
+        throw new Error(`API Error: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
+      }
+
+      const result = await response.json();
+      console.log('[Agent] LLM Response:', JSON.stringify(result, null, 2));
+      return result;
+    } catch (error) {
+      const isLastAttempt = attempt === LLM_MAX_RETRIES;
+      const isAbort = error?.name === 'AbortError';
+      const retryable = isAbort || /network|fetch|timeout|503|502|gateway|temporar/i.test(String(error?.message || ''));
+
+      if (isLastAttempt || !retryable) {
+        console.error('[Agent] LLM call failed:', error);
+        throw error;
+      }
+
+      const backoffMs = 400 * Math.pow(2, attempt);
+      console.warn(`[Agent] Transient LLM error, retrying in ${backoffMs}ms (attempt ${attempt + 1})`);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error('LLM call failed after all retries');
+}
+
+async function parseResponseJsonSafe(response) {
+  try {
+    const clone = response.clone();
+    return await clone.json();
+  } catch {
+    return null;
+  }
+}
+
+async function safeReadErrorText(response, parsedJson = null) {
+  if (parsedJson) {
+    const fromFields = parsedJson?.error?.message || parsedJson?.message || parsedJson?.detail;
+    if (fromFields) return String(fromFields);
+  }
+
+  try {
+    const clone = response.clone();
+    const text = await clone.text();
+    if (!text) return '';
+    return text.slice(0, 500);
+  } catch {
+    return '';
   }
 }
 
@@ -306,9 +368,9 @@ async function callLLM(messages, toolSchemas, model) {
 function stripToolTags(text) {
   if (!text) return text;
   return text
-    .replace(/<function=[^>]*>[\s\S]*?(?=<function=|$)/g, '')  // <function=name> ... blocks
-    .replace(/<\/?tool_call>/g, '')                             // <tool_call> / </tool_call>
-    .replace(/<parameter=[^>]*>/g, '')                          // stray <parameter=key> tags
+    .replace(/<function=[^>]*>[\s\S]*?(?=<function=|$)/g, '')
+    .replace(/<\/?tool_call>/g, '')
+    .replace(/<parameter=[^>]*>/g, '')
     .trim();
 }
 
@@ -319,43 +381,34 @@ function stripToolTags(text) {
 function extractToolCalls(response) {
   const toolCalls = [];
   const message = response.choices?.[0]?.message;
-  
+
   if (!message) {
     console.log('[Agent] No message in response');
     return toolCalls;
   }
-  
+
   console.log('[Agent] Message structure:', {
     hasToolCalls: !!message.tool_calls,
     hasFunctionCall: !!message.function_call,
     hasContent: !!message.content
   });
-  
+
   // Format 1: OpenAI standard (tool_calls array)
   if (message.tool_calls && Array.isArray(message.tool_calls)) {
     console.log(`[Agent] Found ${message.tool_calls.length} tool_calls in response`);
-    console.log('[Agent] Full tool_calls:', JSON.stringify(message.tool_calls, null, 2));
-    
+
     for (const toolCall of message.tool_calls) {
-      console.log('[Agent] Processing toolCall:', JSON.stringify(toolCall, null, 2));
-      
       if (toolCall.function) {
         const { name, arguments: argsString } = toolCall.function;
-        console.log(`[Agent] Tool function - name: "${name}", args type: ${typeof argsString}`);
-        
+
         let args = {};
         try {
           args = typeof argsString === 'string' ? JSON.parse(argsString) : argsString;
         } catch (e) {
           console.warn(`[Agent] Failed to parse arguments for ${name}:`, e);
         }
-        
-        console.log(`[Agent] Extracted tool call: ${name} with args:`, args);
-        toolCalls.push({ 
-          id: toolCall.id, 
-          name, 
-          args 
-        });
+
+        toolCalls.push({ id: toolCall.id, name, args });
       }
     }
   }
@@ -432,6 +485,17 @@ function extractToolCalls(response) {
  */
 async function executeTools(toolCalls) {
   const results = [];
+
+  // Browser-first execution: if a browser tool set is available and the model
+  // attempts interaction without context, inject a snapshot first.
+  const hasBrowserToolCall = toolCalls.some(tc => typeof tc?.name === 'string' && tc.name.startsWith('browser_'));
+  if (hasBrowserToolCall) {
+    const hasNavigate = toolCalls.some(tc => tc.name === 'browser_navigate');
+    const hasSnapshot = toolCalls.some(tc => tc.name === 'browser_snapshot');
+    if (!hasNavigate && !hasSnapshot) {
+      toolCalls = [{ id: `prefetch_${Date.now()}`, name: 'browser_snapshot', args: {} }, ...toolCalls];
+    }
+  }
   
   // Desktop mode: Use Electron IPC for local + remote MCP tools
   if (window.desktop?.isElectron) {
@@ -440,7 +504,15 @@ async function executeTools(toolCalls) {
       throw new Error('MCP tools not available');
     }
     
-    for (const toolCall of toolCalls) {
+    const expandedCalls = [];
+    for (const tc of toolCalls) {
+      expandedCalls.push(tc);
+      if (tc.name === 'browser_navigate') {
+        expandedCalls.push({ id: tc.id + '_snap', name: 'browser_snapshot', args: {} });
+      }
+    }
+
+    for (const toolCall of expandedCalls) {
       try {
         console.log(`[Agent Desktop] Executing tool: "${toolCall.name}" with args:`, toolCall.args);
         
@@ -545,6 +617,51 @@ function buildToolResultsMessage(toolResults) {
   }).join('\n\n');
   
   return `Tool execution results:\n\n${toolResultsContent}`;
+}
+
+function serializeToolResultForModel(result) {
+  const compact = result.success
+    ? { ok: true, result: sanitizeToolPayload(result.result) }
+    : { ok: false, error: result.error || 'Unknown tool error' };
+
+  let text;
+  try {
+    text = JSON.stringify(compact);
+  } catch {
+    text = JSON.stringify({ ok: false, error: 'Failed to serialize tool output' });
+  }
+
+  if (text.length <= TOOL_RESULT_CHAR_LIMIT) {
+    return text;
+  }
+
+  return JSON.stringify({
+    ok: compact.ok,
+    truncated: true,
+    note: `Tool output exceeded ${TOOL_RESULT_CHAR_LIMIT} chars and was truncated`,
+    preview: text.slice(0, TOOL_RESULT_CHAR_LIMIT)
+  });
+}
+
+function sanitizeToolPayload(payload) {
+  if (payload == null) return payload;
+
+  if (typeof payload === 'string') {
+    return payload.length > TOOL_RESULT_CHAR_LIMIT ? payload.slice(0, TOOL_RESULT_CHAR_LIMIT) : payload;
+  }
+
+  try {
+    const serialized = JSON.stringify(payload);
+    if (serialized.length <= TOOL_RESULT_CHAR_LIMIT) {
+      return payload;
+    }
+    return {
+      truncated: true,
+      preview: serialized.slice(0, TOOL_RESULT_CHAR_LIMIT)
+    };
+  } catch {
+    return { truncated: true, preview: String(payload).slice(0, TOOL_RESULT_CHAR_LIMIT) };
+  }
 }
 
 /**

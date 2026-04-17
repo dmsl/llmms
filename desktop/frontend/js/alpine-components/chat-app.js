@@ -2379,35 +2379,68 @@ function chatApp() {
                 console.log('[ChatApp] Found success.result structure');
                 if (obj.result.response) {
                     console.log('[ChatApp] Extracted response from result.response');
-                    return String(obj.result.response);
+                    return this.coerceContentToText(obj.result.response);
                 }
                 if (obj.result.message) {
                     console.log('[ChatApp] Extracted message from result.message');
-                    return String(obj.result.message);
+                    return this.coerceContentToText(obj.result.message);
                 }
                 if (obj.result.content) {
                     console.log('[ChatApp] Extracted content from result.content');
-                    return String(obj.result.content);
+                    return this.coerceContentToText(obj.result.content);
                 }
             }
             
             // Direct response object with content/message/response field
             if (obj.response) {
                 console.log('[ChatApp] Found direct response field');
-                return String(obj.response);
+                return this.coerceContentToText(obj.response);
             }
             if (obj.message) {
                 console.log('[ChatApp] Found direct message field');
-                return String(obj.message);
+                return this.coerceContentToText(obj.message);
             }
             if (obj.content) {
                 console.log('[ChatApp] Found direct content field');
-                return String(obj.content);
+                return this.coerceContentToText(obj.content);
             }
             
             // Fallback: stringify the entire object
             console.log('[ChatApp] No recognized field found, stringifying entire object');
             return JSON.stringify(obj, null, 2);
+        },
+
+        coerceContentToText(value) {
+            if (value == null) return '';
+
+            if (typeof value === 'string') {
+                return value;
+            }
+
+            // OpenAI-style message object
+            if (typeof value === 'object' && value.content !== undefined) {
+                return this.coerceContentToText(value.content);
+            }
+
+            // Multimodal content arrays
+            if (Array.isArray(value)) {
+                return value
+                    .map(part => {
+                        if (typeof part === 'string') return part;
+                        if (part && typeof part === 'object') {
+                            if (typeof part.text === 'string') return part.text;
+                            if (part.type === 'text' && typeof part.text === 'string') return part.text;
+                        }
+                        return '';
+                    })
+                    .join('');
+            }
+
+            try {
+                return JSON.stringify(value, null, 2);
+            } catch {
+                return String(value);
+            }
         },
         
         fileToBase64(file) {
