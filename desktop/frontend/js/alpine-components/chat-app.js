@@ -172,6 +172,8 @@ function chatApp() {
     return {
         sidebarOpen: getSavedSidebarState(),
         browserViewOpen: false,
+        browserPreviewEnabled: false,
+        browserPreviewUrl: '/browser-view/vnc.html?autoconnect=1&resize=scale&view_only=1&path=browser-view/websockify',
         userInput: '',
         messages: [],
         sessions: [],
@@ -481,6 +483,16 @@ function chatApp() {
             });
 
             this.mcpConfigModal.loadLLMSettings();
+            this.browserPreviewEnabled = false;
+            this.browserViewOpen = false;
+
+            const browserPreviewEvents = getEventManager('chat-app-browser-preview');
+            browserPreviewEvents.add(window, 'agent-browser-session-started', (event) => {
+                this.enableBrowserPreview(event?.detail || {});
+            });
+            browserPreviewEvents.add(window, 'agent-browser-session-stopped', (event) => {
+                this.disableBrowserPreview(event?.detail || {});
+            });
             
             // No automatic resize handling - let user control sidebar state
             // The CSS responsive classes (lg:w-60, lg:w-0, etc.) handle the visual adaptation
@@ -583,6 +595,18 @@ function chatApp() {
                 // Web mode: Initialize browser MCP client and auto-connect
                 await this.initBrowserMCP();
             }
+        },
+
+        enableBrowserPreview(detail = {}) {
+            this.browserPreviewEnabled = true;
+            this.browserViewOpen = true;
+            console.log('[ChatApp] Browser preview enabled after session start:', detail);
+        },
+
+        disableBrowserPreview(detail = {}) {
+            this.browserViewOpen = false;
+            this.browserPreviewEnabled = false;
+            console.log('[ChatApp] Browser preview disabled after session stop:', detail);
         },
         
         // Initialize browser MCP client for web mode

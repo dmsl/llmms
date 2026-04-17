@@ -1340,7 +1340,7 @@
 
                                 <!-- Live Browser View Toggle -->
                                 <button
-                                    x-show="window.desktop?.isElectron"
+                                    x-show="browserPreviewEnabled"
                                     @click="browserViewOpen = !browserViewOpen"
                                     class="ds-icon-btn"
                                     :style="browserViewOpen ? 'background:var(--accent); color:#fff; border-color:var(--accent);' : ''"
@@ -1356,14 +1356,14 @@
 
         <!-- Live Browser Panel (right) -->
         <div
-            x-show="browserViewOpen"
+            x-show="browserPreviewEnabled && browserViewOpen"
             x-transition:enter="transition ease-out duration-250"
             x-transition:enter-start="opacity-0 translate-x-8"
             x-transition:enter-end="opacity-100 translate-x-0"
             x-transition:leave="transition ease-in duration-200"
             x-transition:leave-start="opacity-100 translate-x-0"
             x-transition:leave-end="opacity-0 translate-x-8"
-            style="width:480px; min-width:320px; flex-shrink:0; overflow:hidden;">
+            style="display:none; width:480px; min-width:320px; flex-shrink:0; overflow:hidden;">
             <div style="display:flex; flex-direction:column; height:100%; border-left:1px solid var(--border); background:var(--surface-elevated);">
 
             <!-- Panel Header -->
@@ -1384,33 +1384,34 @@
                 </div>
             </div>
 
-            <!-- noVNC iframe — kept in DOM but hidden; avoids reload on every toggle -->
-            <iframe
-                x-show="browserViewOpen"
-                src="/browser-view/vnc.html?autoconnect=1&resize=scale&view_only=1&path=browser-view/websockify"
-                style="flex:1; border:none; width:100%; background:#0e0e12;"
-                allow="clipboard-read; clipboard-write"
-                @load="
-                    try {
-                        const doc = $el.contentDocument;
-                        if (!doc) return;
-                        const s = doc.createElement('style');
-                        s.textContent = `
-                            #noVNC_control_bar_anchor,
-                            #noVNC_control_bar,
-                            #noVNC_hint_anchor,
-                            #noVNC_transition_dim,
-                            #noVNC_bell {
-                                display: none !important;
-                            }
-                            #noVNC_screen {
-                                top: 0 !important;
-                            }
-                        `;
-                        doc.head.appendChild(s);
-                    } catch(e) {}
-                ">
-            </iframe>
+            <template x-if="browserPreviewEnabled && browserViewOpen">
+                <iframe
+                    x-show="browserViewOpen"
+                    :src="browserPreviewUrl"
+                    style="flex:1; border:none; width:100%; background:#0e0e12;"
+                    allow="clipboard-read; clipboard-write"
+                    @load="
+                        try {
+                            const doc = $el.contentDocument;
+                            if (!doc) return;
+                            const s = doc.createElement('style');
+                            s.textContent = `
+                                #noVNC_control_bar_anchor,
+                                #noVNC_control_bar,
+                                #noVNC_hint_anchor,
+                                #noVNC_transition_dim,
+                                #noVNC_bell {
+                                    display: none !important;
+                                }
+                                #noVNC_screen {
+                                    top: 0 !important;
+                                }
+                            `;
+                            doc.head.appendChild(s);
+                        } catch(e) {}
+                    ">
+                </iframe>
+            </template>
             </div><!-- /inner flex wrapper -->
         </div><!-- /browser panel -->
 

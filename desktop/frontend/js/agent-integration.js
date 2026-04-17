@@ -11,13 +11,25 @@
  */
 
 import { confirmWrite } from "./permissions.js";
-import { TimerManager, getTimerManager } from '../utils/timer-manager.js';
+import { getTimerManager } from './utils/timer-manager.js';
 
 const DEFAULT_OLLAMA_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/v1';
 const RAG_ENDPOINT = 'https://chatucy.cs.ucy.ac.cy/api/rag_chain';
 const LLM_REQUEST_TIMEOUT_MS = 90000;
 const LLM_MAX_RETRIES = 2;
 const TOOL_RESULT_CHAR_LIMIT = 8000;
+const BROWSER_SESSION_START_TOOL_PATTERNS = [
+  /^browser_start(?:_|$)/i,
+  /(?:^|_)start_session(?:_|$)/i,
+  /(?:^|_)create_session(?:_|$)/i,
+  /(?:^|_)new_context(?:_|$)/i,
+  /(?:^|_)new_page(?:_|$)/i
+];
+const BROWSER_SESSION_STOP_TOOL_PATTERNS = [
+  /^browser_close(?:_|$)/i,
+  /(?:^|_)stop_session(?:_|$)/i,
+  /(?:^|_)end_session(?:_|$)/i
+];
 
 // Models that support function calling/tools based on Ollama documentation
 const TOOL_SUPPORTED_MODELS = [
@@ -759,6 +771,22 @@ async function executeTools(toolCalls, options = {}) {
         }
         
         const result = await window.desktop.mcpCall(toolCall.name, toolCall.args);
+
+        if (isBrowserSessionStartTool(toolCall.name)) {
+          dispatchBrowserSessionEvent('agent-browser-session-started', {
+            toolName: toolCall.name,
+            args: toolCall.args,
+            mode: 'desktop'
+          });
+        }
+
+        if (isBrowserSessionStopTool(toolCall.name)) {
+          dispatchBrowserSessionEvent('agent-browser-session-stopped', {
+            toolName: toolCall.name,
+            args: toolCall.args,
+            mode: 'desktop'
+          });
+        }
         
         results.push({
           id: toolCall.id,
@@ -805,6 +833,24 @@ async function executeTools(toolCalls, options = {}) {
           toolCall.name,
           toolCall.args
         );
+
+        if (isBrowserSessionStartTool(toolCall.name)) {
+          dispatchBrowserSessionEvent('agent-browser-session-started', {
+            toolName: toolCall.name,
+            args: toolCall.args,
+            serverName: toolInfo.serverName,
+            mode: 'web'
+          });
+        }
+
+        if (isBrowserSessionStopTool(toolCall.name)) {
+          dispatchBrowserSessionEvent('agent-browser-session-stopped', {
+            toolName: toolCall.name,
+            args: toolCall.args,
+            serverName: toolInfo.serverName,
+            mode: 'web'
+          });
+        }
         
         results.push({
           id: toolCall.id,
@@ -891,6 +937,24 @@ function sanitizeToolPayload(payload) {
   } catch {
     return { truncated: true, preview: String(payload).slice(0, TOOL_RESULT_CHAR_LIMIT) };
   }
+}
+
+function isBrowserSessionStartTool(toolName) {
+  if (typeof toolName !== 'string' || !toolName) return false;
+  return BROWSER_SESSION_START_TOOL_PATTERNS.some((pattern) => pattern.test(toolName));
+}
+
+function isBrowserSessionStopTool(toolName) {
+  if (typeof toolName !== 'string' || !toolName) return false;
+  return BROWSER_SESSION_STOP_TOOL_PATTERNS.some((pattern) => pattern.test(toolName));
+}
+
+function dispatchBrowserSessionEvent(eventName, detail) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(eventName, { detail }));
 }
 
 /**
