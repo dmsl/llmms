@@ -1,5 +1,7 @@
 *.index
 *.npy
+node_modules/
+**/node_modules/
 cache_ag_news_train[-20000]_k32_min2/
 cache_agnews_20k_k32/
 embed_cache_compare/

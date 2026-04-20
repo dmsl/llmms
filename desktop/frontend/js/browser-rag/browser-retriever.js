@@ -21,7 +21,7 @@ class BrowserRetriever {
     async initializeEmbeddingModel() {
         try {
             // Load the Universal Sentence Encoder
-            this.embeddingModel = await use.load();
+            this.embeddingModel = await use.load(this.getUseLoadConfig());
             console.log("Embedding model loaded successfully");
         } catch (error) {
             console.error("Failed to load embedding model:", error);
@@ -86,6 +86,22 @@ class BrowserRetriever {
         };
     }
 
+    getUseLoadConfig() {
+        const scope = typeof globalThis !== 'undefined' ? globalThis : window;
+        const urls = scope.RAG_ASSET_URLS || {};
+        const config = {};
+
+        if (urls.useModelUrl) {
+            config.modelUrl = urls.useModelUrl;
+        }
+
+        if (urls.useVocabUrl) {
+            config.vocabUrl = urls.useVocabUrl;
+        }
+
+        return config;
+    }
+
     /**
      * Extract text from a file based on its type
      * @param {File} file - The file to extract text from
@@ -93,99 +109,10 @@ class BrowserRetriever {
      */
     async extractTextFromFile(file) {
         console.log("extractTextFromFile: Processing file of type:", file.type);
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            const fileType = file.type.toLowerCase();
-
-            // For text-based files
-            if (
-                fileType.includes('text') ||
-                fileType.includes('javascript') ||
-                fileType.includes('json') ||
-                fileType.includes('csv') ||
-                fileType.includes('html') ||
-                fileType === ''
-            ) {
-                console.log("extractTextFromFile: Detected text-based file");
-                reader.onload = (e) => {
-                    console.log("extractTextFromFile: Text file loaded successfully");
-                    resolve(e.target.result);
-                };
-                reader.onerror = (e) => {
-                    console.error("extractTextFromFile: Error reading text file");
-                    reject(new Error('Error reading text file'));
-                };
-                reader.readAsText(file);
-            }
-            // For PDFs
-            else if (fileType.includes('pdf')) {
-                console.log("extractTextFromFile: Detected PDF file, reading as array buffer");
-                reader.onload = async (e) => {
-                    try {
-                        console.log("extractTextFromFile: PDF file loaded, processing PDF data...");
-                        const pdfData = new Uint8Array(e.target.result);
-                        const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
-                        let text = '';
-
-                        console.log(`extractTextFromFile: PDF has ${pdf.numPages} pages. Extracting text...`);
-                        // Extract text from each page
-                        for (let i = 1; i <= pdf.numPages; i++) {
-                            console.log(`extractTextFromFile: Processing page ${i}`);
-                            const page = await pdf.getPage(i);
-                            const content = await page.getTextContent();
-                            const pageStrings = content.items.map(item => item.str);
-                            // Log the extracted text for this page
-                            // console.log(`extractTextFromFile: Extracted text from page ${i}:`, pageStrings.join(' '));
-                            text += pageStrings.join(' ') + '\n';
-                        }
-                        console.log("extractTextFromFile: PDF text extraction complete");
-                        resolve(text);
-                    } catch (error) {
-                        console.error("extractTextFromFile: Error parsing PDF:", error);
-                        reject(new Error('Error parsing PDF: ' + error.message));
-                    }
-                };
-                reader.onerror = (e) => {
-                    console.error("extractTextFromFile: Error reading PDF file");
-                    reject(new Error('Error reading PDF file'));
-                };
-                reader.readAsArrayBuffer(file);
-            }
-            // For DOCXs
-            else if (
-                fileType.includes('officedocument.wordprocessingml.document') ||
-                fileType.includes('docx')
-            ) {
-                console.log("extractTextFromFile: Detected DOCX file, reading as array buffer");
-                reader.onload = async (e) => {
-                    try {
-                        console.log("extractTextFromFile: DOCX file loaded, extracting text using mammoth...");
-                        const arrayBuffer = e.target.result;
-                        const result = await mammoth.extractRawText({ arrayBuffer });
-                        console.log("extractTextFromFile: DOCX text extraction complete");
-                        resolve(result.value);
-                    } catch (error) {
-                        console.error("extractTextFromFile: Error parsing DOCX:", error);
-                        reject(new Error('Error parsing DOCX: ' + error.message));
-                    }
-                };
-                reader.onerror = (e) => {
-                    console.error("extractTextFromFile: Error reading DOCX file");
-                    reject(new Error('Error reading DOCX file'));
-                };
-                reader.readAsArrayBuffer(file);
-            }
-            // For images (would require OCR)
-            else if (fileType.includes('image')) {
-                console.error("extractTextFromFile: Image OCR not supported");
-                reject(new Error('Image OCR not supported in browser RAG'));
-            }
-            // Unsupported file types
-            else {
-                console.error("extractTextFromFile: Unsupported file type:", fileType);
-                reject(new Error(`Unsupported file type: ${fileType}`));
-            }
-        });
+        if (!globalThis.ChatUcyDocumentParser?.extractText) {
+            throw new Error('Document extraction runtime is not loaded');
+        }
+        return globalThis.ChatUcyDocumentParser.extractText(file);
     }
 
 

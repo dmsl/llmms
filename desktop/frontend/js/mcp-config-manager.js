@@ -234,6 +234,39 @@ class MCPConfigManager {
   }
 
   /**
+   * Merge discovered tool names into persisted state without overwriting
+   * explicit user preferences. Newly discovered tools default to enabled.
+   * @param {string} serverName
+   * @param {string[]} toolNames
+   * @param {boolean} defaultEnabled
+   * @returns {Object}
+   */
+  syncToolStates(serverName, toolNames = [], defaultEnabled = true) {
+    const server = this.getServer(serverName);
+    if (!server) return {};
+
+    const nextToolStates = { ...(server.toolStates || {}) };
+    let changed = false;
+
+    for (const toolName of toolNames) {
+      if (!toolName) continue;
+      if (typeof nextToolStates[toolName] !== 'boolean') {
+        nextToolStates[toolName] = !!defaultEnabled;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.saveServer({
+        ...server,
+        toolStates: nextToolStates
+      });
+    }
+
+    return nextToolStates;
+  }
+
+  /**
    * Enable all provided tools for a server.
    * @param {string} serverName
    * @param {string[]} toolNames

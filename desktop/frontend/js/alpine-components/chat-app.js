@@ -6,6 +6,24 @@
 let ragLoaded = false;
 let ragLoadingPromise = null;
 
+const LOCAL_RAG_ASSET_URLS = {
+    tfjsUrl: new URL('../../vendor/tfjs/tf.min.js', import.meta.url).href,
+    useScriptUrl: new URL('../../vendor/use/universal-sentence-encoder.min.js', import.meta.url).href,
+    useModelUrl: new URL('../../vendor/use/model/model.json', import.meta.url).href,
+    useVocabUrl: new URL('../../vendor/use/model/vocab.json', import.meta.url).href,
+    jszipUrl: new URL('../../vendor/jszip/jszip.min.js', import.meta.url).href,
+    xlsxUrl: new URL('../../vendor/xlsx/xlsx.full.min.js', import.meta.url).href,
+    documentParserUrl: new URL('../document-parser.js', import.meta.url).href,
+    ragPolicyUrl: new URL('../browser-rag/rag-policy.js', import.meta.url).href,
+    vectorStoreUrl: new URL('../browser-rag/indexed-db-vector-store.js', import.meta.url).href,
+    retrieverUrl: new URL('../browser-rag/browser-retriever.js', import.meta.url).href
+};
+
+window.RAG_ASSET_URLS = {
+    ...(window.RAG_ASSET_URLS || {}),
+    ...LOCAL_RAG_ASSET_URLS
+};
+
 const DEFAULT_RAG_LIMITS = {
     MAX_FILE_SIZE_BYTES: 15 * 1024 * 1024,
     MAX_FILES_PER_WORKSPACE: 15,
@@ -50,18 +68,24 @@ async function ensureRagLoaded() {
     console.log('[RAG Loader] Loading RAG dependencies...');
     
     // Load TFJS + USE only when needed
-    await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs");
-    await loadScriptOnce("https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder");
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.tfjsUrl);
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.useScriptUrl);
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.jszipUrl);
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.xlsxUrl);
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.documentParserUrl);
 
     // Load browser-rag implementation only when needed
-    await loadScriptOnce("../js/browser-rag/rag-policy.js");
-    await loadScriptOnce("../js/browser-rag/indexed-db-vector-store.js");
-    await loadScriptOnce("../js/browser-rag/browser-retriever.js");
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.ragPolicyUrl);
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.vectorStoreUrl);
+    await loadScriptOnce(LOCAL_RAG_ASSET_URLS.retrieverUrl);
 
     // Initialize the USE model (downloads ~50MB model shards)
     console.log('[RAG Loader] Initializing Universal Sentence Encoder model...');
     if (window.use && !window.ragEmbeddingModel) {
-      window.ragEmbeddingModel = await window.use.load();
+      window.ragEmbeddingModel = await window.use.load({
+        modelUrl: LOCAL_RAG_ASSET_URLS.useModelUrl,
+        vocabUrl: LOCAL_RAG_ASSET_URLS.useVocabUrl
+      });
       console.log('[RAG Loader] Model initialized successfully');
     }
 
@@ -73,7 +97,18 @@ async function ensureRagLoaded() {
 }
 
 // Import agent integration (handles both web and Electron modes)
-import { askAgent, supportsTools, refreshModelToolCapabilities, supportsToolsFromProvider } from '../agent-integration.js';
+import {
+    askAgent,
+    getProviderSettings,
+    loadAvailableModels,
+    supportsToolsFromProvider
+} from '../agent-integration.js';
+import {
+    DEFAULT_PROVIDER_SETTINGS,
+    detectProviderProfile,
+    getProviderLabel,
+    normalizeProviderSettings
+} from '../llm-provider-adapters.js';
 import { basicToolSchemas } from '../tools.js';
 import { ConversationManager } from '../conversation-manager.js';
 import { getEventManager, cleanupComponent } from '../utils/event-manager.js';
@@ -99,10 +134,15 @@ const STORAGE_KEYS = {
     legacySessions: 'chat_sessions',
     workspaceStoragePolicy: 'workspace_storage_policy_v1',
     localRagPrefs: 'local_rag_prefs_v1',
-    llmBaseUrl: 'llm_base_url_v1'
+    llmBaseUrl: 'llm_base_url_v1',
+    llmThinkingEnabled: 'llm_thinking_enabled_v1'
 };
 
-const DEFAULT_LLM_BASE_URL = 'https://chatucy.cs.ucy.ac.cy/v1';
+const DEFAULT_LLM_SETTINGS = {
+    providerType: DEFAULT_PROVIDER_SETTINGS.providerType,
+    baseUrl: DEFAULT_PROVIDER_SETTINGS.baseUrl,
+    authToken: DEFAULT_PROVIDER_SETTINGS.authToken
+};
 
 const WORKSPACE_STORAGE_LIMIT_DEFAULTS = {
     maxFileBytes: 25 * 1024 * 1024,
@@ -155,6 +195,9 @@ function hydrateMessageFromPersistence(msg) {
     const safe = sanitizeMessageForPersistence(msg || {});
     safe.isTyping = false;
     safe.isStreaming = false;
+    if (safe.role === 'reasoning' && typeof safe.expanded !== 'boolean') {
+        safe.expanded = false;
+    }
     return safe;
 }
 
@@ -199,9 +242,13 @@ function chatApp() {
         },
         isLoading: false,
         selectedModel: 'Select Model',
+        thinkingEnabled: false,
+        autoScrollEnabled: true,
+        manualScrollLock: false,
         interactionMode: 'ask',
         availableModels: [],
         localRagEnabled: false,
+        localRagManagerOpen: false,
         localRagMode: 'hybrid-fallback',
         localRagLastModeUsed: 'none',
         localRagStatusText: '',
@@ -318,7 +365,16 @@ function chatApp() {
             servers: [],
             tools: [], // Flat list of all tools
             toolsByServer: {}, // Organized by server
-            llmBaseUrl: DEFAULT_LLM_BASE_URL,
+            expandedServerTools: {},
+            llmBaseUrl: DEFAULT_LLM_SETTINGS.baseUrl,
+            llmProviderType: DEFAULT_LLM_SETTINGS.providerType,
+            llmAuthToken: DEFAULT_LLM_SETTINGS.authToken,
+            llmDetectedProviderType: '',
+            llmSupportedProviderTypes: [],
+            llmDetectionSource: '',
+            llmDetectionError: '',
+            llmDetecting: false,
+            llmDetectionKey: '',
             newServerForm: {
                 show: false,
                 name: '',
@@ -327,19 +383,86 @@ function chatApp() {
                 error: ''
             },
             loadLLMSettings() {
-                const saved = localStorage.getItem(STORAGE_KEYS.llmBaseUrl);
-                const value = (saved || DEFAULT_LLM_BASE_URL).trim();
-                this.llmBaseUrl = value || DEFAULT_LLM_BASE_URL;
-                window.OLLAMA_BASE_URL = this.llmBaseUrl;
+                const settings = getProviderSettings();
+                this.llmBaseUrl = settings.baseUrl || DEFAULT_LLM_SETTINGS.baseUrl;
+                this.llmProviderType = settings.providerType || DEFAULT_LLM_SETTINGS.providerType;
+                this.llmAuthToken = settings.authToken || '';
+                this.llmDetectionError = '';
+                this.llmDetectedProviderType = '';
+                this.llmSupportedProviderTypes = [];
+                this.llmDetectionSource = '';
+                this.llmDetectionKey = '';
+                window.LLM_PROVIDER_SETTINGS = {
+                    providerType: this.llmProviderType,
+                    baseUrl: this.llmBaseUrl,
+                    authToken: this.llmAuthToken
+                };
+                this.detectLLMProvider();
+            },
+            async detectLLMProvider({ force = false } = {}) {
+                const baseUrl = (this.llmBaseUrl || '').trim() || DEFAULT_LLM_SETTINGS.baseUrl;
+                const detectionKey = `${baseUrl}::${this.llmAuthToken ? 'token' : 'no-token'}`;
+                if (!force && this.llmDetectionKey === detectionKey && (this.llmDetectedProviderType || this.llmDetectionError)) {
+                    return;
+                }
+
+                this.llmDetecting = true;
+                this.llmDetectionError = '';
+                this.llmDetectionKey = detectionKey;
+                try {
+                    const result = await detectProviderProfile({
+                        baseUrl,
+                        authToken: (this.llmAuthToken || '').trim(),
+                        providerType: this.llmProviderType
+                    });
+                    this.llmDetectedProviderType = result.providerType || '';
+                    this.llmSupportedProviderTypes = Array.isArray(result.supportedTypes) ? result.supportedTypes : [];
+                    this.llmDetectionSource = result.source || '';
+                } catch (error) {
+                    this.llmDetectedProviderType = '';
+                    this.llmSupportedProviderTypes = [];
+                    this.llmDetectionSource = '';
+                    this.llmDetectionError = error?.message || 'Provider detection failed.';
+                } finally {
+                    this.llmDetecting = false;
+                }
+            },
+            applyDetectedProviderType() {
+                if (!this.llmDetectedProviderType) return;
+                this.llmProviderType = this.llmDetectedProviderType;
+            },
+            getDetectedProviderLabel(providerType = this.llmDetectedProviderType) {
+                return providerType ? getProviderLabel(providerType) : '';
+            },
+            toggleServerTools(serverName) {
+                if (!serverName) return;
+                this.expandedServerTools = {
+                    ...this.expandedServerTools,
+                    [serverName]: !this.expandedServerTools[serverName]
+                };
+            },
+            isServerToolsExpanded(serverName) {
+                return !!this.expandedServerTools?.[serverName];
             },
             saveLLMSettings() {
-                const value = (this.llmBaseUrl || '').trim() || DEFAULT_LLM_BASE_URL;
-                this.llmBaseUrl = value;
-                localStorage.setItem(STORAGE_KEYS.llmBaseUrl, value);
-                window.OLLAMA_BASE_URL = value;
+                const settings = normalizeProviderSettings({
+                    providerType: (this.llmProviderType || DEFAULT_LLM_SETTINGS.providerType).trim() || DEFAULT_LLM_SETTINGS.providerType,
+                    baseUrl: (this.llmBaseUrl || '').trim() || DEFAULT_LLM_SETTINGS.baseUrl,
+                    authToken: (this.llmAuthToken || '').trim()
+                });
+                this.llmBaseUrl = settings.baseUrl;
+                this.llmProviderType = settings.providerType;
+                this.llmAuthToken = settings.authToken;
+                localStorage.setItem(STORAGE_KEYS.llmBaseUrl, JSON.stringify(settings));
+                window.LLM_PROVIDER_SETTINGS = settings;
+                if (window.chatAppState?.loadModels) {
+                    window.chatAppState.loadModels();
+                }
             },
             resetLLMSettings() {
-                this.llmBaseUrl = DEFAULT_LLM_BASE_URL;
+                this.llmBaseUrl = DEFAULT_LLM_SETTINGS.baseUrl;
+                this.llmProviderType = DEFAULT_LLM_SETTINGS.providerType;
+                this.llmAuthToken = DEFAULT_LLM_SETTINGS.authToken;
                 this.saveLLMSettings();
             },
             async loadServers() {
@@ -415,9 +538,11 @@ function chatApp() {
                     }
 
                     const tools = window.mcpBrowserClient.getAllTools().filter(t => t.serverName === server.name);
-                    const toolNames = tools.map(t => t.name);
-                    window.mcpBrowserClient.setAllToolsEnabled(server.name, true);
-                    window.mcpConfigManager.enableAllTools(server.name, toolNames);
+                    const toolStates = window.mcpConfigManager.syncToolStates(
+                        server.name,
+                        tools.map(t => t.name)
+                    );
+                    window.mcpBrowserClient.applyToolStates(server.name, toolStates);
                 } else {
                     if (window.mcpBrowserClient.isConnected(server.name)) {
                         window.mcpBrowserClient.disconnect(server.name);
@@ -520,12 +645,14 @@ function chatApp() {
         },
         
         async init() {
+            window.chatAppState = this;
             // Watch for sidebar state changes and persist to localStorage
             this.$watch('sidebarOpen', (value) => {
                 localStorage.setItem('sidebar_open', value.toString());
             });
 
             this.mcpConfigModal.loadLLMSettings();
+            this.loadThinkingPreference();
             this.browserPreviewEnabled = false;
             this.browserViewOpen = false;
 
@@ -544,6 +671,8 @@ function chatApp() {
             this.loadWorkspaceStoragePolicy();
             this.loadAppState();
             this.loadLocalRagPrefs();
+            this.syncChatLayoutSpacing();
+            this.observeChatLayoutSpacing();
             await this.refreshStorageEstimate();
             await this.migrateLegacyWorkspaceFilesToIndexedDb();
             if (this.sessions.length > 0) {
@@ -608,12 +737,6 @@ function chatApp() {
                             if (idx !== -1) this.messages.splice(idx, 1);
                         }, 5000);
                     }
-                } else {
-                    // Optional cleanup to reduce memory/storage usage
-                    if (window.browserRetriever?.clearAllDocuments) {
-                        window.browserRetriever.clearAllDocuments();
-                        console.log('[ChatApp] RAG documents cleared');
-                    }
                 }
             });
 
@@ -668,11 +791,12 @@ function chatApp() {
             // Set up callback for when tools are received
             window.mcpBrowserClient.setToolsCallback((serverName, tools) => {
                 const serverConfig = window.mcpConfigManager.getServer(serverName);
-                const toolStates = window.mcpConfigManager.getToolStates(serverName);
+                const toolStates = window.mcpConfigManager.syncToolStates(
+                    serverName,
+                    tools.map(tool => tool.name)
+                );
 
                 if (serverConfig?.enabled) {
-                    window.mcpBrowserClient.setAllToolsEnabled(serverName, true);
-                    window.mcpConfigManager.enableAllTools(serverName, tools.map(tool => tool.name));
                     window.mcpBrowserClient.applyToolStates(serverName, toolStates);
                 }
 
@@ -744,6 +868,9 @@ function chatApp() {
                 ...s,
                 workspaceId: s.workspaceId && workspaceIds.has(s.workspaceId) ? s.workspaceId : null
             }));
+            this.sessions.forEach(session => {
+                this.pruneSessionDocumentRefs(session.id);
+            });
         },
 
         loadLocalRagPrefs() {
@@ -755,6 +882,22 @@ function chatApp() {
                 this.localRagFileStates = parsed.localRagFileStates || {};
             } catch (error) {
                 console.warn('[ChatApp] Failed to load local RAG preferences:', error);
+            }
+        },
+
+        loadThinkingPreference() {
+            try {
+                this.thinkingEnabled = localStorage.getItem(STORAGE_KEYS.llmThinkingEnabled) === 'true';
+            } catch (error) {
+                this.thinkingEnabled = false;
+            }
+        },
+
+        saveThinkingPreference() {
+            try {
+                localStorage.setItem(STORAGE_KEYS.llmThinkingEnabled, this.thinkingEnabled ? 'true' : 'false');
+            } catch (error) {
+                console.warn('[ChatApp] Failed to persist thinking preference:', error);
             }
         },
 
@@ -860,44 +1003,12 @@ function chatApp() {
         },
 
         async extractTextForLocalRag(file) {
-            const type = (file.type || '').toLowerCase();
-
-            if (
-                type.includes('text') ||
-                type.includes('javascript') ||
-                type.includes('json') ||
-                type.includes('csv') ||
-                type.includes('html') ||
-                type === ''
-            ) {
-                return await file.text();
+            await ensureRagLoaded();
+            if (!window.ChatUcyDocumentParser?.extractText) {
+                throw new Error('Document extraction runtime is not loaded');
             }
 
-            if (type.includes('officedocument.wordprocessingml.document') || type.includes('docx')) {
-                if (!window.mammoth?.extractRawText) {
-                    throw new Error('DOCX extraction runtime is not loaded');
-                }
-                const arrayBuffer = await file.arrayBuffer();
-                const result = await window.mammoth.extractRawText({ arrayBuffer });
-                return result.value || '';
-            }
-
-            if (type.includes('pdf')) {
-                if (!window.pdfjsLib?.getDocument) {
-                    throw new Error('PDF extraction is unavailable in local mode for this session');
-                }
-                const pdfData = new Uint8Array(await file.arrayBuffer());
-                const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
-                let text = '';
-                for (let i = 1; i <= pdf.numPages; i += 1) {
-                    const page = await pdf.getPage(i);
-                    const content = await page.getTextContent();
-                    text += content.items.map(item => item.str).join(' ') + '\n';
-                }
-                return text;
-            }
-
-            throw new Error(`Unsupported local extraction type: ${file.type || 'unknown'}`);
+            return window.ChatUcyDocumentParser.extractText(file);
         },
 
         getCurrentWorkspaceIdForSession(sessionId = this.currentSession) {
@@ -983,6 +1094,146 @@ function chatApp() {
             return this.localRagFileStates[fileId] || null;
         },
 
+        getCurrentSessionRecord(sessionId = this.currentSession) {
+            return this.sessions.find(s => s.id === sessionId) || null;
+        },
+
+        getSessionDocumentRefs(sessionId = this.currentSession) {
+            const session = this.getCurrentSessionRecord(sessionId);
+            return Array.isArray(session?.localDocumentRefs) ? session.localDocumentRefs : [];
+        },
+
+        addSessionDocumentRef(ref, sessionId = this.currentSession) {
+            const session = this.getCurrentSessionRecord(sessionId);
+            if (!session || !ref?.fileId) return;
+
+            const existingRefs = Array.isArray(session.localDocumentRefs) ? session.localDocumentRefs : [];
+            const alreadyExists = existingRefs.some(item => item?.fileId === ref.fileId);
+            if (alreadyExists) {
+                session.localDocumentRefs = existingRefs.map(item => (
+                    item?.fileId === ref.fileId
+                        ? { ...item, ...ref, updatedAt: new Date().toISOString() }
+                        : item
+                ));
+            } else {
+                session.localDocumentRefs = [
+                    ...existingRefs,
+                    {
+                        ...ref,
+                        addedAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    }
+                ];
+            }
+            session.updatedAt = new Date().toISOString();
+        },
+
+        pruneSessionDocumentRefs(sessionId = this.currentSession) {
+            const session = this.getCurrentSessionRecord(sessionId);
+            if (!session) return;
+
+            const refs = Array.isArray(session.localDocumentRefs) ? session.localDocumentRefs : [];
+            session.localDocumentRefs = refs.filter(ref => {
+                const state = ref?.fileId ? this.localRagFileStates?.[ref.fileId] : null;
+                return state?.status === 'indexed';
+            });
+        },
+
+        getSessionPrivateDocCount(sessionId = this.currentSession) {
+            return this.getSessionDocumentRefs(sessionId).length;
+        },
+
+        getGlobalPrivateDocCount() {
+            return this.sessions.reduce((sum, session) => {
+                const refs = Array.isArray(session?.localDocumentRefs) ? session.localDocumentRefs : [];
+                return sum + refs.length;
+            }, 0);
+        },
+
+        toggleLocalRagEnabled() {
+            this.localRagEnabled = !this.localRagEnabled;
+        },
+
+        async removeSessionDocument(fileId, sessionId = this.currentSession) {
+            const session = this.getCurrentSessionRecord(sessionId);
+            if (!session || !fileId) return;
+
+            const ref = this.getSessionDocumentRefs(sessionId).find(item => item?.fileId === fileId);
+            const workspaceId = ref?.workspaceId ?? this.getCurrentWorkspaceIdForSession(sessionId);
+            const chatId = ref?.chatId ?? sessionId;
+
+            await this.ensureLocalRetriever();
+            if (window.browserRetriever?.deleteDocumentsByFilters) {
+                await window.browserRetriever.deleteDocumentsByFilters({
+                    sourceType: ref?.sourceType || 'chatAttachment',
+                    workspaceId,
+                    chatId,
+                    fileId
+                });
+            }
+
+            session.localDocumentRefs = this.getSessionDocumentRefs(sessionId).filter(item => item?.fileId !== fileId);
+
+            if (this.localRagFileStates?.[fileId]) {
+                const nextStates = { ...this.localRagFileStates };
+                delete nextStates[fileId];
+                this.localRagFileStates = nextStates;
+            }
+
+            if (this.uploadedFile) {
+                const uploadedFileId = this.buildLocalRagFileId(this.uploadedFile, {
+                    workspaceId: this.getCurrentWorkspaceIdForSession(sessionId),
+                    chatId: sessionId
+                });
+                if (uploadedFileId === fileId) {
+                    this.localRagStatusText = '';
+                }
+            }
+
+            session.updatedAt = new Date().toISOString();
+            this.persistLocalRagPrefs();
+            this.saveSessions();
+        },
+
+        async clearSessionDocumentStore(sessionId = this.currentSession) {
+            const refs = [...this.getSessionDocumentRefs(sessionId)];
+            for (const ref of refs) {
+                await this.removeSessionDocument(ref.fileId, sessionId);
+            }
+            this.localRagManagerOpen = false;
+            this.localRagStatusText = '';
+        },
+
+        async clearAllPrivateDocumentStores() {
+            await this.ensureLocalRetriever();
+
+            if (window.browserRetriever?.deleteDocumentsByFilters) {
+                await window.browserRetriever.deleteDocumentsByFilters({
+                    sourceType: 'chatAttachment'
+                });
+            } else if (window.browserRetriever?.clearAllDocuments) {
+                await window.browserRetriever.clearAllDocuments();
+            }
+
+            this.sessions = this.sessions.map(session => ({
+                ...session,
+                localDocumentRefs: [],
+                updatedAt: new Date().toISOString()
+            }));
+
+            const nextStates = {};
+            for (const [fileId, state] of Object.entries(this.localRagFileStates || {})) {
+                if (state?.sourceType && state.sourceType !== 'chatAttachment') {
+                    nextStates[fileId] = state;
+                }
+            }
+            this.localRagFileStates = nextStates;
+            this.localRagStatusText = '';
+            this.localRagManagerOpen = false;
+            this.persistLocalRagPrefs();
+            this.saveSessions();
+        },
+
         getLocalRagStatusLabel() {
             const state = this.getUploadedFileLocalRagState();
             if (!state?.status) return this.localRagStatusText || '';
@@ -1037,6 +1288,15 @@ function chatApp() {
             const fileId = this.buildLocalRagFileId(file, scope);
             const existingState = this.localRagFileStates[fileId];
             if (existingState?.status === 'indexed') {
+                this.addSessionDocumentRef({
+                    fileId,
+                    name: file.name,
+                    workspaceId: scope.workspaceId,
+                    chatId: scope.chatId,
+                    sourceType: 'chatAttachment',
+                    chunkCount: existingState.chunkCount || 0,
+                    estimatedBytes: existingState.estimatedBytes || 0
+                }, scope.chatId);
                 return { ok: true, fileId, chunkCount: existingState.chunkCount || 0 };
             }
 
@@ -1116,20 +1376,38 @@ function chatApp() {
                 extractedTextBytes: result.extractedTextBytes || 0,
                 error: ''
             });
+            this.addSessionDocumentRef({
+                fileId,
+                name: file.name,
+                workspaceId: scope.workspaceId,
+                chatId: scope.chatId,
+                sourceType: 'chatAttachment',
+                chunkCount: result.chunkCount || 0,
+                estimatedBytes: result.estimatedBytes || 0
+            }, scope.chatId);
             this.updateLocalRagWarnings(scope.workspaceId);
             return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
         },
 
         async buildLocalContextForMessage(query, uploadedDocumentFile) {
-            const indexResult = await this.indexUploadedDocumentForLocalRag(uploadedDocumentFile);
-            if (!indexResult.ok) {
-                return { ok: false, reason: indexResult.error || 'index-failed' };
+            if (uploadedDocumentFile) {
+                const indexResult = await this.indexUploadedDocumentForLocalRag(uploadedDocumentFile);
+                if (!indexResult.ok) {
+                    return { ok: false, reason: indexResult.error || 'index-failed' };
+                }
             }
 
             const scope = {
                 workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
                 chatId: this.currentSession
             };
+            const sessionFileIds = this.getSessionDocumentRefs(scope.chatId)
+                .map(ref => ref?.fileId)
+                .filter(Boolean);
+
+            if (sessionFileIds.length === 0) {
+                return { ok: false, reason: 'no-session-documents' };
+            }
 
             const limits = getRagLimits();
             if (this.activeRetrievalJobId) {
@@ -1142,7 +1420,8 @@ function chatApp() {
                 filters: {
                     sourceType: 'chatAttachment',
                     workspaceId: scope.workspaceId,
-                    chatId: scope.chatId
+                    chatId: scope.chatId,
+                    fileIds: sessionFileIds
                 },
                 options: {
                     candidateLimitPerSource: limits.RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE || 20,
@@ -1198,6 +1477,7 @@ function chatApp() {
                 messages: Array.isArray(s.messages)
                     ? s.messages.map(m => hydrateMessageFromPersistence(m))
                     : [],
+                localDocumentRefs: Array.isArray(s.localDocumentRefs) ? s.localDocumentRefs : [],
                 workspaceId: s.workspaceId ?? null,
                 createdAt: s.createdAt || new Date().toISOString(),
                 updatedAt: s.updatedAt || new Date().toISOString(),
@@ -1260,6 +1540,9 @@ function chatApp() {
         },
 
         selectWorkspace(workspaceId) {
+            if (typeof document !== 'undefined' && document.activeElement?.blur) {
+                document.activeElement.blur();
+            }
             this.setWorkspaceFilter('workspace', workspaceId);
             this.workspaceExpanded = {
                 ...this.workspaceExpanded,
@@ -1526,24 +1809,184 @@ function chatApp() {
             this.persistAppState();
             await this.refreshStorageEstimate();
         },
-        
-        scrollToBottom() {
-            const chatHistory = document.getElementById('chat-history');
+
+        syncChatLayoutSpacing() {
             const inputArea = document.getElementById('input-area');
+            const chatHistory = document.getElementById('chat-history');
             const messagesContainer = document.getElementById('messages-container');
-            
-            if (chatHistory && inputArea && messagesContainer) {
-                // Dynamically calculate the input area height
-                const inputAreaHeight = inputArea.offsetHeight;
-                
-                // Set dynamic padding on messages container to prevent overlap
-                messagesContainer.style.paddingBottom = `${inputAreaHeight + 20}px`;
-                
-                // Scroll to bottom with smooth behavior
+            if (!inputArea || !messagesContainer) return;
+
+            const inputAreaHeight = inputArea.offsetHeight || 0;
+            if (chatHistory) {
+                chatHistory.style.setProperty('--chat-composer-height', `${inputAreaHeight}px`);
+            }
+            messagesContainer.style.paddingBottom = `${inputAreaHeight + 20}px`;
+        },
+
+        observeChatLayoutSpacing() {
+            if (this._chatLayoutResizeObserver) {
+                this._chatLayoutResizeObserver.disconnect();
+            }
+
+            const inputArea = document.getElementById('input-area');
+            if (!inputArea || typeof ResizeObserver === 'undefined') {
+                return;
+            }
+
+            this._chatLayoutResizeObserver = new ResizeObserver(() => {
+                this.syncChatLayoutSpacing();
+            });
+            this._chatLayoutResizeObserver.observe(inputArea);
+        },
+
+        isNearChatBottom(threshold = 96) {
+            const chatHistory = document.getElementById('chat-history');
+            if (!chatHistory) return true;
+            const distanceFromBottom = chatHistory.scrollHeight - chatHistory.scrollTop - chatHistory.clientHeight;
+            return distanceFromBottom <= threshold;
+        },
+
+        handleChatScroll() {
+            const nearBottom = this.isNearChatBottom(12);
+            if (this.manualScrollLock) {
+                if (nearBottom) {
+                    this.manualScrollLock = false;
+                    this.autoScrollEnabled = true;
+                } else {
+                    this.autoScrollEnabled = false;
+                }
+                return;
+            }
+            this.autoScrollEnabled = nearBottom;
+        },
+
+        handleChatWheel(event) {
+            const chatHistory = document.getElementById('chat-history');
+            if (!chatHistory) return;
+
+            if (event.deltaY < 0) {
+                this.manualScrollLock = true;
+                this.autoScrollEnabled = false;
+                // Interrupt any in-progress smooth auto-scroll immediately.
+                chatHistory.scrollTo({
+                    top: chatHistory.scrollTop,
+                    behavior: 'auto'
+                });
+                return;
+            }
+
+            if (this.isNearChatBottom()) {
+                this.autoScrollEnabled = true;
+            }
+        },
+        
+        scrollToBottom(options = {}) {
+            const { force = false, behavior = 'smooth' } = options;
+            const chatHistory = document.getElementById('chat-history');
+            this.syncChatLayoutSpacing();
+
+            if (chatHistory) {
+                if (!force && (!this.autoScrollEnabled || this.manualScrollLock)) {
+                    return;
+                }
                 chatHistory.scrollTo({
                     top: chatHistory.scrollHeight,
-                    behavior: 'smooth'
+                    behavior
                 });
+                this.autoScrollEnabled = true;
+                if (force) {
+                    this.manualScrollLock = false;
+                }
+            }
+        },
+
+        findMessageIndexById(messageId) {
+            return this.messages.findIndex(message => message.id === messageId);
+        },
+
+        getMessageById(messageId) {
+            const messageIndex = this.findMessageIndexById(messageId);
+            return messageIndex >= 0 ? this.messages[messageIndex] : null;
+        },
+
+        ensureReasoningMessageForAssistant(assistantMessageId) {
+            const assistantIndex = this.findMessageIndexById(assistantMessageId);
+            if (assistantIndex === -1) return null;
+
+            const assistantMessage = this.messages[assistantIndex];
+            if (!assistantMessage || assistantMessage.role !== 'assistant') return null;
+
+            if (assistantMessage.reasoningMessageId) {
+                const existing = this.getMessageById(assistantMessage.reasoningMessageId);
+                if (existing) return existing;
+            }
+
+            const reasoningMessage = {
+                id: makeId('reasoning'),
+                role: 'reasoning',
+                content: '',
+                rawText: '',
+                expanded: false,
+                model: assistantMessage.model || null,
+                providerLabel: assistantMessage.providerLabel || '',
+                parentMessageId: assistantMessage.id
+            };
+
+            this.messages.splice(assistantIndex, 0, reasoningMessage);
+            assistantMessage.reasoningMessageId = reasoningMessage.id;
+            return reasoningMessage;
+        },
+
+        scheduleStreamingMarkdownRender(assistantMessageId) {
+            if (!window.marked) {
+                const message = this.getMessageById(assistantMessageId);
+                if (message) {
+                    message.content = `${message.rawText || ''}<span class="typing-cursor"></span>`;
+                }
+                return;
+            }
+
+            if (!this._streamMarkdownTimers) {
+                this._streamMarkdownTimers = {};
+            }
+
+            if (this._streamMarkdownTimers[assistantMessageId]) {
+                return;
+            }
+
+            this._streamMarkdownTimers[assistantMessageId] = window.setTimeout(() => {
+                delete this._streamMarkdownTimers[assistantMessageId];
+                this.renderStreamingMarkdown(assistantMessageId);
+            }, 80);
+        },
+
+        cancelStreamingMarkdownRender(assistantMessageId) {
+            if (!this._streamMarkdownTimers?.[assistantMessageId]) return;
+            window.clearTimeout(this._streamMarkdownTimers[assistantMessageId]);
+            delete this._streamMarkdownTimers[assistantMessageId];
+        },
+
+        renderStreamingMarkdown(assistantMessageId) {
+            const message = this.getMessageById(assistantMessageId);
+            if (!message) return;
+
+            const rawText = message.rawText || '';
+            if (!rawText) {
+                message.content = '<span class="typing-cursor"></span>';
+                return;
+            }
+
+            if (!window.marked) {
+                message.content = `${rawText}<span class="typing-cursor"></span>`;
+                return;
+            }
+
+            try {
+                const parsed = window.marked.parse(rawText);
+                message.content = `${parsed}<span class="typing-cursor"></span>`;
+            } catch (error) {
+                console.warn('[ChatApp] Incremental markdown render failed, falling back to raw text:', error);
+                message.content = `${rawText}<span class="typing-cursor"></span>`;
             }
         },
         
@@ -1553,10 +1996,39 @@ function chatApp() {
                 vision: name.includes('vision') || name.includes('llava') || name.includes('minicpm-v') || 
                         name.includes('moondream') || name.includes('bakllava') || name.includes('qwen') && name.includes('vl') ||
                         name.includes('gemma3') || name.includes('llama3.2-vision') || name.includes('llama4'),
-                tools: false,
+                tools: name.includes('gpt-4') || name.includes('gpt-5') || name.includes('gpt-oss') ||
+                       name.includes('claude') || name.includes('gemini') || name.includes('qwen3') ||
+                       name.includes('llama3.1') || name.includes('llama3.3') || name.includes('llama4') ||
+                       name.includes('mistral') || name.includes('command-r') || name.includes('deepseek-v3') ||
+                       name.includes('granite'),
                 thinking: name.includes('deepseek-r1') || name.includes('deepseek-v3') || name.includes('qwq') ||
-                         name.includes('gpt-oss') || name.includes('magistral') || name.includes('qwen3') && !name.includes('coder')
+                         name.includes('gpt-oss') || name.includes('magistral') ||
+                         (name.includes('qwen3') && !name.includes('coder'))
             };
+        },
+
+        isEmbeddingOnlyModel(model) {
+            if (!model) return false;
+            if (model.embedding === true) return true;
+            if (model.chatCapable === false) return true;
+
+            const id = String(model.id || model.displayName || '').toLowerCase();
+            return id.includes('embed') ||
+                id.includes('embedding') ||
+                id.startsWith('bge') ||
+                id.includes('bge-') ||
+                id.includes('e5-') ||
+                id === 'e5' ||
+                id.includes('nomic-embed') ||
+                id.includes('text-embedding') ||
+                id.includes('snowflake-arctic-embed') ||
+                id.includes('mxbai-embed');
+        },
+
+        filterChatModels(models) {
+            const list = Array.isArray(models) ? models : [];
+            const filtered = list.filter(model => !this.isEmbeddingOnlyModel(model));
+            return filtered.length > 0 ? filtered : list;
         },
 
         parseModelVersionTuple(modelId) {
@@ -1601,7 +2073,12 @@ function chatApp() {
         pickPreferredDefaultModel(models) {
             if (!Array.isArray(models) || models.length === 0) return null;
 
-            const toolCapable = models.filter(m => supportsTools(m.id) || m.tools);
+            const exactPreferred = models.find(model => String(model.id || '').toLowerCase() === 'gemma4:26b');
+            if (exactPreferred) {
+                return exactPreferred.id;
+            }
+
+            const toolCapable = models.filter(m => m.toolSupport === true);
             const pool = toolCapable.length ? toolCapable : models;
 
             const ranked = [...pool].sort((a, b) => {
@@ -1623,60 +2100,84 @@ function chatApp() {
         
         async loadModels() {
             try {
-                const providerToolsMap = await refreshModelToolCapabilities();
+                const models = this.filterChatModels(await loadAvailableModels());
+                this.availableModels = models.map(model => {
+                    const inferred = this.detectModelCapabilities(model.id || model.displayName || '');
+                    return {
+                        ...model,
+                        tools: model.toolSupport === true,
+                        iconVision: model.vision === true || inferred.vision === true,
+                        iconTools: model.toolSupport === true || inferred.tools === true,
+                        iconThinking: model.thinking === true || inferred.thinking === true
+                    };
+                });
 
-                // Use regular fetch - will work with proper CORS (app://localhost origin)
-                console.log('[ChatApp] Fetching models from:', `${API_BASE_URL}/get_models`);
-                const response = await fetch(`${API_BASE_URL}/get_models`);
-                console.log('[ChatApp] Response status:', response.status);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                const data = await response.json();
-                console.log('[ChatApp] Loaded models:', data);
-                if (data.models && Array.isArray(data.models)) {
-                    this.availableModels = data.models.map(m => {
-                        const modelId = m.id || m.name || m;
-                        const normalizedId = String(modelId || '').toLowerCase();
-                        const baseId = normalizedId.split(':')[0];
-                        const providerTools = providerToolsMap?.get?.(normalizedId);
-                        const providerToolsBase = providerToolsMap?.get?.(baseId);
-                        const toolSupport = typeof providerTools === 'boolean'
-                            ? providerTools
-                            : typeof providerToolsBase === 'boolean'
-                                ? providerToolsBase
-                                : typeof m.tools === 'boolean'
-                                    ? m.tools
-                                    : supportsTools(modelId);
-                        const capabilities = this.detectModelCapabilities(modelId);
-                        return {
-                            id: modelId,
-                            displayName: this.formatModelName(modelId),
-                            context_length: m.context_length || -1,
-                            ...capabilities,
-                            tools: toolSupport
-                        };
-                    });
-                    if (this.availableModels.length > 0) {
+                if (this.availableModels.length > 0) {
+                    const selectedStillExists = this.availableModels.some(model => model.id === this.selectedModel);
+                    if (!selectedStillExists) {
                         const preferred = this.pickPreferredDefaultModel(this.availableModels);
                         if (preferred) {
                             this.selectedModel = preferred;
                         }
                     }
-                    console.log('[ChatApp] Successfully loaded models');
                 }
+
+                if (!this.modelSupportsAgent(this.selectedModel) && this.interactionMode === 'agent') {
+                    this.interactionMode = 'ask';
+                }
+
+                console.log('[ChatApp] Successfully loaded models');
             } catch (error) {
-                console.error('[ChatApp] Failed to load models from backend:', error);
-                // Fallback to common models if backend is not available
-                this.availableModels = [
-                    { id: 'llama2', displayName: 'Llama2', context_length: -1, vision: false, tools: false, thinking: false },
-                    { id: 'mistral', displayName: 'Mistral', context_length: -1, vision: false, tools: true, thinking: false },
-                    { id: 'neural-chat', displayName: 'Neural Chat', context_length: -1, vision: false, tools: false, thinking: false },
-                    { id: 'dolphin-mixtral', displayName: 'Dolphin Mixtral', context_length: -1, vision: false, tools: true, thinking: false }
-                ];
-                const preferred = this.pickPreferredDefaultModel(this.availableModels);
-                if (preferred) {
-                    this.selectedModel = preferred;
+                console.error('[ChatApp] Failed to load models from provider:', error);
+                try {
+                    const response = await fetch(`${API_BASE_URL}/get_models`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    const settings = getProviderSettings();
+                    const providerLabel = settings.providerType === 'ollama'
+                        ? 'Ollama'
+                        : settings.providerType === 'anthropic-compatible'
+                            ? 'Anthropic-Compatible'
+                            : 'OpenAI-Compatible';
+                    this.availableModels = Array.isArray(data.models)
+                        ? this.filterChatModels(data.models.map(model => {
+                            const modelId = model.id || model.name || model;
+                            const embedding = this.isEmbeddingOnlyModel({ id: modelId });
+                            const inferred = this.detectModelCapabilities(modelId);
+                            return {
+                                id: modelId,
+                                displayName: this.formatModelName(modelId),
+                                providerType: settings.providerType,
+                                providerLabel,
+                                providerSource: 'backend-fallback',
+                                contextWindow: Number(model.context_length) > 0 ? Number(model.context_length) : null,
+                                maxOutputTokens: null,
+                                knowledgeCutoff: null,
+                                metadataVerified: Number(model.context_length) > 0,
+                                metadataTrust: Number(model.context_length) > 0 ? 'verified' : 'unknown',
+                                toolSupport: null,
+                                toolSupportProvenance: 'unknown',
+                                tools: false,
+                                embedding,
+                                chatCapable: !embedding,
+                                vision: false,
+                                thinking: false,
+                                iconVision: inferred.vision === true,
+                                iconTools: inferred.tools === true,
+                                iconThinking: inferred.thinking === true
+                            };
+                        }))
+                        : [];
+                } catch (fallbackError) {
+                    console.error('[ChatApp] Failed to load models from backend fallback:', fallbackError);
+                    this.availableModels = [];
+                } finally {
+                    if (this.interactionMode === 'agent') {
+                        this.interactionMode = 'ask';
+                    }
                 }
             }
         },
@@ -1704,6 +2205,9 @@ function chatApp() {
                 this.selectedModel = workspaceDefaults.defaultModel;
             }
             this.saveSessions();
+            this.$nextTick(() => {
+                this.scrollToBottom({ force: true, behavior: 'auto' });
+            });
         },
         
         autoGenerateSessionName() {
@@ -1742,10 +2246,16 @@ function chatApp() {
         },
         
         selectSession(sessionId) {
+            if (typeof document !== 'undefined' && document.activeElement?.blur) {
+                document.activeElement.blur();
+            }
             this.currentSession = sessionId;
             this.workspaceDetailsOpen = false;
+            this.currentWorkspaceFilter = 'all';
+            this.selectedWorkspaceId = null;
             const session = this.sessions.find(s => s.id === sessionId);
             if (session) {
+                this.pruneSessionDocumentRefs(sessionId);
                 this.messages = Array.isArray(session.messages)
                     ? session.messages.map(m => hydrateMessageFromPersistence(m))
                     : [];
@@ -1778,7 +2288,7 @@ function chatApp() {
             
             // Scroll to bottom when session is loaded
             this.$nextTick(() => {
-                this.scrollToBottom();
+                this.scrollToBottom({ force: true, behavior: 'auto' });
             });
         },
         
@@ -1880,17 +2390,7 @@ function chatApp() {
         },
 
         openEditWorkspace(workspaceId) {
-            const workspace = this.workspaces.find(w => w.id === workspaceId);
-            if (!workspace) return;
-            this.workspaceModal = {
-                show: true,
-                mode: 'edit',
-                workspaceId,
-                name: workspace.name,
-                icon: workspace.icon || '',
-                color: workspace.color || '#6a42c2',
-                description: workspace.description || ''
-            };
+            this.selectWorkspace(workspaceId);
         },
 
         openDeleteWorkspace(workspaceId) {
@@ -1919,9 +2419,9 @@ function chatApp() {
                 this.workspaces.unshift({
                     id: newWorkspaceId,
                     name: name.slice(0, 60),
-                    icon: (this.workspaceModal.icon || '').slice(0, 4),
-                    color: this.workspaceModal.color || '#6a42c2',
-                    description: (this.workspaceModal.description || '').slice(0, 200),
+                    icon: '',
+                    color: '#6a42c2',
+                    description: '',
                     pinnedNote: '',
                     defaultModel: '',
                     defaultSettings: {},
@@ -1932,17 +2432,8 @@ function chatApp() {
                     ...this.workspaceExpanded,
                     [newWorkspaceId]: true
                 };
-            }
-
-            if (mode === 'edit') {
-                const workspace = this.workspaces.find(w => w.id === this.workspaceModal.workspaceId);
-                if (workspace) {
-                    workspace.name = name.slice(0, 60);
-                    workspace.icon = (this.workspaceModal.icon || '').slice(0, 4);
-                    workspace.color = this.workspaceModal.color || '#6a42c2';
-                    workspace.description = (this.workspaceModal.description || '').slice(0, 200);
-                    workspace.updatedAt = new Date().toISOString();
-                }
+                this.setWorkspaceFilter('workspace', newWorkspaceId);
+                this.workspaceDetailsOpen = true;
             }
 
             if (mode === 'delete') {
@@ -1978,6 +2469,25 @@ function chatApp() {
             const workspace = this.getCurrentWorkspace();
             if (!workspace) return;
             workspace.pinnedNote = note;
+            workspace.updatedAt = new Date().toISOString();
+            this.persistAppState();
+        },
+
+        updateCurrentWorkspaceMeta(patch = {}) {
+            const workspace = this.getCurrentWorkspace();
+            if (!workspace) return;
+            if (typeof patch.name === 'string') {
+                workspace.name = patch.name.slice(0, 60);
+            }
+            if (typeof patch.icon === 'string') {
+                workspace.icon = patch.icon.slice(0, 4);
+            }
+            if (typeof patch.color === 'string') {
+                workspace.color = patch.color || '#6a42c2';
+            }
+            if (typeof patch.description === 'string') {
+                workspace.description = patch.description.slice(0, 200);
+            }
             workspace.updatedAt = new Date().toISOString();
             this.persistAppState();
         },
@@ -2198,10 +2708,15 @@ function chatApp() {
         
         selectModel(modelId) {
             this.selectedModel = modelId;
-            // Refresh provider-backed capability for newly selected model.
+            if (!this.selectedModelSupportsThinking(modelId)) {
+                this.thinkingEnabled = false;
+                this.saveThinkingPreference();
+            }
             supportsToolsFromProvider(modelId).then((isToolCapable) => {
                 const model = this.availableModels.find(m => m.id === modelId);
                 if (model) {
+                    model.toolSupport = !!isToolCapable;
+                    model.toolSupportProvenance = 'verified';
                     model.tools = !!isToolCapable;
                 }
 
@@ -2209,7 +2724,13 @@ function chatApp() {
                     this.interactionMode = 'ask';
                 }
             }).catch(() => {
-                if (!this.modelSupportsAgent(modelId) && this.interactionMode === 'agent') {
+                const model = this.availableModels.find(m => m.id === modelId);
+                if (model) {
+                    model.toolSupport = null;
+                    model.toolSupportProvenance = 'unknown';
+                    model.tools = false;
+                }
+                if (this.interactionMode === 'agent') {
                     this.interactionMode = 'ask';
                 }
             });
@@ -2227,12 +2748,62 @@ function chatApp() {
             this.interactionMode = mode;
         },
 
+        toggleThinking() {
+            if (!this.selectedModelSupportsThinking()) {
+                this.thinkingEnabled = false;
+                this.saveThinkingPreference();
+                return;
+            }
+            this.thinkingEnabled = !this.thinkingEnabled;
+            this.saveThinkingPreference();
+        },
+
         modelSupportsAgent(modelId = this.selectedModel) {
             const model = this.availableModels.find(m => m.id === modelId);
-            if (model && typeof model.tools === 'boolean') {
-                return model.tools;
+            return model?.toolSupport === true;
+        },
+
+        selectedModelSupportsThinking(modelId = this.selectedModel) {
+            const model = this.availableModels.find(m => m.id === modelId);
+            return model?.thinking === true || model?.iconThinking === true;
+        },
+
+        getAgentModeHint(modelId = this.selectedModel) {
+            const model = this.availableModels.find(m => m.id === modelId);
+            if (!model) {
+                return 'Agent requires a verified tools-capable model.';
             }
-            return supportsTools(modelId);
+            if (model.toolSupport === true) {
+                return 'Agent is available for this model.';
+            }
+            if (model.toolSupportProvenance === 'unknown') {
+                return 'Agent is disabled until tool support is verified for this provider/model.';
+            }
+            return 'Agent requires a verified tools-capable model.';
+        },
+
+        formatModelMetaNumber(value) {
+            if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+                return 'Unknown';
+            }
+
+            const num = Number(value);
+            if (num >= 1000000) return `${Math.round(num / 100000) / 10}M`;
+            if (num >= 1000) return `${Math.round(num / 100) / 10}K`;
+            return String(num);
+        },
+
+        getModelMetaLine(model) {
+            if (!model) return '';
+
+            const parts = [
+                model.providerLabel || 'Provider Unknown',
+                `Ctx ${this.formatModelMetaNumber(model.contextWindow)}`,
+                `Max ${this.formatModelMetaNumber(model.maxOutputTokens)}`,
+                `Cutoff ${model.knowledgeCutoff || 'Unknown'}`
+            ];
+
+            return parts.join(' · ');
         },
         
         getSelectedModelName() {
@@ -2357,7 +2928,7 @@ function chatApp() {
             
             // Scroll to bottom
             this.$nextTick(() => {
-                this.scrollToBottom();
+                this.scrollToBottom({ force: true, behavior: 'smooth' });
             });
             
             try {
@@ -2373,18 +2944,26 @@ function chatApp() {
                     role: 'assistant',
                     content: '<div class="typing-indicator"><span></span><span></span><span></span></div>',
                     model: this.selectedModel,
+                    providerLabel: this.availableModels.find(m => m.id === this.selectedModel)?.providerLabel || '',
                     showModelInfo: showModelInfo,
+                    reasoningMessageId: null,
                     isStreaming: true,
-                    isTyping: true
+                    isTyping: true,
+                    rawText: '',
+                    finishReason: null,
+                    incompleteReason: null,
+                    usage: null
                 };
                 this.messages.push(assistantMessage);
-                const messageIndex = this.messages.length - 1;
+                const assistantMessageId = assistantMessage.id;
                 
-                // Build conversation history (all messages except the assistant message being built)
-                const conversationHistory = this.messages.slice(0, -1).map(m => ({
+                // Build conversation history excluding:
+                // - the assistant placeholder being built
+                // - the latest user message, which askAgent() appends explicitly
+                const conversationHistory = this.messages.slice(0, -2).map(m => ({
                     role: m.role,
-                    content: m.content
-                }));
+                    content: m.rawText ?? m.content
+                })).filter(m => m.role !== 'reasoning');
                 
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
 
@@ -2422,9 +3001,13 @@ function chatApp() {
                 this.localRagLastModeUsed = 'none';
 
                 const isDocumentUpload = !!(this.uploadedFile && !this.uploadedFile.type.startsWith('image/'));
-                if (isDocumentUpload && this.localRagEnabled) {
+                const hasSessionPrivateDocs = this.getSessionDocumentRefs(this.currentSession).length > 0;
+                if (this.localRagEnabled && (isDocumentUpload || hasSessionPrivateDocs)) {
                     try {
-                        const localResult = await this.buildLocalContextForMessage(query, this.uploadedFile);
+                        const localResult = await this.buildLocalContextForMessage(
+                            query,
+                            isDocumentUpload ? this.uploadedFile : null
+                        );
                         if (localResult.ok) {
                             finalQuery = this.buildRagContextBlock(query, localResult.context);
                             fileForAgent = null; // Prevent backend rag_chain route when local context is available
@@ -2449,15 +3032,15 @@ function chatApp() {
                     conversationHistory,
                     fileForAgent,
                     this.currentSession,
-                    canUseAgent ? 'agent' : 'ask'
+                    canUseAgent ? 'agent' : 'ask',
+                    {
+                        thinkingEnabled: this.thinkingEnabled === true,
+                        thinkingSupported: this.selectedModelSupportsThinking(this.selectedModel),
+                        onEvent: (event) => this.handleProviderEvent(event, assistantMessageId)
+                    }
                 );
-                
-                // Parse and stream the result
-                await this.streamResponse(result, messageIndex);
-                
-                // Mark streaming as complete and remove any typing indicators
-                this.messages[messageIndex].isStreaming = false;
-                this.messages[messageIndex].isTyping = false;
+
+                this.applyFinalProviderResponse(result, assistantMessageId);
                 
                 // Auto-generate session name from first message
                 this.autoGenerateSessionName();
@@ -2494,6 +3077,86 @@ function chatApp() {
                 this.isLoading = false;
                 this.saveSessions();
                 console.log('Message complete, isLoading:', this.isLoading);
+            }
+        },
+
+        handleProviderEvent(event, assistantMessageId) {
+            const message = this.getMessageById(assistantMessageId);
+            if (!message) return;
+
+            if (event.type === 'started') {
+                return;
+            }
+
+            if (event.type === 'delta') {
+                if (message.isTyping) {
+                    message.content = '';
+                    message.rawText = '';
+                    message.isTyping = false;
+                }
+
+                message.rawText = `${message.rawText || ''}${event.delta || ''}`;
+                this.scheduleStreamingMarkdownRender(assistantMessageId);
+                this.$nextTick(() => {
+                    this.scrollToBottom({ behavior: 'auto' });
+                });
+                return;
+            }
+
+            if (event.type === 'thinking_delta') {
+                const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId);
+                if (!reasoningMessage) return;
+                reasoningMessage.rawText = `${reasoningMessage.rawText || ''}${event.delta || ''}`;
+                reasoningMessage.content = reasoningMessage.rawText;
+                this.$nextTick(() => {
+                    this.scrollToBottom({ behavior: 'auto' });
+                });
+                return;
+            }
+
+            if (event.type === 'completed' || event.type === 'incomplete') {
+                message.finishReason = event.finishReason || null;
+                message.incompleteReason = event.incompleteReason || null;
+                message.usage = event.usage || null;
+                return;
+            }
+
+            if (event.type === 'error') {
+                message.isTyping = false;
+                message.isStreaming = false;
+                message.content = `Error: ${event.error}`;
+            }
+        },
+
+        applyFinalProviderResponse(result, assistantMessageId) {
+            const message = this.getMessageById(assistantMessageId);
+            if (!message) return;
+            this.cancelStreamingMarkdownRender(assistantMessageId);
+
+            const finalText = typeof result?.text === 'string'
+                ? result.text
+                : message.rawText || '';
+
+            message.rawText = finalText;
+            message.content = finalText;
+            message.isStreaming = false;
+            message.isTyping = false;
+            message.finishReason = result?.finishReason || message.finishReason || null;
+            message.incompleteReason = result?.incompleteReason || message.incompleteReason || null;
+            message.usage = result?.usage || message.usage || null;
+
+            const finalThinking = typeof result?.thinking === 'string' ? result.thinking : '';
+            if (finalThinking) {
+                const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId);
+                if (reasoningMessage) {
+                    reasoningMessage.rawText = finalThinking;
+                    reasoningMessage.content = finalThinking;
+                }
+            }
+
+            const messageIndex = this.findMessageIndexById(assistantMessageId);
+            if (messageIndex >= 0) {
+                this.updateMessageMarkdown(messageIndex);
             }
         },
         
@@ -2565,21 +3228,27 @@ function chatApp() {
                     this.$nextTick(() => {
                         const container = document.getElementById('messages-container');
                         if (!container) return;
-                        container.querySelectorAll('pre:not([data-copy-added])').forEach(pre => {
+                        container.querySelectorAll('.md-content pre:not([data-copy-added])').forEach(pre => {
                             pre.setAttribute('data-copy-added', '1');
                             const btn = document.createElement('button');
                             btn.className = 'md-copy-btn';
                             btn.title = 'Copy code';
-                            safeInnerHTML(btn, '<i class="fas fa-copy"></i>');
+                            const setCopyButtonIcon = (button, iconClass) => {
+                                button.replaceChildren();
+                                const icon = document.createElement('i');
+                                icon.className = iconClass;
+                                button.appendChild(icon);
+                            };
+                            setCopyButtonIcon(btn, 'fas fa-copy');
                             btn.addEventListener('click', () => {
                                 const code = pre.querySelector('code');
                                 navigator.clipboard.writeText(code ? code.innerText : pre.innerText).then(() => {
-                                    safeInnerHTML(btn, '<i class="fas fa-check"></i>');
+                                    setCopyButtonIcon(btn, 'fas fa-check');
                                     btn.style.background = 'var(--accent)';
                                     btn.style.color = '#fff';
                                     const timerMgr = getTimerManager('chat-app-copy-btn');
                                     timerMgr.schedule(() => {
-                                        safeInnerHTML(btn, '<i class="fas fa-copy"></i>');
+                                        setCopyButtonIcon(btn, 'fas fa-copy');
                                         btn.style.background = '';
                                         btn.style.color = '';
                                     }, 1800);

@@ -2,6 +2,20 @@ let retriever = null;
 let initialized = false;
 let initializingPromise = null;
 const cancelledJobs = new Set();
+const RAG_ASSET_URLS = {
+    tfjsUrl: new URL('../../vendor/tfjs/tf.min.js', self.location.href).href,
+    useScriptUrl: new URL('../../vendor/use/universal-sentence-encoder.min.js', self.location.href).href,
+    useModelUrl: new URL('../../vendor/use/model/model.json', self.location.href).href,
+    useVocabUrl: new URL('../../vendor/use/model/vocab.json', self.location.href).href,
+    jszipUrl: new URL('../../vendor/jszip/jszip.min.js', self.location.href).href,
+    xlsxUrl: new URL('../../vendor/xlsx/xlsx.full.min.js', self.location.href).href,
+    documentParserUrl: new URL('../document-parser.js', self.location.href).href,
+    ragPolicyUrl: new URL('./rag-policy.js', self.location.href).href,
+    vectorStoreUrl: new URL('./indexed-db-vector-store.js', self.location.href).href,
+    retrieverUrl: new URL('./browser-retriever.js', self.location.href).href
+};
+
+self.RAG_ASSET_URLS = RAG_ASSET_URLS;
 
 async function ensureInitialized() {
     if (initialized && retriever) {
@@ -13,11 +27,14 @@ async function ensureInitialized() {
 
     initializingPromise = (async () => {
         importScripts(
-            'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs',
-            'https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder',
-            './rag-policy.js',
-            './indexed-db-vector-store.js',
-            './browser-retriever.js'
+            RAG_ASSET_URLS.tfjsUrl,
+            RAG_ASSET_URLS.useScriptUrl,
+            RAG_ASSET_URLS.jszipUrl,
+            RAG_ASSET_URLS.xlsxUrl,
+            RAG_ASSET_URLS.documentParserUrl,
+            RAG_ASSET_URLS.ragPolicyUrl,
+            RAG_ASSET_URLS.vectorStoreUrl,
+            RAG_ASSET_URLS.retrieverUrl
         );
 
         if (typeof BrowserRetriever === 'undefined') {
