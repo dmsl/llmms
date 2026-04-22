@@ -295,6 +295,29 @@ function elementNeedsViewportReveal(element) {
     return rect.top < viewportMargin || rect.bottom > (window.innerHeight - viewportMargin);
 }
 
+function buildRoundedSpotlightClipPath(left, top, width, height, radius) {
+    const right = left + width;
+    const bottom = top + height;
+    const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : right;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : bottom;
+    const path = [
+        `M 0 0 H ${viewportWidth} V ${viewportHeight} H 0 Z`,
+        `M ${left + r} ${top}`,
+        `H ${right - r}`,
+        `A ${r} ${r} 0 0 1 ${right} ${top + r}`,
+        `V ${bottom - r}`,
+        `A ${r} ${r} 0 0 1 ${right - r} ${bottom}`,
+        `H ${left + r}`,
+        `A ${r} ${r} 0 0 1 ${left} ${bottom - r}`,
+        `V ${top + r}`,
+        `A ${r} ${r} 0 0 1 ${left + r} ${top}`,
+        'Z'
+    ].join(' ');
+
+    return `path(evenodd, "${path}")`;
+}
+
 function sanitizeMessageForPersistence(msg) {
     const safe = {
         ...deepCloneSerializable(msg, {})
@@ -785,6 +808,7 @@ function chatApp() {
         
         async init() {
             window.chatAppState = this;
+            const shouldAutoOpenOnboarding = !localStorage.getItem(ONBOARDING_STORAGE_KEY);
             // Watch for sidebar state changes and persist to localStorage
             this.$watch('sidebarOpen', (value) => {
                 localStorage.setItem('sidebar_open', value.toString());
@@ -812,6 +836,21 @@ function chatApp() {
             this.loadLocalRagPrefs();
             this.syncChatLayoutSpacing();
             this.observeChatLayoutSpacing();
+
+            const onboardingEvents = getEventManager('chat-app-onboarding');
+            onboardingEvents.add(window, 'resize', () => this.refreshOnboardingLayout(false));
+            onboardingEvents.add(window, 'orientationchange', () => this.refreshOnboardingLayout(false));
+            onboardingEvents.add(window, 'themechange', () => this.refreshOnboardingLayout(false));
+            this.$watch('sidebarOpen', () => {
+                if (this.onboarding.open) {
+                    this.$nextTick(() => this.refreshOnboardingLayout(false));
+                }
+            });
+
+            if (shouldAutoOpenOnboarding) {
+                this.$nextTick(() => this.openOnboarding());
+            }
+
             await this.refreshStorageEstimate();
             await this.migrateLegacyWorkspaceFilesToIndexedDb();
             if (this.sessions.length > 0) {
@@ -900,22 +939,6 @@ function chatApp() {
                 // Web mode: Initialize browser MCP client and auto-connect
                 await this.initBrowserMCP();
             }
-
-            const onboardingEvents = getEventManager('chat-app-onboarding');
-            onboardingEvents.add(window, 'resize', () => this.refreshOnboardingLayout(false));
-            onboardingEvents.add(window, 'orientationchange', () => this.refreshOnboardingLayout(false));
-            onboardingEvents.add(window, 'themechange', () => this.refreshOnboardingLayout(false));
-            this.$watch('sidebarOpen', () => {
-                if (this.onboarding.open) {
-                    this.$nextTick(() => this.refreshOnboardingLayout(false));
-                }
-            });
-
-            this.$nextTick(() => {
-                if (!localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
-                    this.openOnboarding();
-                }
-            });
         },
 
         getCurrentOnboardingStep() {
@@ -1060,11 +1083,7 @@ function chatApp() {
                         return;
                     }
 
-                    if (revealTarget && elementNeedsViewportReveal(target)) {
-                        revealElementInScrollableAncestor(target, prefersReducedMotion() ? 'auto' : 'smooth');
-                    }
-
-                    requestAnimationFrame(() => {
+                    const applyLayout = () => {
                         const rect = target.getBoundingClientRect();
                         const padding = window.innerWidth < 768 ? 10 : 14;
                         const inset = 10;
@@ -1086,9 +1105,11 @@ function chatApp() {
                             `height:${height}px`,
                             `border-radius:${Math.min(24, Math.max(16, Math.round(height / 3)))}px`
                         ].join(';');
+                        const spotlightRadius = Math.min(24, Math.max(16, Math.round(height / 3)));
                         this.onboarding.backdropStyle = [
                             'inset:0',
-                            `clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${left}px ${top}px, ${left}px ${top + height}px, ${left + width}px ${top + height}px, ${left + width}px ${top}px, ${left}px ${top}px)`
+                            `clip-path:${buildRoundedSpotlightClipPath(left, top, width, height, spotlightRadius)}`,
+                            `-webkit-clip-path:${buildRoundedSpotlightClipPath(left, top, width, height, spotlightRadius)}`
                         ].join(';');
 
                         if (compact) {
@@ -1101,7 +1122,15 @@ function chatApp() {
                         const horizontal = targetCenterX < (window.innerWidth / 2) ? 'right:24px' : 'left:24px';
                         const vertical = targetCenterY > (window.innerHeight * 0.55) ? 'top:24px' : 'bottom:24px';
                         this.onboarding.cardStyle = `${horizontal}; ${vertical}; width:min(380px, calc(100vw - 48px));`;
-                    });
+                    };
+
+                    if (revealTarget && elementNeedsViewportReveal(target)) {
+                        revealElementInScrollableAncestor(target, prefersReducedMotion() ? 'auto' : 'smooth');
+                        requestAnimationFrame(applyLayout);
+                        return;
+                    }
+
+                    applyLayout();
                 });
             });
         },
