@@ -652,18 +652,20 @@
             backdrop-filter: blur(6px) saturate(0.95);
             -webkit-backdrop-filter: blur(6px) saturate(0.95);
             pointer-events: none;
+            will-change: clip-path, -webkit-clip-path;
+            transition: clip-path 0.34s cubic-bezier(0.22, 1, 0.36, 1), -webkit-clip-path 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
         }
 
         .chatucy-tour-spotlight {
             position: fixed;
             z-index: 2;
-            border: 1px solid rgba(255,255,255,0.34);
+            border: 1px solid rgba(255,255,255,0.26);
             background: transparent;
             box-shadow:
-                0 0 0 1px rgba(255,255,255,0.08),
-                0 10px 28px rgba(7,6,16,0.12),
-                0 0 18px rgba(255,255,255,0.08);
+                0 8px 24px rgba(7,6,16,0.1),
+                0 0 14px rgba(255,255,255,0.05);
             pointer-events: none;
+            will-change: top, left, width, height, border-radius;
             transition: top 0.34s cubic-bezier(0.22, 1, 0.36, 1), left 0.34s cubic-bezier(0.22, 1, 0.36, 1), width 0.34s cubic-bezier(0.22, 1, 0.36, 1), height 0.34s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.34s cubic-bezier(0.22, 1, 0.36, 1);
         }
 
@@ -754,7 +756,8 @@
             box-shadow: 0 24px 60px rgba(5, 4, 14, 0.34);
             backdrop-filter: blur(18px);
             -webkit-backdrop-filter: blur(18px);
-            transition: top 0.38s cubic-bezier(0.22, 1, 0.36, 1), right 0.38s cubic-bezier(0.22, 1, 0.36, 1), bottom 0.38s cubic-bezier(0.22, 1, 0.36, 1), left 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: top, left, width;
+            transition: top 0.42s cubic-bezier(0.22, 1, 0.36, 1), left 0.42s cubic-bezier(0.22, 1, 0.36, 1), width 0.42s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
         }
 
         .chatucy-tour-kicker {
@@ -2219,6 +2222,19 @@
                                     <i class="fas fa-trash" style="margin-right:6px; font-size:0.7rem;"></i>Clear All
                                 </button>
                             </div>
+                        </div>
+
+                        <div style="padding:12px 14px; background:rgba(106,66,194,0.05); border:1px solid var(--border); border-radius:12px;">
+                            <div style="font-size:0.78rem; color:var(--text-strong); font-weight:600; margin-bottom:6px;">Quick Tour</div>
+                            <div style="font-size:0.7rem; color:var(--muted); line-height:1.5; margin-bottom:10px;">
+                                Replay the onboarding walkthrough any time.
+                            </div>
+                            <button
+                                @click="mcpConfigModal.show = false; reopenOnboarding()"
+                                class="ds-btn"
+                                style="width:100%; justify-content:center; font-size:0.74rem; padding:6px 0;">
+                                <i class="fas fa-wand-magic-sparkles" style="margin-right:6px; font-size:0.68rem;"></i>Restart Tour
+                            </button>
                         </div>
                     </div>
                 </template>

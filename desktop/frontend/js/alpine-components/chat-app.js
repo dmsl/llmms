@@ -193,7 +193,7 @@ const ONBOARDING_STEPS = Object.freeze([
         description: 'Settings gives you access to providers, MCP tools, and the advanced configuration for the chat.',
         note: 'You can reopen this tour from the top-right menu at any time.',
         sidebar: 'open',
-        spotlightPadding: 6,
+        spotlightPadding: 0,
         spotlightRadius: 12
     }
 ]);
@@ -425,7 +425,8 @@ function chatApp() {
             cardStyle: '',
             targetVisible: false,
             sidebarStateBeforeTour: null,
-            scrollLock: null
+            scrollLock: null,
+            closeTimer: null
         },
         modal: {
             show: false,
@@ -957,6 +958,11 @@ function chatApp() {
                 return;
             }
 
+            if (this.onboarding.closeTimer) {
+                clearTimeout(this.onboarding.closeTimer);
+                this.onboarding.closeTimer = null;
+            }
+
             if (this.onboarding.sidebarStateBeforeTour === null) {
                 this.onboarding.sidebarStateBeforeTour = this.sidebarOpen;
             }
@@ -968,12 +974,20 @@ function chatApp() {
         },
 
         closeOnboarding(markSeen = true) {
+            if (this.onboarding.closeTimer) {
+                clearTimeout(this.onboarding.closeTimer);
+                this.onboarding.closeTimer = null;
+            }
+
             this.onboarding.open = false;
-            this.onboarding.targetVisible = false;
-            this.onboarding.spotlightStyle = '';
-            this.onboarding.backdropStyle = '';
-            this.onboarding.cardStyle = '';
-            this.unlockOnboardingScroll();
+            this.onboarding.closeTimer = setTimeout(() => {
+                this.onboarding.targetVisible = false;
+                this.onboarding.spotlightStyle = '';
+                this.onboarding.backdropStyle = '';
+                this.onboarding.cardStyle = '';
+                this.unlockOnboardingScroll();
+                this.onboarding.closeTimer = null;
+            }, 180);
 
             if (markSeen) {
                 localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
@@ -1081,7 +1095,7 @@ function chatApp() {
                         this.onboarding.targetVisible = false;
                         this.onboarding.spotlightStyle = '';
                         this.onboarding.backdropStyle = 'inset:0;';
-                        this.onboarding.cardStyle = 'left:12px; right:12px; bottom:max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px));';
+                        this.onboarding.cardStyle = 'left:12px; top:calc(100vh - 284px); width:min(380px, calc(100vw - 24px));';
                         return;
                     }
 
@@ -1100,6 +1114,10 @@ function chatApp() {
                         const compact = window.innerWidth < 900;
                         const targetCenterX = rect.left + (rect.width / 2);
                         const targetCenterY = rect.top + (rect.height / 2);
+                        const cardWidth = compact
+                            ? Math.min(Math.max(240, window.innerWidth - 24), window.innerWidth - 24)
+                            : Math.min(380, Math.max(280, window.innerWidth - 48));
+                        const estimatedCardHeight = compact ? 286 : 312;
 
                         this.onboarding.targetVisible = true;
                         const spotlightRadius = Number.isFinite(step.spotlightRadius)
@@ -1119,15 +1137,20 @@ function chatApp() {
                         ].join(';');
 
                         if (compact) {
-                            this.onboarding.cardStyle = targetCenterY > (window.innerHeight * 0.58)
-                                ? 'left:12px; right:12px; top:max(12px, calc(env(safe-area-inset-top, 0px) + 12px));'
-                                : 'left:12px; right:12px; bottom:max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px));';
+                            const cardTop = targetCenterY > (window.innerHeight * 0.58)
+                                ? 12
+                                : Math.max(12, window.innerHeight - estimatedCardHeight - 12);
+                            this.onboarding.cardStyle = `left:12px; top:${cardTop}px; width:${cardWidth}px;`;
                             return;
                         }
 
-                        const horizontal = targetCenterX < (window.innerWidth / 2) ? 'right:24px' : 'left:24px';
-                        const vertical = targetCenterY > (window.innerHeight * 0.55) ? 'top:24px' : 'bottom:24px';
-                        this.onboarding.cardStyle = `${horizontal}; ${vertical}; width:min(380px, calc(100vw - 48px));`;
+                        const cardLeft = targetCenterX < (window.innerWidth / 2)
+                            ? Math.max(24, window.innerWidth - cardWidth - 24)
+                            : 24;
+                        const cardTop = targetCenterY > (window.innerHeight * 0.55)
+                            ? 24
+                            : Math.max(24, window.innerHeight - estimatedCardHeight - 24);
+                        this.onboarding.cardStyle = `left:${cardLeft}px; top:${cardTop}px; width:${cardWidth}px;`;
                     };
 
                     if (revealTarget && elementNeedsViewportReveal(target)) {
