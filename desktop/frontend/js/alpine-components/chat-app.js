@@ -2789,15 +2789,26 @@ function chatApp() {
         },
 
         openCreateWorkspace() {
-            this.workspaceModal = {
-                show: true,
-                mode: 'create',
-                workspaceId: null,
-                name: '',
+            const newWorkspaceId = makeId('ws');
+            this.workspaces.unshift({
+                id: newWorkspaceId,
+                name: 'Untitled workspace',
                 icon: '',
                 color: '#6a42c2',
-                description: ''
+                description: '',
+                pinnedNote: '',
+                defaultModel: '',
+                defaultSettings: {},
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            });
+            this.workspaceExpanded = {
+                ...this.workspaceExpanded,
+                [newWorkspaceId]: true
             };
+            this.setWorkspaceFilter('workspace', newWorkspaceId);
+            this.workspaceDetailsOpen = true;
+            this.persistAppState();
         },
 
         openEditWorkspace(workspaceId) {
