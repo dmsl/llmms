@@ -192,7 +192,9 @@ const ONBOARDING_STEPS = Object.freeze([
         title: 'Open settings whenever you need more control',
         description: 'Settings gives you access to providers, MCP tools, and the advanced configuration for the chat.',
         note: 'You can reopen this tour from the top-right menu at any time.',
-        sidebar: 'open'
+        sidebar: 'open',
+        spotlightPadding: 6,
+        spotlightRadius: 12
     }
 ]);
 
@@ -1085,7 +1087,9 @@ function chatApp() {
 
                     const applyLayout = () => {
                         const rect = target.getBoundingClientRect();
-                        const padding = window.innerWidth < 768 ? 10 : 14;
+                        const padding = Number.isFinite(step.spotlightPadding)
+                            ? step.spotlightPadding
+                            : (window.innerWidth < 768 ? 10 : 14);
                         const inset = 10;
                         const top = clampNumber(rect.top - padding, inset, Math.max(inset, window.innerHeight - 48));
                         const left = clampNumber(rect.left - padding, inset, Math.max(inset, window.innerWidth - 48));
@@ -1098,14 +1102,16 @@ function chatApp() {
                         const targetCenterY = rect.top + (rect.height / 2);
 
                         this.onboarding.targetVisible = true;
+                        const spotlightRadius = Number.isFinite(step.spotlightRadius)
+                            ? step.spotlightRadius
+                            : Math.min(24, Math.max(16, Math.round(height / 3)));
                         this.onboarding.spotlightStyle = [
                             `top:${top}px`,
                             `left:${left}px`,
                             `width:${width}px`,
                             `height:${height}px`,
-                            `border-radius:${Math.min(24, Math.max(16, Math.round(height / 3)))}px`
+                            `border-radius:${spotlightRadius}px`
                         ].join(';');
-                        const spotlightRadius = Math.min(24, Math.max(16, Math.round(height / 3)));
                         this.onboarding.backdropStyle = [
                             'inset:0',
                             `clip-path:${buildRoundedSpotlightClipPath(left, top, width, height, spotlightRadius)}`,
