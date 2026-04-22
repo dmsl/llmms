@@ -1232,7 +1232,7 @@
                         </button>
 
                         <div x-show="!workspacesCollapsed" style="display:grid; gap:6px;">
-                            <button @click="openCreateWorkspace()" class="ds-btn" style="justify-content:flex-start; gap:6px; font-size:0.76rem; padding:7px 10px; border:1px solid color-mix(in srgb, var(--border) 84%, transparent); border-radius:999px; background:color-mix(in srgb, var(--surface) 92%, transparent); color:var(--muted); text-transform:none; letter-spacing:0.02em;">
+                            <button @click="openCreateWorkspace()" class="ds-btn" style="justify-content:flex-start; gap:6px; font-size:0.76rem; padding:7px 10px; border:1px solid color-mix(in srgb, var(--border) 84%, transparent); border-radius:10px; background:color-mix(in srgb, var(--surface) 92%, transparent); color:var(--muted); text-transform:none; letter-spacing:0.02em;">
                                 <i class="fas fa-folder-plus" style="font-size:0.72rem;"></i> New workspace
                             </button>
 
@@ -1421,7 +1421,7 @@
                             @click="mcpConfigModal.show = true, mcpConfigModal.activeTab = 'llm', mcpConfigModal.loadServers(), mcpConfigModal.loadTools()"
                             class="ds-btn"
                             data-tour="settings-button"
-                            style="justify-content:center; font-size:0.65rem; padding:8px; border-radius:999px; background:color-mix(in srgb, var(--surface) 92%, transparent);"
+                            style="justify-content:center; font-size:0.65rem; padding:8px; border-radius:10px; background:color-mix(in srgb, var(--surface) 92%, transparent);"
                             title="Configure MCP servers">
                             <i class="fas fa-gear"></i> Settings
                         </button>
@@ -1712,7 +1712,7 @@
                             </template>
 
                             <template x-if="message.role === 'reasoning'">
-                                <div style="max-width:92%; margin-bottom:2px;">
+                                <div style="max-width:92%; min-width:0; margin-bottom:2px; overflow:hidden;">
                                     <div
                                         :style="message.expanded
                                             ? 'margin-bottom:8px; padding:6px 2px 8px; background:transparent;'
@@ -1721,13 +1721,13 @@
                                             @click="message.expanded = !message.expanded"
                                             type="button"
                                             :title="message.expanded ? 'Collapse thinking' : 'Expand thinking'"
-                                            style="width:100%; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
+                                            style="width:100%; max-width:100%; min-width:0; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; background:none; border:none; padding:0; cursor:pointer; text-align:left; overflow:hidden;">
                                             <div style="display:flex; align-items:flex-start; gap:8px; min-width:0; flex:1;">
                                                 <i class="fas fa-brain" style="font-size:0.74rem; color:#6b7280; margin-top:2px; flex-shrink:0;"></i>
                                                 <pre
                                                     :style="message.expanded
-                                                        ? 'margin:0; white-space:pre-wrap; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:monospace; flex:1;'
-                                                        : 'margin:0; white-space:nowrap; text-overflow:ellipsis; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:monospace; flex:1;'"
+                                                        ? 'margin:0; width:100%; max-width:100%; min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:monospace; flex:1;'
+                                                        : 'margin:0; width:100%; max-width:100%; min-width:0; white-space:nowrap; text-overflow:ellipsis; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:monospace; flex:1; display:block;'"
                                                     x-text="message.content"></pre>
                                             </div>
                                             <span
