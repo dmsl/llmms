@@ -447,6 +447,9 @@ function chatApp() {
             color: '#6a42c2',
             description: ''
         },
+        workspaceResourcesModal: {
+            show: false
+        },
         jsonEditorModal: {
             show: false,
             jsonText: '',
@@ -2819,6 +2822,11 @@ function chatApp() {
             this.selectWorkspace(workspaceId);
         },
 
+        openWorkspaceResourcesModal() {
+            if (!this.getCurrentWorkspace()) return;
+            this.workspaceResourcesModal.show = true;
+        },
+
         openDeleteWorkspace(workspaceId) {
             const workspace = this.workspaces.find(w => w.id === workspaceId);
             if (!workspace) return;
@@ -2864,6 +2872,9 @@ function chatApp() {
 
             if (mode === 'delete') {
                 const workspaceId = this.workspaceModal.workspaceId;
+                const deletedSessionIds = new Set(
+                    this.sessions.filter(s => s.workspaceId === workspaceId).map(s => s.id)
+                );
                 const storageKeys = this.workspaceFiles
                     .filter(f => f.workspaceId === workspaceId)
                     .map(f => f.storageKey)
@@ -2874,15 +2885,17 @@ function chatApp() {
                 this.workspaceFiles = this.workspaceFiles.filter(f => f.workspaceId !== workspaceId);
                 const { [workspaceId]: _removed, ...restExpanded } = this.workspaceExpanded;
                 this.workspaceExpanded = restExpanded;
-                this.sessions = this.sessions.map(s => {
-                    if (s.workspaceId === workspaceId) {
-                        return { ...s, workspaceId: null, updatedAt: new Date().toISOString() };
-                    }
-                    return s;
-                });
+                this.sessions = this.sessions.filter(s => s.workspaceId !== workspaceId);
                 if (this.selectedWorkspaceId === workspaceId) {
                     this.setWorkspaceFilter('all');
                     this.workspaceDetailsOpen = false;
+                }
+                if (this.currentSession && deletedSessionIds.has(this.currentSession)) {
+                    if (this.sessions.length > 0) {
+                        this.selectSession(this.sessions[0].id);
+                    } else {
+                        this.newChat();
+                    }
                 }
             }
 
