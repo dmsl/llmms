@@ -656,14 +656,90 @@
         .chatucy-tour-spotlight {
             position: fixed;
             z-index: 2;
-            border: 1px solid rgba(255,255,255,0.28);
-            background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+            border: 1px solid rgba(255,255,255,0.58);
+            background: transparent;
             box-shadow:
                 0 0 0 9999px rgba(7,6,16,0.42),
-                0 18px 48px rgba(0,0,0,0.28),
-                inset 0 0 0 1px rgba(255,255,255,0.12);
+                0 18px 48px rgba(0,0,0,0.22),
+                0 0 0 1px rgba(255,255,255,0.24),
+                inset 0 0 0 1px rgba(255,255,255,0.18);
             pointer-events: none;
             transition: top 0.24s ease, left 0.24s ease, width 0.24s ease, height 0.24s ease;
+        }
+
+        .chatucy-write-modal[hidden] {
+            display: none !important;
+        }
+
+        .chatucy-write-modal {
+            z-index: 1900;
+        }
+
+        .chatucy-write-modal .chatucy-modal-panel {
+            width: min(560px, calc(100vw - 32px));
+            padding: 0;
+            overflow: hidden;
+            background: color-mix(in srgb, var(--surface-elevated) 94%, white 6%);
+            box-shadow: 0 28px 80px rgba(5, 4, 14, 0.3);
+        }
+
+        .chatucy-write-modal-header,
+        .chatucy-write-modal-footer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+        }
+
+        .chatucy-write-modal-header {
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .chatucy-write-modal-title {
+            font-family: var(--font-heading);
+            font-size: 1rem;
+            color: var(--text-strong);
+        }
+
+        .chatucy-write-modal-body {
+            padding: 18px 20px 20px;
+        }
+
+        .chatucy-write-modal-path {
+            margin-bottom: 14px;
+            color: var(--muted);
+            font-size: 0.88rem;
+            word-break: break-word;
+        }
+
+        .chatucy-write-modal-label {
+            margin-bottom: 8px;
+            font-size: 0.72rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .chatucy-write-modal-preview {
+            max-height: 220px;
+            overflow: auto;
+            margin: 0;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--surface) 92%, #000 8%);
+            color: var(--text);
+            font-size: 0.82rem;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .chatucy-write-modal-footer {
+            justify-content: flex-end;
+            border-top: 1px solid var(--border);
+            background: color-mix(in srgb, var(--surface) 96%, var(--accent) 4%);
         }
 
         .chatucy-tour-card {
@@ -2405,24 +2481,30 @@
     </div>
 
     <!-- File Write Permission Modal -->
-    <div class="modal fade" id="writeConfirmModal" tabindex="-1">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Confirm File Write</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <p id="write-path" class="text-muted mb-3"></p>
-            <p class="text-sm text-gray-600 mb-2">Preview:</p>
-            <pre id="write-preview" style="max-height:150px; overflow:auto; background-color:#f5f5f5; padding:10px; border-radius:4px;"></pre>
-          </div>
-          <div class="modal-footer">
-            <button type="button" id="denyWrite" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button type="button" id="allowWrite" class="btn btn-primary">Allow Write</button>
-          </div>
+    <div
+        id="writeConfirmModal"
+        class="chatucy-modal-overlay chatucy-write-modal"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="writeConfirmTitle">
+        <div class="ds-panel ds-panel--elevated chatucy-modal-panel" @click.stop>
+            <div class="chatucy-write-modal-header">
+                <h2 id="writeConfirmTitle" class="chatucy-write-modal-title">Confirm File Write</h2>
+                <button type="button" id="closeWriteModal" class="ds-icon-btn" style="width:32px; height:32px;" aria-label="Close">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </div>
+            <div class="chatucy-write-modal-body">
+                <p id="write-path" class="chatucy-write-modal-path"></p>
+                <p class="chatucy-write-modal-label">Preview</p>
+                <pre id="write-preview" class="chatucy-write-modal-preview"></pre>
+            </div>
+            <div class="chatucy-write-modal-footer">
+                <button type="button" id="denyWrite" class="ds-btn">Cancel</button>
+                <button type="button" id="allowWrite" class="ds-btn ds-btn--solid">Allow Write</button>
+            </div>
         </div>
-      </div>
     </div>
 <script src="../js/ds-theme.js"></script>
 </body>
