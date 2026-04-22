@@ -370,6 +370,136 @@
             bottom: 0 !important;
             padding-bottom: var(--chat-input-offset) !important;
         }
+
+        .workspace-details-screen {
+            background: var(--bg);
+            padding: 60px 20px calc(var(--chat-input-offset) + 16px);
+        }
+
+        .workspace-details-panel {
+            max-width: 1020px;
+            margin: 0 auto;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--surface-elevated);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 34px rgba(106,66,194,0.08);
+            max-height: calc(100dvh - var(--chat-input-offset) - 88px);
+        }
+
+        .workspace-details-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px;
+            border-bottom: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+            background: color-mix(in srgb, var(--surface-elevated) 90%, var(--accent) 10%);
+        }
+
+        .workspace-details-header-grid {
+            flex: 1;
+            min-width: 0;
+            display: grid;
+            grid-template-columns: 42px 36px minmax(160px, 1fr) minmax(160px, 0.9fr);
+            gap: 8px;
+            align-items: center;
+        }
+
+        .workspace-details-description {
+            min-width: 0;
+        }
+
+        .workspace-details-body {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            padding: 12px 14px 10px;
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .workspace-details-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 0 14px 14px;
+            border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+        }
+
+        @media (max-width: 900px) {
+            .workspace-details-header-grid {
+                grid-template-columns: 42px 36px minmax(0, 1fr);
+            }
+
+            .workspace-details-description {
+                grid-column: 1 / -1;
+            }
+
+            .workspace-details-body {
+                grid-template-columns: 1fr;
+            }
+
+            .workspace-details-right {
+                grid-column: 1 !important;
+                grid-row: auto !important;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .workspace-details-screen {
+                padding: 56px 12px calc(var(--chat-input-offset) + 12px);
+            }
+
+            .workspace-details-panel {
+                max-height: calc(100dvh - var(--chat-input-offset) - 72px);
+                border-radius: 12px;
+            }
+
+            .workspace-details-header {
+                align-items: flex-start;
+                padding: 10px 10px 12px;
+            }
+
+            .workspace-details-header-grid {
+                grid-template-columns: 42px minmax(0, 1fr) 36px;
+            }
+
+            .workspace-details-header-grid > :nth-child(2) {
+                grid-column: 3;
+                grid-row: 1;
+                justify-self: end;
+            }
+
+            .workspace-details-header-grid > :nth-child(3) {
+                grid-column: 2 / 4;
+                grid-row: 1;
+            }
+
+            .workspace-details-description {
+                grid-column: 1 / -1;
+                grid-row: 2;
+            }
+
+            .workspace-details-body {
+                padding: 10px 10px 8px;
+                gap: 12px;
+            }
+
+            .workspace-details-actions {
+                grid-template-columns: 1fr;
+                padding: 0 10px 10px;
+            }
+
+            .composer-thinking-label,
+            .composer-thinking-switch {
+                display: none !important;
+            }
+        }
         
         /* Prevent sidebar flash on page load */
         aside.fixed {
@@ -1102,7 +1232,7 @@
                         </button>
 
                         <div x-show="!workspacesCollapsed" style="display:grid; gap:6px;">
-                            <button @click="openCreateWorkspace()" class="ds-btn" style="justify-content:flex-start; gap:6px; font-size:0.76rem; padding:4px 6px; border:none; background:transparent; color:var(--muted); text-transform:none; letter-spacing:0.02em;">
+                            <button @click="openCreateWorkspace()" class="ds-btn" style="justify-content:flex-start; gap:6px; font-size:0.76rem; padding:7px 10px; border:1px solid color-mix(in srgb, var(--border) 84%, transparent); border-radius:999px; background:color-mix(in srgb, var(--surface) 92%, transparent); color:var(--muted); text-transform:none; letter-spacing:0.02em;">
                                 <i class="fas fa-folder-plus" style="font-size:0.72rem;"></i> New workspace
                             </button>
 
@@ -1291,7 +1421,7 @@
                             @click="mcpConfigModal.show = true, mcpConfigModal.activeTab = 'llm', mcpConfigModal.loadServers(), mcpConfigModal.loadTools()"
                             class="ds-btn"
                             data-tour="settings-button"
-                            style="justify-content:center; font-size:0.65rem; padding:8px;"
+                            style="justify-content:center; font-size:0.65rem; padding:8px; border-radius:999px; background:color-mix(in srgb, var(--surface) 92%, transparent);"
                             title="Configure MCP servers">
                             <i class="fas fa-gear"></i> Settings
                         </button>
@@ -1395,11 +1525,10 @@
                 x-transition:leave="transition ease-in duration-120"
                 x-transition:leave-start="opacity-100 translate-x-0"
                 x-transition:leave-end="opacity-0 translate-x-2"
-                class="flex-1 overflow-y-auto scrollbar-hidden"
-                style="background:var(--bg); padding:60px 20px calc(var(--chat-input-offset) + 16px);">
-                <div style="max-width:1020px; margin:0 auto; border:1px solid var(--border); border-radius:14px; background:var(--surface-elevated); overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 34px rgba(106,66,194,0.08); max-height:calc(100vh - var(--chat-input-offset) - 88px);">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid color-mix(in srgb, var(--border) 78%, transparent); background:color-mix(in srgb, var(--surface-elevated) 90%, var(--accent) 10%);">
-                    <div style="flex:1; min-width:0; display:grid; grid-template-columns:42px 36px minmax(160px, 1fr) minmax(160px, 0.9fr); gap:8px; align-items:center;">
+                class="flex-1 overflow-y-auto scrollbar-hidden workspace-details-screen">
+                <div class="workspace-details-panel">
+                <div class="workspace-details-header">
+                    <div class="workspace-details-header-grid">
                             <input
                                 :value="getCurrentWorkspace()?.icon || ''"
                                 @input="updateCurrentWorkspaceMeta({ icon: $event.target.value })"
@@ -1422,6 +1551,7 @@
                             :value="getCurrentWorkspace()?.description || ''"
                             @input="updateCurrentWorkspaceMeta({ description: $event.target.value })"
                             aria-label="Workspace description"
+                            class="workspace-details-description"
                             style="width:100%; height:42px; border:1px solid color-mix(in srgb, var(--border) 84%, transparent); border-radius:12px; background:color-mix(in srgb, var(--surface) 94%, transparent); color:var(--text); font-size:0.74rem; padding:0 12px; box-sizing:border-box;"
                             placeholder="Short description...">
                     </div>
@@ -1430,7 +1560,7 @@
                     </button>
                 </div>
 
-                <div class="custom-scrollbar" style="flex:1; min-height:0; overflow:auto; padding:12px 14px 10px; display:grid; grid-template-columns:minmax(0, 1.08fr) minmax(0, 0.92fr); gap:14px; align-items:start;">
+                <div class="custom-scrollbar workspace-details-body">
                     <section x-show="false" style="display:none;">
                         <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Workspace Details</div>
                         <div style="border:1px solid var(--border); border-radius:8px; padding:8px; display:grid; gap:8px;">
@@ -1474,17 +1604,11 @@
                                 <button @click="openWorkspaceResourcesModal()" class="ds-btn" style="font-size:0.68rem; padding:6px 10px; text-transform:none; letter-spacing:0.02em;">
                                     <i class="fas fa-sliders"></i> Manage
                                 </button>
-                                <button @click="workspaceResourcesModal.show = true; $refs.workspaceFileInput.click()" class="ds-btn" style="font-size:0.68rem; padding:6px 10px; text-transform:none; letter-spacing:0.02em;">
-                                    <i class="fas fa-file-circle-plus"></i> Upload
-                                </button>
                             </div>
-                        </div>
-                        <div style="padding-top:10px; font-size:0.7rem; line-height:1.5; color:var(--muted);">
-                            Files and workspace-specific instructions open in one compact modal so this editor stays short.
                         </div>
                     </section>
 
-                    <section style="grid-column:2; grid-row:1 / span 2; padding:4px 0 8px;">
+                    <section class="workspace-details-right" style="grid-column:2; grid-row:1 / span 2; padding:4px 0 8px;">
                         <div style="display:grid; gap:12px;">
                             <div>
                                 <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Defaults</div>
@@ -1525,9 +1649,12 @@
                         </div>
                     </section>
 
-                    <section style="grid-column:1; grid-row:2; padding:2px 0;">
-                        <div style="display:grid; gap:4px; padding-top:8px;">
+                    <section style="grid-column:1; grid-row:2; padding:0;">
+                        <div style="display:grid; gap:6px; padding-top:0;">
                             <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">Workspace</div>
+                            <div style="font-size:0.72rem; line-height:1.45; color:var(--muted);">
+                                <span x-text="(getCurrentWorkspace()?.description || '').trim() || 'Add a short description above so this workspace has a clear purpose.'"></span>
+                            </div>
                             <div style="font-size:0.72rem; line-height:1.45; color:var(--muted);">
                                 Export or import the whole workspace, including chats, files, and instructions.
                             </div>
@@ -1535,7 +1662,7 @@
                     </section>
                 </div>
 
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 14px 14px; border-top:1px solid color-mix(in srgb, var(--border) 72%, transparent);">
+                <div class="workspace-details-actions">
                     <button @click="exportCurrentWorkspace()" class="ds-btn" style="justify-content:center; font-size:0.66rem; padding:7px;">
                         <i class="fas fa-download"></i> Export
                     </button>
@@ -1619,7 +1746,7 @@
             <!-- Input Area -->
             <!-- OLD VERSION (kept for reference): style="bottom: env(safe-area-inset-bottom, 0px);" -->
             <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0">
-                <div class="max-w-6xl mx-auto">
+                <div class="mx-auto" :style="workspaceDetailsOpen && getCurrentWorkspace() ? 'max-width:1020px;' : 'max-width:72rem;'">
                     <!-- File info display -->
                     <div x-show="uploadedFile" style="margin-bottom:8px; padding:7px 12px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:space-between;">
                         <div style="display:grid; gap:2px;">
@@ -1656,9 +1783,9 @@
                         
                         <!-- Bottom Controls -->
                         <!-- Toolbar -->
-                        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+                        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border); flex-wrap:wrap;">
 
-                            <div data-tour="composer-models" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <div data-tour="composer-models" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0;">
                                 <!-- Model Selector -->
                                 <div class="relative" x-data="{ open: false }">
                                     <button
@@ -1737,7 +1864,7 @@
                                 </div>
                             </div>
 
-                            <div data-tour="composer-context" style="margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <div data-tour="composer-context" style="margin-left:auto; display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; min-width:0; max-width:100%;">
                                 <!-- File Upload -->
                                 <button
                                     @click="$refs.fileInput.click()"
@@ -1754,12 +1881,13 @@
                                     @click="toggleThinking()"
                                     type="button"
                                     :style="thinkingEnabled
-                                        ? 'display:inline-flex; align-items:center; gap:8px; min-height:36px; padding:0 10px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'
-                                        : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'"
+                                        ? 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'
+                                        : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
                                     title="Enable or disable model thinking/reasoning. Disabled by default to avoid hidden reasoning traces.">
                                     <i class="fas fa-brain" style="font-size:0.65rem;"></i>
-                                    <span>Thinking</span>
+                                    <span class="composer-thinking-label" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Thinking</span>
                                     <span
+                                        class="composer-thinking-switch"
                                         aria-hidden="true"
                                         :style="thinkingEnabled
                                             ? 'width:30px; height:18px; border-radius:999px; background:var(--accent); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'
