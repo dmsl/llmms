@@ -1095,7 +1095,7 @@ function chatApp() {
                         this.onboarding.targetVisible = false;
                         this.onboarding.spotlightStyle = '';
                         this.onboarding.backdropStyle = 'inset:0;';
-                        this.onboarding.cardStyle = 'left:12px; top:calc(100vh - 284px); width:min(380px, calc(100vw - 24px));';
+                        this.onboarding.cardStyle = 'left:12px; top:12px; width:min(380px, calc(100vw - 24px));';
                         return;
                     }
 
@@ -1117,7 +1117,15 @@ function chatApp() {
                         const cardWidth = compact
                             ? Math.min(Math.max(240, window.innerWidth - 24), window.innerWidth - 24)
                             : Math.min(380, Math.max(280, window.innerWidth - 48));
-                        const estimatedCardHeight = compact ? 286 : 312;
+                        const safeTop = 12;
+                        const safeBottom = 12;
+                        const cardElement = typeof document !== 'undefined'
+                            ? document.querySelector('.chatucy-tour-card')
+                            : null;
+                        const measuredCardHeight = cardElement?.offsetHeight || 0;
+                        const fallbackCardHeight = compact ? 286 : 312;
+                        const cardHeight = Math.max(measuredCardHeight, fallbackCardHeight);
+                        const maxCardTop = Math.max(safeTop, window.innerHeight - cardHeight - safeBottom);
 
                         this.onboarding.targetVisible = true;
                         const spotlightRadius = Number.isFinite(step.spotlightRadius)
@@ -1137,9 +1145,10 @@ function chatApp() {
                         ].join(';');
 
                         if (compact) {
-                            const cardTop = targetCenterY > (window.innerHeight * 0.58)
+                            const preferredCardTop = targetCenterY > (window.innerHeight * 0.58)
                                 ? 12
-                                : Math.max(12, window.innerHeight - estimatedCardHeight - 12);
+                                : maxCardTop;
+                            const cardTop = clampNumber(preferredCardTop, safeTop, maxCardTop);
                             this.onboarding.cardStyle = `left:12px; top:${cardTop}px; width:${cardWidth}px;`;
                             return;
                         }
@@ -1147,9 +1156,10 @@ function chatApp() {
                         const cardLeft = targetCenterX < (window.innerWidth / 2)
                             ? Math.max(24, window.innerWidth - cardWidth - 24)
                             : 24;
-                        const cardTop = targetCenterY > (window.innerHeight * 0.55)
+                        const preferredCardTop = targetCenterY > (window.innerHeight * 0.55)
                             ? 24
-                            : Math.max(24, window.innerHeight - estimatedCardHeight - 24);
+                            : maxCardTop;
+                        const cardTop = clampNumber(preferredCardTop, safeTop, maxCardTop);
                         this.onboarding.cardStyle = `left:${cardLeft}px; top:${cardTop}px; width:${cardWidth}px;`;
                     };
 

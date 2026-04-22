@@ -748,6 +748,8 @@
             position: fixed;
             z-index: 3;
             width: min(380px, calc(100vw - 24px));
+            max-height: calc(100vh - 24px);
+            overflow: auto;
             padding: 20px;
             border-radius: 22px;
             border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border) 74%);
@@ -882,6 +884,7 @@
             .chatucy-tour-card {
                 padding: 18px 16px;
                 width: auto;
+                max-height: calc(100vh - 24px);
             }
 
             .chatucy-tour-title {
