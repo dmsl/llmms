@@ -636,6 +636,188 @@
         .chatucy-modal-panel {
             margin: 0 auto;
         }
+
+        .chatucy-tour {
+            position: fixed;
+            inset: 0;
+            z-index: 1800;
+        }
+
+        .chatucy-tour-backdrop {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at top, rgba(106,66,194,0.28), transparent 48%),
+                linear-gradient(180deg, rgba(9,6,18,0.5), rgba(9,6,18,0.62));
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .chatucy-tour-spotlight {
+            position: fixed;
+            z-index: 2;
+            border: 1px solid rgba(255,255,255,0.28);
+            background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+            box-shadow:
+                0 0 0 9999px rgba(7,6,16,0.42),
+                0 18px 48px rgba(0,0,0,0.28),
+                inset 0 0 0 1px rgba(255,255,255,0.12);
+            pointer-events: none;
+            transition: top 0.24s ease, left 0.24s ease, width 0.24s ease, height 0.24s ease;
+        }
+
+        .chatucy-tour-card {
+            position: fixed;
+            z-index: 3;
+            width: min(380px, calc(100vw - 24px));
+            padding: 20px;
+            border-radius: 22px;
+            border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border) 74%);
+            background:
+                linear-gradient(155deg, color-mix(in srgb, var(--surface-elevated) 92%, white 8%), color-mix(in srgb, var(--surface) 90%, var(--accent) 10%));
+            box-shadow: 0 24px 60px rgba(5, 4, 14, 0.34);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+        }
+
+        .chatucy-tour-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.66rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .chatucy-tour-kicker::before {
+            content: '';
+            width: 30px;
+            height: 1px;
+            background: currentColor;
+            opacity: 0.65;
+        }
+
+        .chatucy-tour-title {
+            font-family: var(--font-heading);
+            font-size: 1.35rem;
+            line-height: 1.05;
+            color: var(--text-strong);
+            margin: 0;
+        }
+
+        .chatucy-tour-copy {
+            margin-top: 12px;
+            font-size: 0.92rem;
+            line-height: 1.7;
+            color: var(--text);
+        }
+
+        .chatucy-tour-note {
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border) 82%);
+            background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            color: var(--text);
+            font-size: 0.8rem;
+            line-height: 1.55;
+        }
+
+        .chatucy-tour-progress {
+            height: 5px;
+            margin-top: 18px;
+            border-radius: 999px;
+            background: rgba(106,66,194,0.12);
+            overflow: hidden;
+        }
+
+        .chatucy-tour-progress > span {
+            display: block;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 66%, white 34%));
+            transition: width 0.22s ease;
+        }
+
+        .chatucy-tour-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .chatucy-tour-count {
+            font-size: 0.74rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .chatucy-tour-dots {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .chatucy-tour-dots span {
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: rgba(106,66,194,0.18);
+            transition: transform 0.18s ease, background 0.18s ease;
+        }
+
+        .chatucy-tour-dots span.is-active {
+            background: var(--accent);
+            transform: scale(1.2);
+        }
+
+        .chatucy-tour-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .chatucy-tour-actions-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chatucy-tour-hint {
+            margin-top: 12px;
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        @media (max-width: 899px) {
+            .chatucy-tour-card {
+                padding: 18px 16px;
+                width: auto;
+            }
+
+            .chatucy-tour-title {
+                font-size: 1.15rem;
+            }
+
+            .chatucy-tour-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .chatucy-tour-actions-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
     </style>
 </head>
 
@@ -647,6 +829,79 @@
         x-transition:enter="transition ease-out duration-200"
         x-transition:leave="transition ease-in duration-200"
         class="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden">
+    </div>
+
+    <!-- First-Visit Onboarding -->
+    <div
+        x-show="onboarding.open"
+        @keydown.window.escape="if (onboarding.open) closeOnboarding(true)"
+        @keydown.window.arrow-right.prevent="if (onboarding.open) nextOnboardingStep()"
+        @keydown.window.arrow-left.prevent="if (onboarding.open) previousOnboardingStep()"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        class="chatucy-tour"
+        style="display:none;">
+        <div class="chatucy-tour-backdrop"></div>
+        <div
+            x-show="onboarding.targetVisible"
+            x-transition.opacity
+            class="chatucy-tour-spotlight"
+            :style="onboarding.spotlightStyle"></div>
+
+        <div class="chatucy-tour-card" :style="onboarding.cardStyle" @click.stop>
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px;">
+                <div style="min-width:0;">
+                    <div class="chatucy-tour-kicker" x-text="getCurrentOnboardingStep()?.eyebrow"></div>
+                    <h2 class="chatucy-tour-title" x-text="getCurrentOnboardingStep()?.title"></h2>
+                </div>
+                <button @click="closeOnboarding(true)" class="ds-icon-btn" style="width:32px; height:32px; flex-shrink:0;" title="Close tutorial">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </div>
+
+            <p class="chatucy-tour-copy" x-text="getCurrentOnboardingStep()?.description"></p>
+
+            <div class="chatucy-tour-note">
+                <i class="fas fa-circle-info" style="color:var(--accent); margin-top:2px; flex-shrink:0;"></i>
+                <span x-text="getCurrentOnboardingStep()?.note"></span>
+            </div>
+
+            <div class="chatucy-tour-progress">
+                <span :style="'width:' + getOnboardingProgressPercent()"></span>
+            </div>
+
+            <div class="chatucy-tour-meta">
+                <div class="chatucy-tour-count" x-text="`${onboarding.currentStep + 1} / ${onboarding.steps.length}`"></div>
+                <div class="chatucy-tour-dots">
+                    <template x-for="(step, index) in onboarding.steps" :key="step.id">
+                        <span :class="index === onboarding.currentStep ? 'is-active' : ''"></span>
+                    </template>
+                </div>
+            </div>
+
+            <div class="chatucy-tour-actions">
+                <button @click="closeOnboarding(true)" class="ds-btn" style="padding:9px 14px;">Skip</button>
+                <div class="chatucy-tour-actions-right">
+                    <button
+                        @click="previousOnboardingStep()"
+                        class="ds-btn"
+                        :style="onboarding.currentStep === 0 ? 'padding:9px 14px; opacity:0.45; pointer-events:none;' : 'padding:9px 14px;'">
+                        Back
+                    </button>
+                    <button
+                        @click="nextOnboardingStep()"
+                        class="ds-btn ds-btn--solid"
+                        style="padding:9px 14px;"
+                        x-text="onboarding.currentStep === onboarding.steps.length - 1 ? 'Start Chatting' : 'Next'"></button>
+                </div>
+            </div>
+
+            <div class="chatucy-tour-hint">Arrow keys work here too.</div>
+        </div>
     </div>
 
     <!-- Modal for Workspace Create/Edit/Delete -->
@@ -721,7 +976,7 @@
                 <!-- Sidebar Header -->
                 <div style="padding:calc(12px + env(safe-area-inset-top, 0px) + 14px) 12px 12px; border-bottom:1px solid var(--border); flex-shrink:0; display:grid; gap:8px; position:sticky; top:0; z-index:15; background:var(--surface-elevated);">
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                        <a href="/" class="ds-icon-btn" style="width:28px; height:28px;" title="Home">
+                        <a href="/home.html" class="ds-icon-btn" style="width:28px; height:28px;" title="Home">
                             <i class="fas fa-house" style="font-size:0.72rem;"></i>
                         </a>
                         <button @click="sidebarOpen = false" class="ds-icon-btn" style="width:28px; height:28px;" title="Collapse sidebar">
@@ -729,7 +984,7 @@
                         </button>
                     </div>
 
-                    <button @click="newChat()" class="ds-btn gpt-new-chat">
+                    <button @click="newChat()" class="ds-btn gpt-new-chat" data-tour="new-chat">
                         <i class="fas fa-pen-to-square" style="font-size:0.75rem;"></i>
                         <span>New chat</span>
                     </button>
@@ -754,7 +1009,7 @@
 
                 <!-- Session List -->
                 <div class="custom-scrollbar" style="flex:1; overflow-y:auto; padding:8px;">
-                    <div style="margin-bottom:10px;">
+                    <div style="margin-bottom:10px;" data-tour="workspace-zone">
                         <button
                             @click="toggleWorkspacesCollapsed()"
                             class="gpt-section-title"
@@ -949,6 +1204,7 @@
                         <button
                             @click="mcpConfigModal.show = true, mcpConfigModal.activeTab = 'llm', mcpConfigModal.loadServers(), mcpConfigModal.loadTools()"
                             class="ds-btn"
+                            data-tour="settings-button"
                             style="justify-content:center; font-size:0.65rem; padding:8px;"
                             title="Configure MCP servers">
                             <i class="fas fa-gear"></i> Settings
@@ -985,7 +1241,7 @@
                     <!-- Right: nav + logos + menu -->
                     <div style="display:flex; align-items:center; gap:var(--space-3);">
                         <nav class="ds-app-nav">
-                            <a href="/" class="ds-link">Home</a>
+                            <a href="/home.html" class="ds-link">Home</a>
                             <a href="/llmms.html" class="ds-link">LLM-MS</a>
                             <a href="/privacy.html" class="ds-link">Privacy</a>
                         </nav>
@@ -1020,13 +1276,17 @@
                                 class="ds-dropdown-menu"
                                 style="position:absolute; right:0; top:calc(100% + 8px); z-index:200;">
                                 <div class="ds-dropdown-version">v1.2</div>
-                                <a href="/"><i class="fas fa-home" style="width:14px;"></i> Home</a>
+                                <a href="/home.html"><i class="fas fa-home" style="width:14px;"></i> Home</a>
                                 <a href="/privacy.html"><i class="fas fa-lock" style="width:14px;"></i> Privacy</a>
                                 <a href="/terms.html"><i class="fas fa-file-alt" style="width:14px;"></i> Terms</a>
                                 <div class="ds-dropdown-menu-divider"></div>
                                 <button @click="open = false; mcpConfigModal.show = true; mcpConfigModal.activeTab = 'llm'; mcpConfigModal.loadServers(); mcpConfigModal.loadTools()">
                                     <i class="fas fa-server" style="width:14px;"></i>
                                     <span>MCP Config</span>
+                                </button>
+                                <button @click="open = false; reopenOnboarding()">
+                                    <i class="fas fa-circle-question" style="width:14px;"></i>
+                                    <span>Quick Tour</span>
                                 </button>
                                 <button id="open-config-btn" style="display:none;" @click="open = false">
                                     <i class="fas fa-cog" style="width:14px;"></i> Open Config File
@@ -1258,7 +1518,7 @@
                         </button>
                     </div>
                     
-                    <div style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 2px 16px rgba(106,66,194,0.08); padding:10px 12px;">
+                    <div data-tour="composer-shell" style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 2px 16px rgba(106,66,194,0.08); padding:10px 12px;">
                         <!-- Main Input Row -->
                         <div class="flex gap-2 items-end">
                             <textarea
@@ -1282,94 +1542,96 @@
                         <!-- Toolbar -->
                         <div style="display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
 
-                            <!-- Model Selector -->
-                            <div class="relative" x-data="{ open: false }">
-                                <button
-                                    @click="open = !open"
-                                    class="ds-btn"
-                                    style="font-size:0.7rem; padding:6px 12px; border-color:var(--accent); color:var(--accent); gap:6px;">
-                                    <span x-text="getSelectedModelName()"></span>
-                                    <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
-                                </button>
-                                <div
-                                    x-show="open"
-                                    @click.away="open = false"
-                                    x-transition
-                                    class="custom-scrollbar"
-                                    style="position:absolute; bottom:calc(100% + 8px); left:0; z-index:200; min-width:200px; max-height:256px; overflow-y:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
-                                    <div style="padding:6px 12px; font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); margin-bottom:4px;">Models</div>
-                                    <template x-for="model in availableModels" :key="model.id">
+                            <div data-tour="composer-models" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <!-- Model Selector -->
+                                <div class="relative" x-data="{ open: false }">
+                                    <button
+                                        @click="open = !open"
+                                        class="ds-btn"
+                                        style="font-size:0.7rem; padding:6px 12px; border-color:var(--accent); color:var(--accent); gap:6px;">
+                                        <span x-text="getSelectedModelName()"></span>
+                                        <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
+                                    </button>
+                                    <div
+                                        x-show="open"
+                                        @click.away="open = false"
+                                        x-transition
+                                        class="custom-scrollbar"
+                                        style="position:absolute; bottom:calc(100% + 8px); left:0; z-index:200; min-width:200px; max-height:256px; overflow-y:auto; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
+                                        <div style="padding:6px 12px; font-size:0.6rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); margin-bottom:4px;">Models</div>
+                                        <template x-for="model in availableModels" :key="model.id">
+                                            <button
+                                                @click="selectModel(model.id); open = false"
+                                                style="width:100%; text-align:left; padding:7px 12px; font-size:0.8rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); display:flex; align-items:center; justify-content:space-between; gap:8px; transition:background 0.15s;"
+                                                onmouseover="this.style.background='rgba(106,66,194,0.07)'"
+                                                onmouseout="this.style.background='none'">
+                                                <span style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+                                                    <span x-text="model.displayName"></span>
+                                                    <template x-if="model.iconVision">
+                                                        <i class="fas fa-eye" style="font-size:0.6rem; color:#6b99d4;" title="Vision"></i>
+                                                    </template>
+                                                    <template x-if="model.iconTools">
+                                                        <i class="fas fa-wrench" style="font-size:0.6rem; color:#5aab7a;" title="Tools"></i>
+                                                    </template>
+                                                    <template x-if="model.iconThinking">
+                                                        <i class="fas fa-brain" style="font-size:0.6rem; color:var(--accent);" title="Thinking"></i>
+                                                    </template>
+                                                </span>
+                                            </button>
+                                        </template>
+                                        <div x-show="availableModels.length === 0" style="padding:8px 12px; font-size:0.75rem; color:var(--muted);">
+                                            Loading models...
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Interaction Mode Selector -->
+                                <div class="relative" x-data="{ open: false }">
+                                    <button
+                                        @click="open = !open"
+                                        class="ds-btn"
+                                        style="font-size:0.7rem; padding:6px 12px; border-color:var(--border); color:var(--text); gap:6px;">
+                                        <span x-text="interactionMode === 'agent' ? 'Agent' : 'Ask'"></span>
+                                        <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
+                                    </button>
+                                    <div
+                                        x-show="open"
+                                        @click.away="open = false"
+                                        x-transition
+                                        style="position:absolute; bottom:calc(100% + 8px); left:0; z-index:200; min-width:140px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
                                         <button
-                                            @click="selectModel(model.id); open = false"
-                                            style="width:100%; text-align:left; padding:7px 12px; font-size:0.8rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); display:flex; align-items:center; justify-content:space-between; gap:8px; transition:background 0.15s;"
+                                            @click="selectInteractionMode('ask'); open = false"
+                                            style="width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); transition:background 0.15s;"
                                             onmouseover="this.style.background='rgba(106,66,194,0.07)'"
                                             onmouseout="this.style.background='none'">
-                                            <span style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
-                                                <span x-text="model.displayName"></span>
-                                                <template x-if="model.iconVision">
-                                                    <i class="fas fa-eye" style="font-size:0.6rem; color:#6b99d4;" title="Vision"></i>
-                                                </template>
-                                                <template x-if="model.iconTools">
-                                                    <i class="fas fa-wrench" style="font-size:0.6rem; color:#5aab7a;" title="Tools"></i>
-                                                </template>
-                                                <template x-if="model.iconThinking">
-                                                    <i class="fas fa-brain" style="font-size:0.6rem; color:var(--accent);" title="Thinking"></i>
-                                                </template>
-                                            </span>
+                                            Ask
                                         </button>
-                                    </template>
-                                    <div x-show="availableModels.length === 0" style="padding:8px 12px; font-size:0.75rem; color:var(--muted);">
-                                        Loading models...
+                                        <button
+                                            @click="if (modelSupportsAgent()) { selectInteractionMode('agent'); open = false }"
+                                            :disabled="!modelSupportsAgent()"
+                                            :style="modelSupportsAgent() ? 'width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); transition:background 0.15s;' : 'width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:not-allowed; color:var(--muted); font-family:var(--font-body); opacity:0.65;'"
+                                            onmouseover="if(!this.disabled){this.style.background='rgba(106,66,194,0.07)'}"
+                                            onmouseout="this.style.background='none'">
+                                            Agent
+                                        </button>
+                                        <div x-show="!modelSupportsAgent()" style="padding:4px 12px 6px; font-size:0.62rem; color:var(--muted); border-top:1px solid var(--border);">
+                                            <span x-text="getAgentModeHint()"></span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Interaction Mode Selector -->
-                            <div class="relative" x-data="{ open: false }">
+                            <div data-tour="composer-context" style="margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <!-- File Upload -->
                                 <button
-                                    @click="open = !open"
-                                    class="ds-btn"
-                                    style="font-size:0.7rem; padding:6px 12px; border-color:var(--border); color:var(--text); gap:6px;">
-                                    <span x-text="interactionMode === 'agent' ? 'Agent' : 'Ask'"></span>
-                                    <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
+                                    @click="$refs.fileInput.click()"
+                                    class="ds-icon-btn"
+                                    style="width:36px; height:36px;"
+                                    title="Attach file">
+                                    <i class="fas fa-paperclip"></i>
                                 </button>
-                                <div
-                                    x-show="open"
-                                    @click.away="open = false"
-                                    x-transition
-                                    style="position:absolute; bottom:calc(100% + 8px); left:0; z-index:200; min-width:140px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
-                                    <button
-                                        @click="selectInteractionMode('ask'); open = false"
-                                        style="width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); transition:background 0.15s;"
-                                        onmouseover="this.style.background='rgba(106,66,194,0.07)'"
-                                        onmouseout="this.style.background='none'">
-                                        Ask
-                                    </button>
-                                    <button
-                                        @click="if (modelSupportsAgent()) { selectInteractionMode('agent'); open = false }"
-                                        :disabled="!modelSupportsAgent()"
-                                        :style="modelSupportsAgent() ? 'width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); transition:background 0.15s;' : 'width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:not-allowed; color:var(--muted); font-family:var(--font-body); opacity:0.65;'"
-                                        onmouseover="if(!this.disabled){this.style.background='rgba(106,66,194,0.07)'}"
-                                        onmouseout="this.style.background='none'">
-                                        Agent
-                                    </button>
-                                    <div x-show="!modelSupportsAgent()" style="padding:4px 12px 6px; font-size:0.62rem; color:var(--muted); border-top:1px solid var(--border);">
-                                        <span x-text="getAgentModeHint()"></span>
-                                    </div>
-                                </div>
-                            </div>
+                                <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
 
-                            <!-- File Upload -->
-                            <button
-                                @click="$refs.fileInput.click()"
-                                class="ds-icon-btn"
-                                style="width:36px; height:36px;"
-                                title="Attach file">
-                                <i class="fas fa-paperclip"></i>
-                            </button>
-                            <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
-
-                            <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
                                 <!-- Thinking Toggle -->
                                 <button
                                     x-show="selectedModelSupportsThinking()"

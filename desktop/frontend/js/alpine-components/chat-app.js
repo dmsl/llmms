@@ -138,6 +138,64 @@ const STORAGE_KEYS = {
     llmThinkingEnabled: 'llm_thinking_enabled_v1'
 };
 
+const ONBOARDING_STORAGE_KEY = 'chatucy_onboarding_seen_v1';
+const ONBOARDING_STEPS = Object.freeze([
+    {
+        id: 'new-chat',
+        selector: '[data-tour="new-chat"]',
+        eyebrow: 'Quick Start',
+        title: 'Start a clean conversation instantly',
+        description: 'Use New chat whenever you want a fresh thread without losing older conversations in the sidebar.',
+        note: 'It is the fastest way to switch topics.',
+        sidebar: 'open'
+    },
+    {
+        id: 'workspaces',
+        selector: '[data-tour="workspace-zone"]',
+        eyebrow: 'Organization',
+        title: 'Keep projects tidy with workspaces',
+        description: 'Search chats, create workspaces, and group related sessions so files and discussions stay together.',
+        note: 'This is especially helpful once you have multiple topics going.',
+        sidebar: 'open'
+    },
+    {
+        id: 'models',
+        selector: '[data-tour="composer-models"]',
+        eyebrow: 'Controls',
+        title: 'Choose the model and response mode',
+        description: 'Pick the model you want, then switch between Ask for normal chat or Agent when a tool-capable model is available.',
+        note: 'Thinking appears automatically for supported models.',
+        sidebar: 'close-mobile'
+    },
+    {
+        id: 'context',
+        selector: '[data-tour="composer-context"]',
+        eyebrow: 'Files',
+        title: 'Attach files and private context',
+        description: 'Upload a file, enable the private document store, and keep extra material inside this browser session.',
+        note: 'Great for PDFs, notes, and local research.',
+        sidebar: 'close-mobile'
+    },
+    {
+        id: 'composer',
+        selector: '[data-tour="composer-shell"]',
+        eyebrow: 'Chat',
+        title: 'Write here and send when ready',
+        description: 'Type your prompt, press Enter to send, and use Shift+Enter when you want a new line.',
+        note: 'You are ready to start chatting.',
+        sidebar: 'close-mobile'
+    },
+    {
+        id: 'settings',
+        selector: '[data-tour="settings-button"]',
+        eyebrow: 'Advanced',
+        title: 'Open settings whenever you need more control',
+        description: 'Settings gives you access to providers, MCP tools, and the advanced configuration for the chat.',
+        note: 'You can reopen this tour from the top-right menu at any time.',
+        sidebar: 'open'
+    }
+]);
+
 const DEFAULT_LLM_SETTINGS = {
     providerType: DEFAULT_PROVIDER_SETTINGS.providerType,
     baseUrl: DEFAULT_PROVIDER_SETTINGS.baseUrl,
@@ -165,6 +223,16 @@ function deepCloneSerializable(value, fallback) {
 function stripTypingCursor(content) {
     if (typeof content !== 'string') return content;
     return content.replace(/<span class="typing-cursor"><\/span>/g, '');
+}
+
+function clampNumber(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function prefersReducedMotion() {
+    return typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 function sanitizeMessageForPersistence(msg) {
@@ -263,6 +331,15 @@ function chatApp() {
         uploadedFileName: '',
         uploadedFilePreview: null, // Base64 preview for images
         conversationManager: new ConversationManager(API_BASE_URL), // Conversation summarization manager
+        onboarding: {
+            open: false,
+            currentStep: 0,
+            steps: ONBOARDING_STEPS.map((step) => ({ ...step })),
+            spotlightStyle: '',
+            cardStyle: '',
+            targetVisible: false,
+            sidebarStateBeforeTour: null
+        },
         modal: {
             show: false,
             type: '', // 'edit' or 'delete'
@@ -761,6 +838,166 @@ function chatApp() {
                 // Web mode: Initialize browser MCP client and auto-connect
                 await this.initBrowserMCP();
             }
+
+            const onboardingEvents = getEventManager('chat-app-onboarding');
+            onboardingEvents.add(window, 'resize', () => this.refreshOnboardingLayout(false));
+            onboardingEvents.add(window, 'orientationchange', () => this.refreshOnboardingLayout(false));
+            onboardingEvents.add(window, 'themechange', () => this.refreshOnboardingLayout(false));
+            this.$watch('sidebarOpen', () => {
+                if (this.onboarding.open) {
+                    this.$nextTick(() => this.refreshOnboardingLayout(false));
+                }
+            });
+
+            this.$nextTick(() => {
+                if (!localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
+                    this.openOnboarding();
+                }
+            });
+        },
+
+        getCurrentOnboardingStep() {
+            return this.onboarding.steps[this.onboarding.currentStep] || null;
+        },
+
+        getOnboardingProgressPercent() {
+            if (!this.onboarding.steps.length) return '0%';
+            return `${((this.onboarding.currentStep + 1) / this.onboarding.steps.length) * 100}%`;
+        },
+
+        openOnboarding(force = false) {
+            if (!force && localStorage.getItem(ONBOARDING_STORAGE_KEY)) {
+                return;
+            }
+
+            if (this.onboarding.sidebarStateBeforeTour === null) {
+                this.onboarding.sidebarStateBeforeTour = this.sidebarOpen;
+            }
+
+            this.onboarding.currentStep = 0;
+            this.onboarding.open = true;
+            this.refreshOnboardingLayout(true);
+        },
+
+        closeOnboarding(markSeen = true) {
+            this.onboarding.open = false;
+            this.onboarding.targetVisible = false;
+            this.onboarding.spotlightStyle = '';
+            this.onboarding.cardStyle = '';
+
+            if (markSeen) {
+                localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+            }
+
+            if (window.innerWidth < 1024 && typeof this.onboarding.sidebarStateBeforeTour === 'boolean') {
+                this.sidebarOpen = this.onboarding.sidebarStateBeforeTour;
+            }
+
+            this.onboarding.sidebarStateBeforeTour = null;
+        },
+
+        reopenOnboarding() {
+            this.openOnboarding(true);
+        },
+
+        nextOnboardingStep() {
+            if (this.onboarding.currentStep >= this.onboarding.steps.length - 1) {
+                this.closeOnboarding(true);
+                return;
+            }
+
+            this.onboarding.currentStep += 1;
+            this.refreshOnboardingLayout(true);
+        },
+
+        previousOnboardingStep() {
+            if (this.onboarding.currentStep <= 0) {
+                return;
+            }
+
+            this.onboarding.currentStep -= 1;
+            this.refreshOnboardingLayout(true);
+        },
+
+        applyOnboardingSidebarState(step) {
+            if (!step) return;
+
+            if (step.sidebar === 'open') {
+                this.sidebarOpen = true;
+                return;
+            }
+
+            if (step.sidebar === 'close-mobile' && window.innerWidth < 1024) {
+                this.sidebarOpen = false;
+            }
+        },
+
+        refreshOnboardingLayout(revealTarget = false) {
+            if (!this.onboarding.open) {
+                return;
+            }
+
+            const step = this.getCurrentOnboardingStep();
+            if (!step) {
+                return;
+            }
+
+            this.applyOnboardingSidebarState(step);
+
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    const target = document.querySelector(step.selector);
+                    if (!target) {
+                        this.onboarding.targetVisible = false;
+                        this.onboarding.spotlightStyle = '';
+                        this.onboarding.cardStyle = 'left:12px; right:12px; bottom:max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px));';
+                        return;
+                    }
+
+                    if (revealTarget && typeof target.scrollIntoView === 'function') {
+                        target.scrollIntoView({
+                            block: 'center',
+                            inline: 'nearest',
+                            behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+                        });
+                    }
+
+                    requestAnimationFrame(() => {
+                        const rect = target.getBoundingClientRect();
+                        const padding = window.innerWidth < 768 ? 10 : 14;
+                        const inset = 10;
+                        const top = clampNumber(rect.top - padding, inset, Math.max(inset, window.innerHeight - 48));
+                        const left = clampNumber(rect.left - padding, inset, Math.max(inset, window.innerWidth - 48));
+                        const maxWidth = Math.max(48, window.innerWidth - left - inset);
+                        const maxHeight = Math.max(48, window.innerHeight - top - inset);
+                        const width = clampNumber(rect.width + (padding * 2), 48, maxWidth);
+                        const height = clampNumber(rect.height + (padding * 2), 48, maxHeight);
+                        const compact = window.innerWidth < 900;
+                        const targetCenterX = rect.left + (rect.width / 2);
+                        const targetCenterY = rect.top + (rect.height / 2);
+
+                        this.onboarding.targetVisible = true;
+                        this.onboarding.spotlightStyle = [
+                            `top:${top}px`,
+                            `left:${left}px`,
+                            `width:${width}px`,
+                            `height:${height}px`,
+                            `border-radius:${Math.min(24, Math.max(16, Math.round(height / 3)))}px`
+                        ].join(';');
+
+                        if (compact) {
+                            this.onboarding.cardStyle = targetCenterY > (window.innerHeight * 0.58)
+                                ? 'left:12px; right:12px; top:max(12px, calc(env(safe-area-inset-top, 0px) + 12px));'
+                                : 'left:12px; right:12px; bottom:max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px));';
+                            return;
+                        }
+
+                        const horizontal = targetCenterX < (window.innerWidth / 2) ? 'right:24px' : 'left:24px';
+                        const vertical = targetCenterY > (window.innerHeight * 0.55) ? 'top:24px' : 'bottom:24px';
+                        this.onboarding.cardStyle = `${horizontal}; ${vertical}; width:min(380px, calc(100vw - 48px));`;
+                    });
+                });
+            });
         },
 
         enableBrowserPreview(detail = {}) {

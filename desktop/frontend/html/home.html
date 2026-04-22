@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChatUCY - AI-powered assistant for seamless and engaging conversations">
+    <title>ChatUCY — AI-Powered Assistant</title>
+
+    <link rel="apple-touch-icon" href="/img/ios-icons/touch-icon-iphone.png">
+    <link rel="icon" type="image/png" href="/img/logo.png">
+
+    <!-- Theme: apply before paint -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('chatucy-theme');
+        document.documentElement.dataset.theme = (t === 'dark' || t === 'light') ? t : 'light';
+      })();
+    </script>
+
+    <!-- Design System -->
+    <link href="../css/design-system.css" rel="stylesheet">
+
+    <!-- Alpine.js -->
+    <script type="module">
+        import Alpine from "../vendor/alpine/alpine.esm.js";
+        window.Alpine = Alpine;
+        if (document.querySelector('[x-data]')) Alpine.start();
+    </script>
+
+    <!-- Font Awesome -->
+    <link href="../vendor/fontawesome/css/all.min.css" rel="stylesheet">
+
+    <style>
+        .team-img {
+            width: 110px;
+            height: 110px;
+            border-radius: var(--radius);
+            background-size: cover;
+            background-position: center;
+            margin: 0 auto var(--space-4);
+            border: 1px solid var(--border);
+        }
+        #tm-dz { background-image: url('/img/dz.jpg'); }
+        #tm-kk { background-image: url('/img/kk.jfif'); }
+        #tm-dp { background: var(--surface-elevated); display:flex; align-items:center; justify-content:center; font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:var(--accent); letter-spacing:0.05em; }
+        #tm-sc { background: var(--surface-elevated); display:flex; align-items:center; justify-content:center; font-family:var(--font-heading); font-size:1.4rem; font-weight:700; color:var(--accent); letter-spacing:0.05em; }
+        .contact-field {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-body);
+            font-size: 0.9rem;
+        }
+        .contact-field:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .contact-field::placeholder { color: var(--muted); }
+        textarea.contact-field { resize: vertical; min-height: 120px; }
+        label.contact-label {
+            display: block;
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        .scroll-top {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+            background: var(--surface-elevated);
+            color: var(--muted);
+            text-decoration: none;
+            border-radius: var(--radius);
+            font-size: 0.8rem;
+            transition: border-color 0.18s, color 0.18s;
+        }
+        .scroll-top:hover { border-color: var(--accent); color: var(--accent); }
+        @media(max-width:740px){
+            .about-grid,
+            .team-grid { grid-template-columns: 1fr !important; }
+        }
+    </style>
+</head>
+
+<body id="page-top">
+
+    <!-- Site Header -->
+    <header class="ds-site-header">
+        <div class="ds-container ds-site-header-inner">
+            <a href="#page-top" class="ds-site-logo">ChatUCY</a>
+            <nav class="ds-site-nav" aria-label="Primary">
+                <a href="#features" class="ds-link">Features</a>
+                <a href="#how-works" class="ds-link">How It Works</a>
+                <a href="#about" class="ds-link">About</a>
+                <a href="#team" class="ds-link">Team</a>
+                <a href="#contact" class="ds-link">Contact</a>
+                <a href="/publications/" class="ds-link">Research</a>
+            </nav>
+            <div class="ds-theme-toggle" role="group" aria-label="Mode">
+                <span class="ds-theme-toggle-label">Mode</span>
+                <div class="ds-theme-toggle-buttons">
+                    <button type="button" data-theme-toggle="light">Light</button>
+                    <button type="button" data-theme-toggle="dark">Dark</button>
+                </div>
+            </div>
+            <details class="ds-mobile-nav">
+                <summary>Menu</summary>
+                <nav aria-label="Mobile">
+                    <a href="#features" class="ds-link">Features</a>
+                    <a href="#how-works" class="ds-link">How It Works</a>
+                    <a href="#about" class="ds-link">About</a>
+                    <a href="#team" class="ds-link">Team</a>
+                    <a href="#contact" class="ds-link">Contact</a>
+                    <a href="/publications/" class="ds-link">Research</a>
+                </nav>
+            </details>
+        </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="ds-hero">
+        <div class="ds-container ds-hero-inner">
+            <h1 class="ds-hero-title">ChatUCY</h1>
+            <p class="ds-hero-subline">An AI-powered assistant for seamless and engaging conversations, built at the University of Cyprus.</p>
+            <div class="ds-status-line">
+                <span>Open-Source LLMs</span>
+                <span>Privacy First — No Data Stored</span>
+            </div>
+            <div class="ds-hero-actions">
+                <a href="/chat.html" class="ds-btn ds-btn--solid">Start a Chat</a>
+                <a href="/llmms.html" class="ds-btn">Multi LLM Chat</a>
+                <a href="/privacyllm.html" class="ds-btn">Private LLM</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="ds-section">
+        <div class="ds-container">
+            <div class="ds-section-header">
+                <span class="ds-section-number">01</span>
+                <div class="ds-section-title">Features</div>
+            </div>
+            <div class="ds-grid-3">
+                <div class="ds-panel ds-panel--elevated">
+                    <div class="ds-feat-icon"><i class="fas fa-brain"></i></div>
+                    <div class="ds-tag-list" style="margin-bottom:var(--space-4);">
+                        <span class="ds-chip">Context-Aware</span>
+                    </div>
+                    <h3 style="margin-bottom:var(--space-3);">Smart Conversations</h3>
+                    <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">Engage in dynamic, context-aware, and intelligent interactions powered by state-of-the-art open-source AI models.</p>
+                </div>
+                <div class="ds-panel ds-panel--elevated">
+                    <div class="ds-feat-icon"><i class="fas fa-shield-halved"></i></div>
+                    <div class="ds-tag-list" style="margin-bottom:var(--space-4);">
+                        <span class="ds-chip">Zero Logs</span>
+                    </div>
+                    <h3 style="margin-bottom:var(--space-3);">Privacy First</h3>
+                    <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">Your data is safe. ChatUCY keeps no data, no logs, no persistent sessions — ensuring complete privacy.</p>
+                </div>
+                <div class="ds-panel ds-panel--elevated">
+                    <div class="ds-feat-icon"><i class="fas fa-route"></i></div>
+                    <div class="ds-tag-list" style="margin-bottom:var(--space-4);">
+                        <span class="ds-chip">Routing</span>
+                    </div>
+                    <h3 style="margin-bottom:var(--space-3);">Multiple AI Agents</h3>
+                    <p style="color:var(--muted); font-size:0.9rem; line-height:1.65;">Choose from several open-source AI models or use LLM-MS to automatically route queries to the best model.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-works" class="ds-section">
+        <div class="ds-container">
+            <div class="ds-section-header">
+                <span class="ds-section-number">02</span>
+                <div class="ds-section-title">How It Works</div>
+            </div>
+            <div class="ds-panel ds-panel--elevated" style="max-width:680px; margin:0 auto;">
+                <div class="ds-tag-list" style="margin-bottom:var(--space-4);">
+                    <span class="ds-chip">Zero-Store</span>
+                    <span class="ds-chip">Direct Forwarding</span>
+                </div>
+                <h3 style="margin-bottom:var(--space-4);">Direct Query Forwarding</h3>
+                <p style="color:var(--muted); line-height:1.7;">
+                    ChatUCY works by directly forwarding your query to a large language model for processing — without storing any data. This ensures your privacy while providing fast and intelligent responses. All chat history is saved only on your device.
+                </p>
+                <div class="ds-callout" style="margin-top:var(--space-5);">
+                    <strong style="color:var(--text-strong);">LLM-MS</strong> additionally routes each query to the most suitable model using multi-armed bandit and overperformer-underperformer selection algorithms.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About -->
+    <section id="about" class="ds-section">
+        <div class="ds-container">
+            <div class="ds-section-header">
+                <span class="ds-section-number">03</span>
+                <div class="ds-section-title">About</div>
+            </div>
+            <div class="about-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:var(--space-6); max-width:900px; margin:0 auto;">
+                <div style="text-align:center;">
+                    <p style="color:var(--muted); line-height:1.7;">ChatUCY is an AI chatbot platform developed to assist users across various tasks, enabling smooth and natural interactions. Whether you're seeking information, assistance, or simply engaging in a conversation, ChatUCY is your free-to-use platform.</p>
+                </div>
+                <div style="text-align:center;">
+                    <p style="color:var(--muted); line-height:1.7;">Built by the Data Management Systems Laboratory (DMSL) at the University of Cyprus, ChatUCY leverages open-source AI models to promote accessibility and inclusivity for all users.</p>
+                    <p style="margin-top:var(--space-4); font-weight:600; color:var(--text-strong);">Research-grade AI, accessible to everyone.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Team -->
+    <section id="team" class="ds-section">
+        <div class="ds-container">
+            <div class="ds-section-header">
+                <span class="ds-section-number">04</span>
+                <div class="ds-section-title">Contributors</div>
+            </div>
+            <div class="team-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:var(--space-5); max-width:720px; margin:0 auto;">
+                <div class="ds-panel ds-panel--elevated" style="text-align:center;">
+                    <a href="http://www.cs.ucy.ac.cy/~dzeina/" target="_blank"><div id="tm-dz" class="team-img"></div></a>
+                    <h3 style="margin-bottom:var(--space-2);"><a href="http://www.cs.ucy.ac.cy/~dzeina/" target="_blank" class="ds-link">Demetris Zeinalipour</a></h3>
+                    <p class="ds-meta">System Architect &amp; Project Leader</p>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="text-align:center;">
+                    <a href="https://www.linkedin.com/in/kkrasov/" target="_blank"><div id="tm-kk" class="team-img"></div></a>
+                    <h3 style="margin-bottom:var(--space-2);"><a href="https://www.linkedin.com/in/kkrasov/" target="_blank" class="ds-link">Konstantin Krasovitskiy</a></h3>
+                    <p class="ds-meta">Platform Developer &amp; System Administrator</p>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="text-align:center;">
+                    <div id="tm-dp" class="team-img">DP</div>
+                    <h3 style="margin-bottom:var(--space-2);">Demetra Paphitou</h3>
+                    <p class="ds-meta">Features Researcher</p>
+                </div>
+                <div class="ds-panel ds-panel--elevated" style="text-align:center;">
+                    <a href="https://www.linkedin.com/in/stelioschristou/" target="_blank"><div id="tm-sc" class="team-img">SC</div></a>
+                    <h3 style="margin-bottom:var(--space-2);"><a href="https://www.linkedin.com/in/stelioschristou/" target="_blank" class="ds-link">Stelios Christou</a></h3>
+                    <p class="ds-meta">Researcher</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact -->
+    <section id="contact" class="ds-section" x-data="contactForm()">
+        <div class="ds-container">
+            <div class="ds-section-header">
+                <span class="ds-section-number">05</span>
+                <div class="ds-section-title">Contact Us</div>
+            </div>
+            <div class="ds-panel ds-panel--elevated" style="max-width:600px; margin:0 auto; display:grid; gap:var(--space-5);">
+                <form id="contactForm" @submit.prevent="submitForm()" style="display:grid; gap:var(--space-4);">
+                    <div>
+                        <label for="name" class="contact-label">Name</label>
+                        <input type="text" id="name" x-model="formData.name" class="contact-field" placeholder="Your Name" required>
+                    </div>
+                    <div>
+                        <label for="email" class="contact-label">Email Address</label>
+                        <input type="email" id="email" x-model="formData.email" class="contact-field" placeholder="your.email@example.com" required>
+                    </div>
+                    <div>
+                        <label for="message" class="contact-label">Message</label>
+                        <textarea id="message" x-model="formData.message" class="contact-field" placeholder="Your message..." required></textarea>
+                    </div>
+                    <button type="submit" class="ds-btn ds-btn--solid" style="width:100%; justify-content:center;">Send Message</button>
+                    <div x-show="message" class="ds-callout" :style="success ? 'border-color:#22c55e;color:#22c55e;' : 'color:var(--accent);'" x-text="message"></div>
+                </form>
+                <div style="border-top:1px solid var(--border); padding-top:var(--space-4); display:grid; gap:var(--space-3);">
+                    <div class="ds-contact-item">
+                        <p class="ds-meta">Email</p>
+                        <a href="mailto:dmsl@cs.ucy.ac.cy" class="ds-link ds-link--accent">dmsl@cs.ucy.ac.cy</a>
+                    </div>
+                    <div class="ds-contact-item">
+                        <p class="ds-meta">Phone</p>
+                        <a href="tel:+35722892755" class="ds-link ds-link--accent">+357-22-892755</a>
+                    </div>
+                    <div class="ds-contact-item">
+                        <p class="ds-meta">Lab</p>
+                        <a href="http://dmsl.cs.ucy.ac.cy/" target="_blank" class="ds-link ds-link--accent">Data Management Systems Laboratory</a>
+                        <p style="color:var(--muted); font-size:0.8rem; margin-top:4px;">Dept. of Computer Science, University of Cyprus, 1678 Nicosia, CYPRUS</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="ds-footer">
+        <div class="ds-container ds-footer-inner">
+            <div>
+                <span>ChatUCY — </span>
+                <a href="http://dmsl.cs.ucy.ac.cy/" target="_blank">DMSL, University of Cyprus</a>
+            </div>
+            <div style="display:flex; gap:var(--space-5); align-items:center; flex-wrap:wrap;">
+                <a href="/terms.html">Terms</a>
+                <a href="/privacy.html">Privacy</a>
+                <a href="/publications/">Research</a>
+                <span>© 2025 ChatUCY</span>
+            </div>
+        </div>
+    </footer>
+
+    <a href="#page-top" class="scroll-top" aria-label="Back to top"><i class="fas fa-arrow-up"></i></a>
+
+    <script src="../js/ds-theme.js"></script>
+    <script src="../js/alpine-components/contact-form.js"></script>
+</body>
+</html>
