@@ -1792,7 +1792,7 @@
                                 @click="sendMessage()"
                                 :disabled="!userInput.trim() || isLoading"
                                 :style="userInput.trim() && !isLoading ? 'background:var(--accent); box-shadow:0 2px 10px rgba(106,66,194,0.3); opacity:1;' : 'background:rgba(106,66,194,0.18); opacity:0.5; cursor:not-allowed;'"
-                                style="width:36px; height:36px; border-radius:50%; border:none; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
+                                style="width:36px; height:36px; border-radius:var(--radius); border:none; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
                                 <i class="fas fa-paper-plane" style="font-size:0.75rem;"></i>
                             </button>
                         </div>
@@ -1879,23 +1879,21 @@
                                     </div>
                                 </div>
 
-                                <div class="composer-mode-mobile" style="display:none; align-items:center; gap:4px; padding:3px; border:1px solid var(--border); border-radius:999px; background:color-mix(in srgb, var(--surface) 94%, transparent);">
+                                <div class="composer-mode-mobile" style="display:none; align-items:center; gap:4px; padding:3px; border:1px solid var(--border); border-radius:var(--radius); background:color-mix(in srgb, var(--surface) 94%, transparent);">
                                     <button
                                         @click="selectInteractionMode('ask')"
                                         :style="interactionMode === 'ask'
-                                            ? 'display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 10px; border:none; border-radius:999px; background:rgba(106,66,194,0.12); color:var(--accent); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'
-                                            : 'display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 10px; border:none; border-radius:999px; background:transparent; color:var(--muted); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'">
+                                            ? 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:rgba(106,66,194,0.12); color:var(--accent); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'
+                                            : 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:transparent; color:var(--muted); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'">
                                         <i class="fas fa-comment-dots" style="font-size:0.68rem;"></i>
-                                        <span>Ask</span>
                                     </button>
                                     <button
                                         @click="if (modelSupportsAgent()) { selectInteractionMode('agent') }"
                                         :disabled="!modelSupportsAgent()"
                                         :style="interactionMode === 'agent'
-                                            ? 'display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 10px; border:none; border-radius:999px; background:rgba(106,66,194,0.12); color:var(--accent); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'
-                                            : 'display:inline-flex; align-items:center; gap:6px; min-height:32px; padding:0 10px; border:none; border-radius:999px; background:transparent; color:' + (modelSupportsAgent() ? 'var(--muted)' : 'color-mix(in srgb, var(--muted) 78%, transparent)') + '; font-size:0.68rem; font-family:var(--font-body); cursor:' + (modelSupportsAgent() ? 'pointer' : 'not-allowed') + '; opacity:' + (modelSupportsAgent() ? '1' : '0.6') + ';'">
+                                            ? 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:rgba(106,66,194,0.12); color:var(--accent); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'
+                                            : 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:transparent; color:' + (modelSupportsAgent() ? 'var(--muted)' : 'color-mix(in srgb, var(--muted) 78%, transparent)') + '; font-size:0.68rem; font-family:var(--font-body); cursor:' + (modelSupportsAgent() ? 'pointer' : 'not-allowed') + '; opacity:' + (modelSupportsAgent() ? '1' : '0.6') + ';'">
                                         <i class="fas fa-wand-magic-sparkles" style="font-size:0.68rem;"></i>
-                                        <span>Agent</span>
                                     </button>
                                 </div>
                             </div>
