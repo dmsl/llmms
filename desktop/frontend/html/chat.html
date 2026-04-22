@@ -645,6 +645,7 @@
 
         .chatucy-tour-backdrop {
             position: fixed;
+            inset: 0;
             background:
                 radial-gradient(circle at top, rgba(106,66,194,0.16), transparent 52%),
                 linear-gradient(180deg, rgba(9,6,18,0.22), rgba(9,6,18,0.32));
@@ -920,11 +921,7 @@
         x-transition:leave-end="opacity-0"
         class="chatucy-tour"
         style="display:none;">
-        <div x-show="!onboarding.targetVisible" class="chatucy-tour-backdrop" style="inset:0;"></div>
-        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropTopStyle"></div>
-        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropLeftStyle"></div>
-        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropRightStyle"></div>
-        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropBottomStyle"></div>
+        <div class="chatucy-tour-backdrop" :style="onboarding.backdropStyle || 'inset:0;'"></div>
         <div
             x-show="onboarding.targetVisible"
             x-transition.opacity

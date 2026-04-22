@@ -396,10 +396,7 @@ function chatApp() {
             currentStep: 0,
             steps: ONBOARDING_STEPS.map((step) => ({ ...step })),
             spotlightStyle: '',
-            backdropTopStyle: '',
-            backdropLeftStyle: '',
-            backdropRightStyle: '',
-            backdropBottomStyle: '',
+            backdropStyle: '',
             cardStyle: '',
             targetVisible: false,
             sidebarStateBeforeTour: null,
@@ -949,10 +946,7 @@ function chatApp() {
             this.onboarding.open = false;
             this.onboarding.targetVisible = false;
             this.onboarding.spotlightStyle = '';
-            this.onboarding.backdropTopStyle = '';
-            this.onboarding.backdropLeftStyle = '';
-            this.onboarding.backdropRightStyle = '';
-            this.onboarding.backdropBottomStyle = '';
+            this.onboarding.backdropStyle = '';
             this.onboarding.cardStyle = '';
             this.unlockOnboardingScroll();
 
@@ -1061,10 +1055,7 @@ function chatApp() {
                     if (!target) {
                         this.onboarding.targetVisible = false;
                         this.onboarding.spotlightStyle = '';
-                        this.onboarding.backdropTopStyle = '';
-                        this.onboarding.backdropLeftStyle = '';
-                        this.onboarding.backdropRightStyle = '';
-                        this.onboarding.backdropBottomStyle = '';
+                        this.onboarding.backdropStyle = 'inset:0;';
                         this.onboarding.cardStyle = 'left:12px; right:12px; bottom:max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px));';
                         return;
                     }
@@ -1095,10 +1086,10 @@ function chatApp() {
                             `height:${height}px`,
                             `border-radius:${Math.min(24, Math.max(16, Math.round(height / 3)))}px`
                         ].join(';');
-                        this.onboarding.backdropTopStyle = `top:0; left:0; width:100vw; height:${Math.max(0, top)}px;`;
-                        this.onboarding.backdropBottomStyle = `top:${top + height}px; left:0; width:100vw; height:${Math.max(0, window.innerHeight - (top + height))}px;`;
-                        this.onboarding.backdropLeftStyle = `top:${top}px; left:0; width:${Math.max(0, left)}px; height:${height}px;`;
-                        this.onboarding.backdropRightStyle = `top:${top}px; left:${left + width}px; width:${Math.max(0, window.innerWidth - (left + width))}px; height:${height}px;`;
+                        this.onboarding.backdropStyle = [
+                            'inset:0',
+                            `clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${left}px ${top}px, ${left}px ${top + height}px, ${left + width}px ${top + height}px, ${left + width}px ${top}px, ${left}px ${top}px)`
+                        ].join(';');
 
                         if (compact) {
                             this.onboarding.cardStyle = targetCenterY > (window.innerHeight * 0.58)
