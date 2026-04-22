@@ -512,7 +512,11 @@
                 display: none !important;
             }
 
-            .composer-more-mobile {
+            .composer-more-mobile-trigger {
+                display: inline-flex !important;
+            }
+
+            .composer-attach-mobile {
                 display: inline-flex !important;
             }
         }
@@ -522,7 +526,8 @@
                 display: none !important;
             }
 
-            .composer-more-mobile {
+            .composer-more-mobile-trigger,
+            .composer-attach-mobile {
                 display: none !important;
             }
         }
@@ -1911,6 +1916,14 @@
                             </div>
 
                             <div data-tour="composer-context" x-data="{ mobileOpen: false }" style="margin-left:auto; display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; min-width:0; max-width:100%; position:relative;">
+                                <button
+                                    @click="$refs.fileInput.click()"
+                                    class="ds-icon-btn composer-attach-mobile"
+                                    style="display:none; width:36px; height:36px;"
+                                    title="Attach file">
+                                    <i class="fas fa-paperclip"></i>
+                                </button>
+
                                 <div class="composer-secondary-desktop" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                                     <!-- File Upload -->
                                     <button
@@ -1984,7 +1997,7 @@
                                 </div>
 
                                 <button
-                                    class="ds-icon-btn composer-more-mobile"
+                                    class="ds-icon-btn composer-more-mobile-trigger"
                                     @click="mobileOpen = !mobileOpen"
                                     :aria-expanded="mobileOpen ? 'true' : 'false'"
                                     style="display:none; width:36px; height:36px;"
@@ -1996,11 +2009,8 @@
                                     x-show="mobileOpen"
                                     @click.away="mobileOpen = false"
                                     x-transition
-                                    class="composer-more-mobile"
+                                    @click.stop
                                     style="display:none; position:absolute; right:0; bottom:calc(100% + 8px); z-index:220; min-width:188px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:6px; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
-                                    <button @click="$refs.fileInput.click(); mobileOpen = false" class="ds-btn" style="width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px;">
-                                        <i class="fas fa-paperclip" style="font-size:0.72rem;"></i> Attach file
-                                    </button>
                                     <button
                                         x-show="selectedModelSupportsThinking()"
                                         @click="toggleThinking(); mobileOpen = false"
