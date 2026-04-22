@@ -235,6 +235,66 @@ function prefersReducedMotion() {
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+function findScrollableAncestor(element) {
+    if (!element || typeof window === 'undefined') {
+        return null;
+    }
+
+    let current = element.parentElement;
+    while (current && current !== document.body) {
+        const styles = window.getComputedStyle(current);
+        const overflowY = styles.overflowY || styles.overflow;
+        if (/(auto|scroll|overlay)/.test(overflowY) && current.scrollHeight > current.clientHeight + 1) {
+            return current;
+        }
+        current = current.parentElement;
+    }
+
+    return null;
+}
+
+function revealElementInScrollableAncestor(element, behavior = 'auto') {
+    if (!element || typeof window === 'undefined') {
+        return;
+    }
+
+    const container = findScrollableAncestor(element);
+    if (!container) {
+        return;
+    }
+
+    const targetRect = element.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const margin = 20;
+    const deltaTop = targetRect.top - containerRect.top - margin;
+    const deltaBottom = targetRect.bottom - containerRect.bottom + margin;
+
+    if (deltaTop < 0) {
+        container.scrollTo({
+            top: Math.max(0, container.scrollTop + deltaTop),
+            behavior
+        });
+        return;
+    }
+
+    if (deltaBottom > 0) {
+        container.scrollTo({
+            top: container.scrollTop + deltaBottom,
+            behavior
+        });
+    }
+}
+
+function elementNeedsViewportReveal(element) {
+    if (!element || typeof window === 'undefined') {
+        return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const viewportMargin = 20;
+    return rect.top < viewportMargin || rect.bottom > (window.innerHeight - viewportMargin);
+}
+
 function sanitizeMessageForPersistence(msg) {
     const safe = {
         ...deepCloneSerializable(msg, {})
@@ -336,9 +396,14 @@ function chatApp() {
             currentStep: 0,
             steps: ONBOARDING_STEPS.map((step) => ({ ...step })),
             spotlightStyle: '',
+            backdropTopStyle: '',
+            backdropLeftStyle: '',
+            backdropRightStyle: '',
+            backdropBottomStyle: '',
             cardStyle: '',
             targetVisible: false,
-            sidebarStateBeforeTour: null
+            sidebarStateBeforeTour: null,
+            scrollLock: null
         },
         modal: {
             show: false,
@@ -876,6 +941,7 @@ function chatApp() {
 
             this.onboarding.currentStep = 0;
             this.onboarding.open = true;
+            this.lockOnboardingScroll();
             this.refreshOnboardingLayout(true);
         },
 
@@ -883,7 +949,12 @@ function chatApp() {
             this.onboarding.open = false;
             this.onboarding.targetVisible = false;
             this.onboarding.spotlightStyle = '';
+            this.onboarding.backdropTopStyle = '';
+            this.onboarding.backdropLeftStyle = '';
+            this.onboarding.backdropRightStyle = '';
+            this.onboarding.backdropBottomStyle = '';
             this.onboarding.cardStyle = '';
+            this.unlockOnboardingScroll();
 
             if (markSeen) {
                 localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
@@ -894,6 +965,46 @@ function chatApp() {
             }
 
             this.onboarding.sidebarStateBeforeTour = null;
+        },
+
+        lockOnboardingScroll() {
+            if (this.onboarding.scrollLock || typeof document === 'undefined' || typeof window === 'undefined') {
+                return;
+            }
+
+            const handleWindowScroll = () => {
+                if (!this.onboarding.scrollLock) {
+                    return;
+                }
+                if (window.scrollX !== this.onboarding.scrollLock.scrollX || window.scrollY !== this.onboarding.scrollLock.scrollY) {
+                    window.scrollTo(this.onboarding.scrollLock.scrollX, this.onboarding.scrollLock.scrollY);
+                }
+            };
+
+            this.onboarding.scrollLock = {
+                htmlOverflow: document.documentElement.style.overflow,
+                bodyOverflow: document.body.style.overflow,
+                scrollX: window.scrollX,
+                scrollY: window.scrollY,
+                handleWindowScroll
+            };
+
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+            window.addEventListener('scroll', handleWindowScroll, { passive: true });
+            window.scrollTo(this.onboarding.scrollLock.scrollX, this.onboarding.scrollLock.scrollY);
+        },
+
+        unlockOnboardingScroll() {
+            if (!this.onboarding.scrollLock || typeof document === 'undefined' || typeof window === 'undefined') {
+                return;
+            }
+
+            document.documentElement.style.overflow = this.onboarding.scrollLock.htmlOverflow;
+            document.body.style.overflow = this.onboarding.scrollLock.bodyOverflow;
+            window.removeEventListener('scroll', this.onboarding.scrollLock.handleWindowScroll);
+            window.scrollTo(this.onboarding.scrollLock.scrollX, this.onboarding.scrollLock.scrollY);
+            this.onboarding.scrollLock = null;
         },
 
         reopenOnboarding() {
@@ -950,16 +1061,16 @@ function chatApp() {
                     if (!target) {
                         this.onboarding.targetVisible = false;
                         this.onboarding.spotlightStyle = '';
+                        this.onboarding.backdropTopStyle = '';
+                        this.onboarding.backdropLeftStyle = '';
+                        this.onboarding.backdropRightStyle = '';
+                        this.onboarding.backdropBottomStyle = '';
                         this.onboarding.cardStyle = 'left:12px; right:12px; bottom:max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px));';
                         return;
                     }
 
-                    if (revealTarget && typeof target.scrollIntoView === 'function') {
-                        target.scrollIntoView({
-                            block: 'center',
-                            inline: 'nearest',
-                            behavior: prefersReducedMotion() ? 'auto' : 'smooth'
-                        });
+                    if (revealTarget && elementNeedsViewportReveal(target)) {
+                        revealElementInScrollableAncestor(target, prefersReducedMotion() ? 'auto' : 'smooth');
                     }
 
                     requestAnimationFrame(() => {
@@ -984,6 +1095,10 @@ function chatApp() {
                             `height:${height}px`,
                             `border-radius:${Math.min(24, Math.max(16, Math.round(height / 3)))}px`
                         ].join(';');
+                        this.onboarding.backdropTopStyle = `top:0; left:0; width:100vw; height:${Math.max(0, top)}px;`;
+                        this.onboarding.backdropBottomStyle = `top:${top + height}px; left:0; width:100vw; height:${Math.max(0, window.innerHeight - (top + height))}px;`;
+                        this.onboarding.backdropLeftStyle = `top:${top}px; left:0; width:${Math.max(0, left)}px; height:${height}px;`;
+                        this.onboarding.backdropRightStyle = `top:${top}px; left:${left + width}px; width:${Math.max(0, window.innerWidth - (left + width))}px; height:${height}px;`;
 
                         if (compact) {
                             this.onboarding.cardStyle = targetCenterY > (window.innerHeight * 0.58)

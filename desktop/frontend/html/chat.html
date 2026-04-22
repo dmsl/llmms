@@ -644,13 +644,13 @@
         }
 
         .chatucy-tour-backdrop {
-            position: absolute;
-            inset: 0;
+            position: fixed;
             background:
                 radial-gradient(circle at top, rgba(106,66,194,0.28), transparent 48%),
                 linear-gradient(180deg, rgba(9,6,18,0.5), rgba(9,6,18,0.62));
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
+            pointer-events: none;
         }
 
         .chatucy-tour-spotlight {
@@ -659,7 +659,6 @@
             border: 1px solid rgba(255,255,255,0.58);
             background: transparent;
             box-shadow:
-                0 0 0 9999px rgba(7,6,16,0.42),
                 0 18px 48px rgba(0,0,0,0.22),
                 0 0 0 1px rgba(255,255,255,0.24),
                 inset 0 0 0 1px rgba(255,255,255,0.18);
@@ -921,7 +920,11 @@
         x-transition:leave-end="opacity-0"
         class="chatucy-tour"
         style="display:none;">
-        <div class="chatucy-tour-backdrop"></div>
+        <div x-show="!onboarding.targetVisible" class="chatucy-tour-backdrop" style="inset:0;"></div>
+        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropTopStyle"></div>
+        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropLeftStyle"></div>
+        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropRightStyle"></div>
+        <div x-show="onboarding.targetVisible" class="chatucy-tour-backdrop" :style="onboarding.backdropBottomStyle"></div>
         <div
             x-show="onboarding.targetVisible"
             x-transition.opacity
