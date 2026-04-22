@@ -147,16 +147,20 @@ const ONBOARDING_STEPS = Object.freeze([
         title: 'Start a clean conversation instantly',
         description: 'Use New chat whenever you want a fresh thread without losing older conversations in the sidebar.',
         note: 'It is the fastest way to switch topics.',
-        sidebar: 'open'
+        sidebar: 'open',
+        spotlightPadding: 0,
+        spotlightRadius: 10
     },
     {
         id: 'workspaces',
-        selector: '[data-tour="workspace-zone"]',
+        selector: '[data-tour="workspace-zone"] .gpt-section-title',
         eyebrow: 'Organization',
         title: 'Keep projects tidy with workspaces',
         description: 'Search chats, create workspaces, and group related sessions so files and discussions stay together.',
         note: 'This is especially helpful once you have multiple topics going.',
-        sidebar: 'open'
+        sidebar: 'open',
+        spotlightPadding: 0,
+        spotlightRadius: 2
     },
     {
         id: 'models',
@@ -194,7 +198,7 @@ const ONBOARDING_STEPS = Object.freeze([
         note: 'You can reopen this tour from the top-right menu at any time.',
         sidebar: 'open',
         spotlightPadding: 0,
-        spotlightRadius: 12
+        spotlightRadius: 2
     }
 ]);
 

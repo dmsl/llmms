@@ -1396,41 +1396,41 @@
                 x-transition:leave-start="opacity-100 translate-x-0"
                 x-transition:leave-end="opacity-0 translate-x-2"
                 class="flex-1 overflow-y-auto scrollbar-hidden"
-                style="background:var(--bg); padding:72px 24px 32px;">
+                style="background:var(--bg); padding:72px 24px calc(var(--chat-input-offset) + 20px);">
                 <div style="max-width:1080px; margin:0 auto; border:1px solid var(--border); border-radius:14px; background:var(--surface-elevated); overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 34px rgba(106,66,194,0.08);">
-                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:18px 20px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--surface-elevated) 88%, var(--accent) 12%);">
-                    <div style="flex:1; min-width:0; display:grid; gap:12px;">
-                        <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding:14px 16px; border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--surface-elevated) 88%, var(--accent) 12%);">
+                    <div style="flex:1; min-width:0; display:grid; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:12px; min-width:0;">
                             <input
                                 :value="getCurrentWorkspace()?.icon || ''"
                                 @input="updateCurrentWorkspaceMeta({ icon: $event.target.value })"
                                 placeholder="🙂"
                                 aria-label="Workspace emoji"
-                                style="width:56px; height:56px; padding:0; text-align:center; border:1px solid var(--border); border-radius:16px; background:var(--surface); color:var(--text); font-size:1.35rem; box-sizing:border-box; flex-shrink:0;">
-                            <div style="flex:1; min-width:0; display:grid; gap:8px;">
+                                style="width:48px; height:48px; padding:0; text-align:center; border:1px solid var(--border); border-radius:14px; background:var(--surface); color:var(--text); font-size:1.15rem; box-sizing:border-box; flex-shrink:0;">
+                            <div style="flex:1; min-width:0; display:grid; gap:6px;">
                                 <div style="font-size:0.62rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--muted);">Workspace</div>
                                 <input
                                     :value="getCurrentWorkspace()?.name || ''"
                                     @input="updateCurrentWorkspaceMeta({ name: $event.target.value })"
                                     placeholder="Workspace name"
                                     aria-label="Workspace name"
-                                    style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text-strong); font-size:0.94rem; font-weight:600; box-sizing:border-box;">
+                                    style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text-strong); font-size:0.88rem; font-weight:600; box-sizing:border-box;">
                             </div>
-                            <div style="display:grid; gap:6px; justify-items:center; flex-shrink:0;">
+                            <div style="display:grid; gap:4px; justify-items:center; flex-shrink:0;">
                                 <input
                                     :value="getCurrentWorkspace()?.color || '#6a42c2'"
                                     @input="updateCurrentWorkspaceMeta({ color: $event.target.value })"
                                     type="color"
                                     aria-label="Workspace color"
-                                    style="width:42px; height:42px; border:1px solid var(--border); border-radius:12px; background:var(--surface-elevated); padding:3px; box-sizing:border-box;">
+                                    style="width:36px; height:36px; border:1px solid var(--border); border-radius:10px; background:var(--surface-elevated); padding:2px; box-sizing:border-box;">
                                 <div style="font-size:0.58rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">Color</div>
                             </div>
                         </div>
                         <textarea
                             :value="getCurrentWorkspace()?.description || ''"
                             @input="updateCurrentWorkspaceMeta({ description: $event.target.value })"
-                            rows="2"
-                            style="width:100%; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text); font-size:0.76rem; line-height:1.45; padding:10px 12px; resize:none; box-sizing:border-box;"
+                            rows="1"
+                            style="width:100%; min-height:44px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-size:0.74rem; line-height:1.4; padding:9px 10px; resize:none; box-sizing:border-box;"
                             placeholder="Short description for this workspace..."></textarea>
                     </div>
                     <button @click="closeWorkspaceDetails()" class="ds-icon-btn" style="width:32px; height:32px; flex-shrink:0;" title="Close workspace details">
@@ -1438,7 +1438,7 @@
                     </button>
                 </div>
 
-                <div class="custom-scrollbar" style="flex:1; overflow:visible; padding:18px 20px 16px; display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(0, 0.9fr); gap:16px; align-items:start;">
+                <div class="custom-scrollbar" style="flex:1; overflow:visible; padding:14px 16px 14px; display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(0, 0.9fr); gap:12px; align-items:start;">
                     <section x-show="false" style="display:none;">
                         <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Workspace Details</div>
                         <div style="border:1px solid var(--border); border-radius:8px; padding:8px; display:grid; gap:8px;">
@@ -1468,74 +1468,77 @@
                         </div>
                     </section>
 
-                    <section style="grid-column:2; grid-row:1;">
+                    <section style="grid-column:2; grid-row:1; padding:2px 0;">
                         <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Storage Policy</div>
-                        <div style="border:1px solid var(--border); border-radius:8px; padding:8px; display:grid; gap:6px; font-size:0.72rem; color:var(--text);">
-                            <div style="display:flex; justify-content:space-between; gap:8px;">
+                        <div style="display:grid; gap:7px; font-size:0.7rem; color:var(--text); padding:2px 0;">
+                            <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid color-mix(in srgb, var(--border) 72%, transparent);">
                                 <span>Per file</span>
                                 <span x-text="formatBytes(25 * 1024 * 1024)"></span>
                             </div>
-                            <div style="display:flex; justify-content:space-between; gap:8px;">
+                            <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid color-mix(in srgb, var(--border) 72%, transparent);">
                                 <span>This workspace</span>
                                 <span><span x-text="formatBytes(getWorkspaceStorageUsage())"></span> / <span x-text="formatBytes(getWorkspaceStorageLimit())"></span></span>
                             </div>
-                            <div style="display:flex; justify-content:space-between; gap:8px;">
+                            <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid color-mix(in srgb, var(--border) 72%, transparent);">
                                 <span>All workspaces</span>
                                 <span><span x-text="formatBytes(getGlobalWorkspaceStorageUsage())"></span> / <span x-text="formatBytes(getGlobalStorageLimit())"></span></span>
                             </div>
-                            <div x-show="storageInfo.loaded && storageInfo.quotaBytes" style="display:flex; justify-content:space-between; gap:8px; color:var(--muted);">
+                            <div x-show="storageInfo.loaded && storageInfo.quotaBytes" style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; color:var(--muted);">
                                 <span>Browser quota</span>
                                 <span><span x-text="formatBytes(storageInfo.usedBytes)"></span> / <span x-text="formatBytes(storageInfo.quotaBytes)"></span></span>
                             </div>
                         </div>
                     </section>
 
-                    <section style="grid-column:1; grid-row:1;">
+                    <section style="grid-column:1; grid-row:1; padding:2px 0;">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;">
                             <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted);">Workspace Files</div>
-                            <button @click="$refs.workspaceFileInput.click()" class="ds-btn" style="font-size:0.64rem; padding:5px 8px; border:none; background:transparent; color:var(--muted); text-transform:none; letter-spacing:0.02em;">
+                            <button @click="$refs.workspaceFileInput.click()" class="ds-btn" style="font-size:0.64rem; padding:4px 8px; border:none; background:transparent; color:var(--muted); text-transform:none; letter-spacing:0.02em;">
                                 <i class="fas fa-file-circle-plus"></i> Upload
                             </button>
                         </div>
-                        <div style="display:grid; gap:6px;">
+                        <div style="display:grid; gap:0; max-height:168px; overflow:auto;" class="scrollbar-hidden">
                             <template x-for="file in getWorkspaceFiles()" :key="file.id">
-                                <div style="display:flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:8px; padding:6px 7px;">
+                                <div style="display:flex; align-items:center; gap:8px; padding:7px 2px; border-bottom:1px solid color-mix(in srgb, var(--border) 72%, transparent);">
                                     <i class="fas fa-file" style="font-size:0.66rem; color:var(--muted);"></i>
-                                    <span style="flex:1; min-width:0; font-size:0.73rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="file.name"></span>
+                                    <span style="flex:1; min-width:0; font-size:0.7rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="file.name"></span>
                                     <button @click="downloadWorkspaceFile(file.id)" class="ds-icon-btn" style="width:22px; height:22px; border:none; background:transparent;" title="Download file"><i class="fas fa-download" style="font-size:0.62rem;"></i></button>
                                     <button @click="removeWorkspaceFile(file.id)" class="ds-icon-btn" style="width:22px; height:22px; border:none; background:transparent; color:var(--muted);" title="Remove file" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--muted)'"><i class="fas fa-trash" style="font-size:0.62rem;"></i></button>
                                 </div>
                             </template>
-                            <div x-show="getWorkspaceFiles().length === 0" style="font-size:0.72rem; color:var(--muted); border:1px dashed var(--border); border-radius:8px; padding:8px;">
+                            <div x-show="getWorkspaceFiles().length === 0" style="font-size:0.72rem; color:var(--muted); padding:10px 2px;">
                                 No workspace files yet.
                             </div>
                         </div>
                     </section>
 
-                    <section style="grid-column:1; grid-row:2;">
+                    <section style="grid-column:1; grid-row:2; padding:2px 0;">
                         <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Pinned Note</div>
                         <textarea
                             :value="getCurrentWorkspace()?.pinnedNote || ''"
                             @input="updateCurrentWorkspacePinnedNote($event.target.value)"
-                            rows="5"
-                            style="width:100%; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text); font-size:0.74rem; line-height:1.35; padding:8px; resize:vertical; box-sizing:border-box;"
+                            rows="4"
+                            style="width:100%; min-height:104px; border:1px solid var(--border); border-radius:10px; background:color-mix(in srgb, var(--surface) 94%, transparent); color:var(--text); font-size:0.73rem; line-height:1.4; padding:9px 10px; resize:none; box-sizing:border-box;"
                             placeholder="Add workspace instructions or notes..."></textarea>
                     </section>
 
-                    <section style="grid-column:2; grid-row:2;">
+                    <section style="grid-column:2; grid-row:2; padding:2px 0;">
                         <div style="font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;">Defaults</div>
                         <select
                             @change="setCurrentWorkspaceDefaultModel($event.target.value)"
-                            style="width:100%; border:1px solid var(--border); border-radius:8px; background:transparent; color:var(--text); font-size:0.74rem; padding:7px; box-sizing:border-box;">
+                            style="width:100%; border:1px solid var(--border); border-radius:10px; background:color-mix(in srgb, var(--surface) 94%, transparent); color:var(--text); font-size:0.73rem; padding:8px 10px; box-sizing:border-box;">
                             <option value="">Default model: none</option>
                             <template x-for="model in availableModels" :key="model.id">
                                 <option :selected="(getCurrentWorkspace()?.defaultModel || '') === model.id" :value="model.id" x-text="model.displayName"></option>
                             </template>
                         </select>
+                        <div style="margin-top:8px; font-size:0.69rem; line-height:1.45; color:var(--muted);">
+                            New chats in this workspace use this model automatically.
+                        </div>
                     </section>
                 </div>
 
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 20px 20px; border-top:none;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px 16px; border-top:none;">
                     <button @click="exportCurrentWorkspace()" class="ds-btn" style="justify-content:center; font-size:0.66rem; padding:7px;">
                         <i class="fas fa-download"></i> Export
                     </button>
