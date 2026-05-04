@@ -392,12 +392,14 @@
         #chat-history {
             min-height: 100vh;
             min-height: var(--chat-vh);
-            padding-bottom: calc(var(--chat-composer-height) + var(--chat-input-offset) + 20px) !important;
+            padding-bottom: calc(var(--chat-composer-height) + var(--chat-input-bottom-gap) + var(--chat-effective-bottom) + 20px) !important;
         }
 
         #input-area {
-            bottom: 0 !important;
-            padding-bottom: var(--chat-input-offset) !important;
+            position: fixed;
+            bottom: var(--chat-effective-bottom) !important;
+            padding-bottom: var(--chat-input-bottom-gap) !important;
+            transform: translateZ(0);
         }
 
         .workspace-details-screen {
@@ -2417,15 +2419,16 @@
             window.innerHeight || 0,
             document.documentElement.clientHeight || 0
           );
-          const viewportHeight = vv
-            ? vv.height
-            : layoutHeight;
+                    const viewportHeight = vv
+                        ? vv.height
+                        : layoutHeight;
+                    const stableHeight = Math.max(layoutHeight, viewportHeight);
           const viewportOffsetTop = vv ? vv.offsetTop : 0;
           const dynamicBottomInset = vv
             ? Math.max(0, layoutHeight - (vv.height + vv.offsetTop))
             : 0;
 
-          root.style.setProperty('--chat-vh', `${Math.max(320, Math.round(viewportHeight))}px`);
+          root.style.setProperty('--chat-vh', `${Math.max(320, Math.round(stableHeight))}px`);
           root.style.setProperty('--chat-viewport-bottom-inset', `${dynamicBottomInset}px`);
 
           const safeBottom = parsePx(getComputedStyle(root).getPropertyValue('--chat-safe-bottom'));
