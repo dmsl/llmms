@@ -213,6 +213,8 @@ const WORKSPACE_STORAGE_LIMIT_DEFAULTS = {
     maxWorkspaceBytes: 200 * 1024 * 1024,
     maxGlobalBytes: 1024 * 1024 * 1024
 };
+const MAX_CONCURRENT_PER_SESSION = 3;
+const SESSION_SAVE_DEBOUNCE_MS = 700;
 
 function makeId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -344,6 +346,7 @@ function sanitizeMessageForPersistence(msg) {
     delete safe.isTyping;
     delete safe.isStreaming;
     delete safe.showModelInfo;
+    delete safe.requestId;
 
     return safe;
 }
@@ -397,7 +400,9 @@ function chatApp() {
         workspaceStoragePolicy: {
             ...WORKSPACE_STORAGE_LIMIT_DEFAULTS
         },
-        isLoading: false,
+        inFlightRequests: new Map(),
+        pendingSessionSaveIds: new Set(),
+        sessionSaveTimerId: null,
         selectedModel: 'Select Model',
         thinkingEnabled: false,
         autoScrollEnabled: true,
@@ -867,7 +872,12 @@ function chatApp() {
                 const first = this.currentSession || this.sessions[0].id;
                 this.selectSession(first);
             } else {
-                this.newChat();
+                // Do not auto-create a session on init. Sessions should be
+                // created explicitly by the user or when the first message
+                // is sent. Keep currentSession null to indicate no active
+                // session exists.
+                this.currentSession = null;
+                this.messages = [];
             }
             
             // Load available models
@@ -1691,11 +1701,11 @@ function chatApp() {
             ].join('\n');
         },
 
-        async indexUploadedDocumentForLocalRag(file) {
+        async indexUploadedDocumentForLocalRag(file, sessionId = this.currentSession) {
             const limits = getRagLimits();
             const scope = {
-                workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
-                chatId: this.currentSession
+                workspaceId: this.getCurrentWorkspaceIdForSession(sessionId),
+                chatId: sessionId
             };
 
             const selectionError = this.validateLocalRagFileSelection(file, scope.workspaceId);
@@ -1807,17 +1817,17 @@ function chatApp() {
             return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
         },
 
-        async buildLocalContextForMessage(query, uploadedDocumentFile) {
+        async buildLocalContextForMessage(query, uploadedDocumentFile, sessionId = this.currentSession) {
             if (uploadedDocumentFile) {
-                const indexResult = await this.indexUploadedDocumentForLocalRag(uploadedDocumentFile);
+                const indexResult = await this.indexUploadedDocumentForLocalRag(uploadedDocumentFile, sessionId);
                 if (!indexResult.ok) {
                     return { ok: false, reason: indexResult.error || 'index-failed' };
                 }
             }
 
             const scope = {
-                workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
-                chatId: this.currentSession
+                workspaceId: this.getCurrentWorkspaceIdForSession(sessionId),
+                chatId: sessionId
             };
             const sessionFileIds = this.getSessionDocumentRefs(scope.chatId)
                 .map(ref => ref?.fileId)
@@ -1934,9 +1944,15 @@ function chatApp() {
 
         persistAppState() {
             try {
+                const serializableSessions = this.sessions.map(session => ({
+                    ...session,
+                    messages: Array.isArray(session.messages)
+                        ? session.messages.map(msg => sanitizeMessageForPersistence(msg))
+                        : []
+                }));
                 const payload = {
                     version: 2,
-                    sessions: this.sessions,
+                    sessions: serializableSessions,
                     workspaces: this.workspaces,
                     workspaceFiles: this.workspaceFiles,
                     currentSession: this.currentSession
@@ -2318,24 +2334,95 @@ function chatApp() {
             }
         },
 
-        findMessageIndexById(messageId) {
-            return this.messages.findIndex(message => message.id === messageId);
+        getSessionById(sessionId = this.currentSession) {
+            if (!sessionId) return null;
+            return this.sessions.find(s => s.id === sessionId) || null;
         },
 
-        getMessageById(messageId) {
-            const messageIndex = this.findMessageIndexById(messageId);
-            return messageIndex >= 0 ? this.messages[messageIndex] : null;
+        getSessionMessages(sessionId = this.currentSession) {
+            const session = this.getSessionById(sessionId);
+            if (!session) return [];
+            if (!Array.isArray(session.messages)) {
+                session.messages = [];
+            }
+            return session.messages;
         },
 
-        ensureReasoningMessageForAssistant(assistantMessageId) {
-            const assistantIndex = this.findMessageIndexById(assistantMessageId);
+        getInFlightRequestCount(sessionId = this.currentSession) {
+            if (!sessionId) return 0;
+            const pending = this.inFlightRequests.get(sessionId);
+            return pending ? pending.size : 0;
+        },
+
+        isSessionAtConcurrencyLimit(sessionId = this.currentSession) {
+            return this.getInFlightRequestCount(sessionId) >= MAX_CONCURRENT_PER_SESSION;
+        },
+
+        canSendCurrentSession() {
+            return !!this.userInput.trim() && !this.isSessionAtConcurrencyLimit(this.currentSession);
+        },
+
+        registerInFlightRequest(sessionId, requestId) {
+            if (!sessionId || !requestId) return;
+            if (!this.inFlightRequests.has(sessionId)) {
+                this.inFlightRequests.set(sessionId, new Set());
+            }
+            this.inFlightRequests.get(sessionId).add(requestId);
+            console.log('[ChatApp] Request started', {
+                sessionId,
+                requestId,
+                activeRequests: this.getInFlightRequestCount(sessionId)
+            });
+        },
+
+        unregisterInFlightRequest(sessionId, requestId) {
+            if (!sessionId || !requestId) return;
+            const pending = this.inFlightRequests.get(sessionId);
+            if (!pending) return;
+            pending.delete(requestId);
+            if (pending.size === 0) {
+                this.inFlightRequests.delete(sessionId);
+            }
+            console.log('[ChatApp] Request completed', {
+                sessionId,
+                requestId,
+                activeRequests: this.getInFlightRequestCount(sessionId)
+            });
+        },
+
+        scheduleSessionSave(sessionId = this.currentSession) {
+            if (sessionId) {
+                this.pendingSessionSaveIds.add(sessionId);
+            }
+            if (this.sessionSaveTimerId) return;
+            this.sessionSaveTimerId = window.setTimeout(() => {
+                this.sessionSaveTimerId = null;
+                this.persistAppState();
+                this.pendingSessionSaveIds.clear();
+            }, SESSION_SAVE_DEBOUNCE_MS);
+        },
+
+        findMessageIndexById(messageId, sessionId = this.currentSession) {
+            const messages = this.getSessionMessages(sessionId);
+            return messages.findIndex(message => message.id === messageId);
+        },
+
+        getMessageById(messageId, sessionId = this.currentSession) {
+            const messages = this.getSessionMessages(sessionId);
+            const messageIndex = this.findMessageIndexById(messageId, sessionId);
+            return messageIndex >= 0 ? messages[messageIndex] : null;
+        },
+
+        ensureReasoningMessageForAssistant(assistantMessageId, sessionId = this.currentSession) {
+            const messages = this.getSessionMessages(sessionId);
+            const assistantIndex = this.findMessageIndexById(assistantMessageId, sessionId);
             if (assistantIndex === -1) return null;
 
-            const assistantMessage = this.messages[assistantIndex];
+            const assistantMessage = messages[assistantIndex];
             if (!assistantMessage || assistantMessage.role !== 'assistant') return null;
 
             if (assistantMessage.reasoningMessageId) {
-                const existing = this.getMessageById(assistantMessage.reasoningMessageId);
+                const existing = this.getMessageById(assistantMessage.reasoningMessageId, sessionId);
                 if (existing) return existing;
             }
 
@@ -2350,14 +2437,15 @@ function chatApp() {
                 parentMessageId: assistantMessage.id
             };
 
-            this.messages.splice(assistantIndex, 0, reasoningMessage);
+            messages.splice(assistantIndex, 0, reasoningMessage);
             assistantMessage.reasoningMessageId = reasoningMessage.id;
             return reasoningMessage;
         },
 
-        scheduleStreamingMarkdownRender(assistantMessageId) {
+        scheduleStreamingMarkdownRender(assistantMessageId, sessionId = this.currentSession) {
+            const timerKey = `${sessionId}:${assistantMessageId}`;
             if (!window.marked) {
-                const message = this.getMessageById(assistantMessageId);
+                const message = this.getMessageById(assistantMessageId, sessionId);
                 if (message) {
                     message.content = `${message.rawText || ''}<span class="typing-cursor"></span>`;
                 }
@@ -2368,24 +2456,25 @@ function chatApp() {
                 this._streamMarkdownTimers = {};
             }
 
-            if (this._streamMarkdownTimers[assistantMessageId]) {
+            if (this._streamMarkdownTimers[timerKey]) {
                 return;
             }
 
-            this._streamMarkdownTimers[assistantMessageId] = window.setTimeout(() => {
-                delete this._streamMarkdownTimers[assistantMessageId];
-                this.renderStreamingMarkdown(assistantMessageId);
+            this._streamMarkdownTimers[timerKey] = window.setTimeout(() => {
+                delete this._streamMarkdownTimers[timerKey];
+                this.renderStreamingMarkdown(assistantMessageId, sessionId);
             }, 80);
         },
 
-        cancelStreamingMarkdownRender(assistantMessageId) {
-            if (!this._streamMarkdownTimers?.[assistantMessageId]) return;
-            window.clearTimeout(this._streamMarkdownTimers[assistantMessageId]);
-            delete this._streamMarkdownTimers[assistantMessageId];
+        cancelStreamingMarkdownRender(assistantMessageId, sessionId = this.currentSession) {
+            const timerKey = `${sessionId}:${assistantMessageId}`;
+            if (!this._streamMarkdownTimers?.[timerKey]) return;
+            window.clearTimeout(this._streamMarkdownTimers[timerKey]);
+            delete this._streamMarkdownTimers[timerKey];
         },
 
-        renderStreamingMarkdown(assistantMessageId) {
-            const message = this.getMessageById(assistantMessageId);
+        renderStreamingMarkdown(assistantMessageId, sessionId = this.currentSession) {
+            const message = this.getMessageById(assistantMessageId, sessionId);
             if (!message) return;
 
             const rawText = message.rawText || '';
@@ -2618,7 +2707,7 @@ function chatApp() {
             };
             this.sessions.unshift(newSession); // Add to the beginning of the array
             this.currentSession = newSession.id;
-            this.messages = [];
+            this.messages = newSession.messages;
             if (workspaceDefaults?.defaultModel) {
                 this.selectedModel = workspaceDefaults.defaultModel;
             }
@@ -2628,12 +2717,13 @@ function chatApp() {
             });
         },
         
-        autoGenerateSessionName() {
-            const session = this.sessions.find(s => s.id === this.currentSession);
+        autoGenerateSessionName(sessionId = this.currentSession) {
+            const session = this.sessions.find(s => s.id === sessionId);
             if (!session) return;
             
             // Only auto-generate if this is the first user message and name is default
-            const userMessages = this.messages.filter(m => m.role === 'user');
+            const sessionMessages = this.getSessionMessages(sessionId);
+            const userMessages = sessionMessages.filter(m => m.role === 'user');
             if (userMessages.length === 1 && session.name.startsWith('Chat ')) {
                 const firstMessage = userMessages[0].content;
                 
@@ -2674,9 +2764,10 @@ function chatApp() {
             const session = this.sessions.find(s => s.id === sessionId);
             if (session) {
                 this.pruneSessionDocumentRefs(sessionId);
-                this.messages = Array.isArray(session.messages)
-                    ? session.messages.map(m => hydrateMessageFromPersistence(m))
-                    : [];
+                if (!Array.isArray(session.messages)) {
+                    session.messages = [];
+                }
+                this.messages = session.messages;
                 
                 // Update showModelInfo for loaded messages
                 // Show icon on first assistant message and when model changes
@@ -2748,7 +2839,12 @@ function chatApp() {
                         if (this.sessions.length > 0) {
                             this.selectSession(this.sessions[0].id);
                         } else {
-                            this.newChat();
+                            // Do not auto-create a new session when the last one
+                            // is deleted. Clear currentSession/messages and
+                            // persist the empty state.
+                            this.currentSession = null;
+                            this.messages = [];
+                            this.persistAppState();
                         }
                     }
                     
@@ -3141,7 +3237,9 @@ function chatApp() {
                 this.messages = [];
                 this.currentSession = null;
                 this.persistAppState();
-                this.newChat();
+                // Do not create a new default session here. Let the user
+                // start a new chat manually or create one automatically
+                // when they send their first message.
             }
         },
         
@@ -3335,7 +3433,22 @@ function chatApp() {
         },
         
         async sendMessage() {
-            if (!this.userInput.trim() || this.isLoading) return;
+            if (!this.userInput.trim()) return;
+
+            // Ensure a valid session exists before sending. Create one only
+            // if there is no selected active session or the selected id is
+            // not present in the sessions array (stale reference).
+            if (!this.currentSession || !this.sessions.find(s => s.id === this.currentSession)) {
+                this.newChat();
+            }
+            const sessionId = this.currentSession;
+            if (this.isSessionAtConcurrencyLimit(sessionId)) {
+                console.warn('[ChatApp] Session reached max concurrent requests', {
+                    sessionId,
+                    limit: MAX_CONCURRENT_PER_SESSION
+                });
+                return;
+            }
 
             // Sending a message should return to normal chat view.
             this.workspaceDetailsOpen = false;
@@ -3352,39 +3465,47 @@ function chatApp() {
             }
             
             const userMessage = {
-                id: Date.now(),
+                id: makeId('msg'),
                 role: 'user',
                 content: this.userInput.trim()
             };
             
-            this.messages.push(userMessage);
+            const sessionMessages = this.getSessionMessages(sessionId);
+            sessionMessages.push(userMessage);
+            if (sessionId === this.currentSession) {
+                this.messages = sessionMessages;
+            }
             const query = this.userInput.trim();
             this.userInput = '';
-            this.isLoading = true;
             
             // Save user message immediately
-            this.saveSessions();
+            this.saveSessions(sessionId);
             
             // Scroll to bottom
             this.$nextTick(() => {
                 this.scrollToBottom({ force: true, behavior: 'smooth' });
             });
             
+            let assistantMessageId = null;
+            let requestId = null;
             try {
                 // Check if this is the first assistant message or if model changed
-                const previousAssistantMessages = this.messages.filter(m => m.role === 'assistant');
+                const previousAssistantMessages = sessionMessages.filter(m => m.role === 'assistant');
                 const lastAssistantModel = previousAssistantMessages.length > 0 
                     ? previousAssistantMessages[previousAssistantMessages.length - 1].model 
                     : null;
                 const showModelInfo = previousAssistantMessages.length === 0 || lastAssistantModel !== this.selectedModel;
                 
+                assistantMessageId = makeId('msg');
+                requestId = makeId('req');
                 let assistantMessage = {
-                    id: Date.now() + 1,
+                    id: assistantMessageId,
                     role: 'assistant',
                     content: '<div class="typing-indicator"><span></span><span></span><span></span></div>',
                     model: this.selectedModel,
                     providerLabel: this.availableModels.find(m => m.id === this.selectedModel)?.providerLabel || '',
                     showModelInfo: showModelInfo,
+                    requestId,
                     reasoningMessageId: null,
                     isStreaming: true,
                     isTyping: true,
@@ -3393,13 +3514,14 @@ function chatApp() {
                     incompleteReason: null,
                     usage: null
                 };
-                this.messages.push(assistantMessage);
-                const assistantMessageId = assistantMessage.id;
+                sessionMessages.push(assistantMessage);
+                this.registerInFlightRequest(sessionId, requestId);
+                this.saveSessions(sessionId, { immediate: false });
                 
                 // Build conversation history excluding:
                 // - the assistant placeholder being built
                 // - the latest user message, which askAgent() appends explicitly
-                const conversationHistory = this.messages.slice(0, -2).map(m => ({
+                const conversationHistory = sessionMessages.slice(0, -2).map(m => ({
                     role: m.role,
                     content: m.rawText ?? m.content
                 })).filter(m => m.role !== 'reasoning');
@@ -3440,12 +3562,13 @@ function chatApp() {
                 this.localRagLastModeUsed = 'none';
 
                 const isDocumentUpload = !!(this.uploadedFile && !this.uploadedFile.type.startsWith('image/'));
-                const hasSessionPrivateDocs = this.getSessionDocumentRefs(this.currentSession).length > 0;
+                const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
                 if (this.localRagEnabled && (isDocumentUpload || hasSessionPrivateDocs)) {
                     try {
                         const localResult = await this.buildLocalContextForMessage(
                             query,
-                            isDocumentUpload ? this.uploadedFile : null
+                            isDocumentUpload ? this.uploadedFile : null,
+                            sessionId
                         );
                         if (localResult.ok) {
                             finalQuery = this.buildRagContextBlock(query, localResult.context);
@@ -3470,27 +3593,29 @@ function chatApp() {
                     this.selectedModel,
                     conversationHistory,
                     fileForAgent,
-                    this.currentSession,
+                    sessionId,
                     canUseAgent ? 'agent' : 'ask',
                     {
                         thinkingEnabled: this.thinkingEnabled === true,
                         thinkingSupported: this.selectedModelSupportsThinking(this.selectedModel),
-                        onEvent: (event) => this.handleProviderEvent(event, assistantMessageId)
+                        onEvent: (event) => this.handleProviderEvent(event, assistantMessageId, sessionId)
                     }
                 );
 
-                this.applyFinalProviderResponse(result, assistantMessageId);
+                this.applyFinalProviderResponse(result, assistantMessageId, sessionId);
                 
                 // Auto-generate session name from first message
-                this.autoGenerateSessionName();
+                this.autoGenerateSessionName(sessionId);
                 
                 // Save the complete message
-                this.saveSessions();
+                this.saveSessions(sessionId, { immediate: false });
                 
                 // Final scroll to bottom
-                this.$nextTick(() => {
-                    this.scrollToBottom();
-                });
+                if (sessionId === this.currentSession) {
+                    this.$nextTick(() => {
+                        this.scrollToBottom();
+                    });
+                }
                 
             } catch (error) {
                 console.error('Error sending message:', error);
@@ -3499,28 +3624,34 @@ function chatApp() {
                     ? 'Please ensure the model server and MCP tools are accessible.'
                     : 'Please ensure the model server is accessible.';
                 // Update the existing assistant message with the error
-                const messageIndex = this.messages.length - 1;
-                if (this.messages[messageIndex] && this.messages[messageIndex].role === 'assistant') {
-                    this.messages[messageIndex].content = `Error: ${error.message}. ${suffix}`;
-                    this.messages[messageIndex].isStreaming = false;
-                    this.messages[messageIndex].isTyping = false;
+                const targetMessage = assistantMessageId
+                    ? this.getMessageById(assistantMessageId, sessionId)
+                    : null;
+                if (targetMessage && targetMessage.role === 'assistant') {
+                    targetMessage.content = `Error: ${error.message}. ${suffix}`;
+                    targetMessage.rawText = targetMessage.content;
+                    targetMessage.isStreaming = false;
+                    targetMessage.isTyping = false;
                 } else {
                     // Fallback: add new error message if something went wrong
-                    this.messages.push({
-                        id: Date.now() + 2,
+                    sessionMessages.push({
+                        id: makeId('msg'),
                         role: 'assistant',
                         content: `Error: ${error.message}. ${suffix}`
                     });
                 }
+                this.saveSessions(sessionId);
             } finally {
-                this.isLoading = false;
-                this.saveSessions();
-                console.log('Message complete, isLoading:', this.isLoading);
+                if (requestId) {
+                    this.unregisterInFlightRequest(sessionId, requestId);
+                }
+                const noMoreRequests = this.getInFlightRequestCount(sessionId) === 0;
+                this.saveSessions(sessionId, { immediate: noMoreRequests ? true : false });
             }
         },
 
-        handleProviderEvent(event, assistantMessageId) {
-            const message = this.getMessageById(assistantMessageId);
+        handleProviderEvent(event, assistantMessageId, sessionId = this.currentSession) {
+            const message = this.getMessageById(assistantMessageId, sessionId);
             if (!message) return;
 
             if (event.type === 'started') {
@@ -3535,21 +3666,27 @@ function chatApp() {
                 }
 
                 message.rawText = `${message.rawText || ''}${event.delta || ''}`;
-                this.scheduleStreamingMarkdownRender(assistantMessageId);
-                this.$nextTick(() => {
-                    this.scrollToBottom({ behavior: 'auto' });
-                });
+                this.scheduleStreamingMarkdownRender(assistantMessageId, sessionId);
+                this.saveSessions(sessionId, { immediate: false });
+                if (sessionId === this.currentSession) {
+                    this.$nextTick(() => {
+                        this.scrollToBottom({ behavior: 'auto' });
+                    });
+                }
                 return;
             }
 
             if (event.type === 'thinking_delta') {
-                const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId);
+                const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId, sessionId);
                 if (!reasoningMessage) return;
                 reasoningMessage.rawText = `${reasoningMessage.rawText || ''}${event.delta || ''}`;
                 reasoningMessage.content = reasoningMessage.rawText;
-                this.$nextTick(() => {
-                    this.scrollToBottom({ behavior: 'auto' });
-                });
+                this.saveSessions(sessionId, { immediate: false });
+                if (sessionId === this.currentSession) {
+                    this.$nextTick(() => {
+                        this.scrollToBottom({ behavior: 'auto' });
+                    });
+                }
                 return;
             }
 
@@ -3557,6 +3694,7 @@ function chatApp() {
                 message.finishReason = event.finishReason || null;
                 message.incompleteReason = event.incompleteReason || null;
                 message.usage = event.usage || null;
+                this.saveSessions(sessionId, { immediate: false });
                 return;
             }
 
@@ -3564,13 +3702,15 @@ function chatApp() {
                 message.isTyping = false;
                 message.isStreaming = false;
                 message.content = `Error: ${event.error}`;
+                message.rawText = message.content;
+                this.saveSessions(sessionId);
             }
         },
 
-        applyFinalProviderResponse(result, assistantMessageId) {
-            const message = this.getMessageById(assistantMessageId);
+        applyFinalProviderResponse(result, assistantMessageId, sessionId = this.currentSession) {
+            const message = this.getMessageById(assistantMessageId, sessionId);
             if (!message) return;
-            this.cancelStreamingMarkdownRender(assistantMessageId);
+            this.cancelStreamingMarkdownRender(assistantMessageId, sessionId);
 
             const finalText = typeof result?.text === 'string'
                 ? result.text
@@ -3586,16 +3726,16 @@ function chatApp() {
 
             const finalThinking = typeof result?.thinking === 'string' ? result.thinking : '';
             if (finalThinking) {
-                const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId);
+                const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId, sessionId);
                 if (reasoningMessage) {
                     reasoningMessage.rawText = finalThinking;
                     reasoningMessage.content = finalThinking;
                 }
             }
 
-            const messageIndex = this.findMessageIndexById(assistantMessageId);
+            const messageIndex = this.findMessageIndexById(assistantMessageId, sessionId);
             if (messageIndex >= 0) {
-                this.updateMessageMarkdown(messageIndex);
+                this.updateMessageMarkdown(messageIndex, sessionId);
             }
         },
         
@@ -3648,11 +3788,12 @@ function chatApp() {
             this.messages[messageIndex].content = text;
         },
         
-        updateMessageMarkdown(messageIndex) {
+        updateMessageMarkdown(messageIndex, sessionId = this.currentSession) {
+            const messages = this.getSessionMessages(sessionId);
             // Parse markdown ONLY if marked.js is available and content is raw text
-            if (window.marked && this.messages[messageIndex]) {
+            if (window.marked && messages[messageIndex]) {
                 try {
-                    const rawContent = this.messages[messageIndex].content;
+                    const rawContent = messages[messageIndex].content;
                     
                     // Check if content is already parsed HTML (contains real HTML block tags)
                     const htmlTagPattern = /<(p|div|h[1-6]|ul|ol|li|pre|code|blockquote|strong|em|a|table|thead|tbody|tr|td|th|br|hr)\b/i;
@@ -3662,7 +3803,10 @@ function chatApp() {
                     }
                     
                     console.log('[ChatApp] Parsing markdown for message:', rawContent.substring(0, 50));
-                    this.messages[messageIndex].content = window.marked.parse(rawContent);
+                    messages[messageIndex].content = window.marked.parse(rawContent);
+                    if (sessionId !== this.currentSession) {
+                        return;
+                    }
                     // Inject copy buttons into code blocks after DOM updates
                     this.$nextTick(() => {
                         const container = document.getElementById('messages-container');
@@ -3819,16 +3963,25 @@ function chatApp() {
             });
         },
         
-        saveSessions() {
+        saveSessions(sessionId = this.currentSession, { immediate = true } = {}) {
             // Find the current session and sync messages
-            const session = this.sessions.find(s => s.id === this.currentSession);
+            const session = this.sessions.find(s => s.id === sessionId);
             if (session) {
-                // Keep full serializable message structure so tool calls/results survive reloads.
-                session.messages = this.messages.map(msg => sanitizeMessageForPersistence(msg));
+                if (sessionId === this.currentSession && this.messages !== session.messages) {
+                    session.messages = Array.isArray(this.messages) ? this.messages : [];
+                }
                 session.updatedAt = new Date().toISOString();
             }
-            this.persistAppState();
-            console.log('[ChatApp] Sessions saved to app state');
+            if (immediate) {
+                if (this.sessionSaveTimerId) {
+                    window.clearTimeout(this.sessionSaveTimerId);
+                    this.sessionSaveTimerId = null;
+                }
+                this.pendingSessionSaveIds.clear();
+                this.persistAppState();
+            } else {
+                this.scheduleSessionSave(sessionId);
+            }
         },
         
         getModelIcon(modelName) {

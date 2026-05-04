@@ -189,12 +189,12 @@
             padding: 10px 12px;
             font-size: 0.8rem;
             border-radius: 10px;
-            border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border) 45%);
-            background: color-mix(in srgb, var(--accent) 12%, var(--surface) 88%);
+            border: 1px solid var(--border);
+            background: transparent;
             color: var(--text-strong);
         }
         .gpt-new-chat:hover {
-            background: color-mix(in srgb, var(--accent) 18%, var(--surface) 82%);
+            background: color-mix(in srgb, var(--surface-elevated) 60%, var(--surface) 40%);
         }
         .gpt-section-title {
             font-size: 0.62rem;
@@ -355,14 +355,23 @@
         */
         :root {
             --chat-safe-bottom: env(safe-area-inset-bottom, 0px);
+            --chat-viewport-bottom-inset: 0px;
+            --chat-effective-bottom: var(--chat-safe-bottom);
             --chat-input-bottom-gap: 12px;
-            --chat-input-offset: calc(var(--chat-safe-bottom) + var(--chat-input-bottom-gap));
+            --chat-input-offset: calc(var(--chat-effective-bottom) + var(--chat-input-bottom-gap));
             --chat-composer-height: 220px;
+            --chat-vh: 100svh;
+        }
+
+        @supports (height: 100dvh) {
+            :root {
+                --chat-vh: 100dvh;
+            }
         }
 
         #chat-history {
             min-height: 100vh;
-            min-height: 100dvh;
+            min-height: var(--chat-vh);
             padding-bottom: calc(var(--chat-composer-height) + var(--chat-input-offset) + 20px) !important;
         }
 
@@ -386,7 +395,7 @@
             display: flex;
             flex-direction: column;
             box-shadow: 0 10px 34px rgba(106,66,194,0.08);
-            max-height: calc(100dvh - var(--chat-input-offset) - 88px);
+            max-height: calc(var(--chat-vh) - var(--chat-input-offset) - 88px);
         }
 
         .workspace-details-header {
@@ -456,7 +465,7 @@
             }
 
             .workspace-details-panel {
-                max-height: calc(100dvh - var(--chat-input-offset) - 72px);
+                max-height: calc(var(--chat-vh) - var(--chat-input-offset) - 72px);
                 border-radius: 12px;
             }
 
@@ -1065,7 +1074,7 @@
     </style>
 </head>
 
-<body class="h-screen overflow-hidden font-sans antialiased" x-data="chatApp()" style="background:var(--bg); color:var(--text)">
+<body class="h-screen overflow-hidden font-sans antialiased" x-data="chatApp()" style="background:var(--bg); color:var(--text); height:var(--chat-vh); min-height:var(--chat-vh);">
     <!-- Mobile Overlay -->
     <div 
         x-show="sidebarOpen"
@@ -1304,6 +1313,7 @@
                                                         style="flex:1; text-align:left; display:flex; align-items:flex-start; gap:7px; min-width:0; overflow:hidden; background:none; border:none; cursor:pointer; color:inherit; font:inherit;">
                                                         <i class="fas fa-message" style="font-size:0.6rem; flex-shrink:0; color:var(--muted); margin-top:2px;"></i>
                                                         <span style="font-size:0.76rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-strong);" x-text="session.name"></span>
+                                                        <span x-show="getInFlightRequestCount(session.id) > 0" style="margin-left:6px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:rgba(106,66,194,0.16); color:var(--accent); font-size:0.65rem; font-weight:600; line-height:16px; text-align:center;" x-text="getInFlightRequestCount(session.id)"></span>
                                                     </button>
                                                     <div x-data="{ open:false, moveOpen:false }" class="chatucy-session-actions" style="position:relative; z-index:420; display:flex; align-items:center; gap:4px; flex-shrink:0;">
                                                         <button @click.stop="open = !open" class="ds-icon-btn" style="width:22px; height:22px; border:none; background:transparent;" title="Chat actions">
@@ -1380,6 +1390,7 @@
                                             style="flex:1; text-align:left; display:flex; align-items:flex-start; gap:7px; min-width:0; overflow:hidden; background:none; border:none; cursor:pointer; color:inherit; font:inherit;">
                                             <i class="fas fa-message" style="font-size:0.6rem; flex-shrink:0; color:var(--muted); margin-top:2px;"></i>
                                             <span style="font-size:0.76rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-strong);" x-text="session.name"></span>
+                                            <span x-show="getInFlightRequestCount(session.id) > 0" style="margin-left:6px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:rgba(106,66,194,0.16); color:var(--accent); font-size:0.65rem; font-weight:600; line-height:16px; text-align:center;" x-text="getInFlightRequestCount(session.id)"></span>
                                         </button>
                                         <div x-data="{ open:false, moveOpen:false }" class="chatucy-session-actions" style="position:relative; z-index:420; display:flex; align-items:center; gap:4px; flex-shrink:0;">
                                             <button @click.stop="open = !open" class="ds-icon-btn" style="width:22px; height:22px; border:none; background:transparent;" title="Chat actions">
@@ -1490,9 +1501,7 @@
                     <!-- Right: nav + logos + menu -->
                     <div style="display:flex; align-items:center; gap:var(--space-3);">
                         <nav class="ds-app-nav">
-                            <a href="/home.html" class="ds-link">Home</a>
-                            <a href="/llmms.html" class="ds-link">LLM-MS</a>
-                            <a href="/privacy.html" class="ds-link">Privacy</a>
+                            <!-- navigation links moved to dropdown menu for a cleaner header -->
                         </nav>
 
                         <a href="https://www.ucy.ac.cy/" target="_blank" style="height:28px; display:none;" class="sm-show" title="UCY">
@@ -1526,12 +1535,13 @@
                                 style="position:absolute; right:0; top:calc(100% + 8px); z-index:200;">
                                 <div class="ds-dropdown-version">v1.2</div>
                                 <a href="/home.html"><i class="fas fa-home" style="width:14px;"></i> Home</a>
+                                <a href="/llmms.html"><i class="fas fa-route" style="width:14px;"></i> LLM-MS</a>
                                 <a href="/privacy.html"><i class="fas fa-lock" style="width:14px;"></i> Privacy</a>
                                 <a href="/terms.html"><i class="fas fa-file-alt" style="width:14px;"></i> Terms</a>
                                 <div class="ds-dropdown-menu-divider"></div>
                                 <button @click="open = false; mcpConfigModal.show = true; mcpConfigModal.activeTab = 'llm'; mcpConfigModal.loadServers(); mcpConfigModal.loadTools()">
-                                    <i class="fas fa-server" style="width:14px;"></i>
-                                    <span>MCP Config</span>
+                                    <i class="fas fa-cog" style="width:14px;"></i>
+                                    <span>Settings</span>
                                 </button>
                                 <button @click="open = false; reopenOnboarding()">
                                     <i class="fas fa-circle-question" style="width:14px;"></i>
@@ -1807,8 +1817,8 @@
 
                             <button
                                 @click="sendMessage()"
-                                :disabled="!userInput.trim() || isLoading"
-                                :style="userInput.trim() && !isLoading ? 'background:var(--accent); box-shadow:0 2px 10px rgba(106,66,194,0.3); opacity:1;' : 'background:rgba(106,66,194,0.18); opacity:0.5; cursor:not-allowed;'"
+                                :disabled="!canSendCurrentSession()"
+                                :style="canSendCurrentSession() ? 'background:var(--accent); box-shadow:0 2px 10px rgba(106,66,194,0.3); opacity:1;' : 'background:rgba(106,66,194,0.18); opacity:0.5; cursor:not-allowed;'"
                                 style="width:36px; height:36px; border-radius:var(--radius); border:none; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
                                 <i class="fas fa-paper-plane" style="font-size:0.75rem;"></i>
                             </button>
@@ -2337,6 +2347,51 @@
         </div>
     </div>
     
+    <script>
+      (function () {
+        const root = document.documentElement;
+
+        function parsePx(value) {
+          const n = Number.parseFloat(String(value || '').replace('px', ''));
+          return Number.isFinite(n) ? n : 0;
+        }
+
+        function updateViewportInsets() {
+          const vv = window.visualViewport;
+          const layoutHeight = Math.max(
+            window.innerHeight || 0,
+            document.documentElement.clientHeight || 0
+          );
+          const viewportHeight = vv
+            ? vv.height
+            : layoutHeight;
+          const viewportOffsetTop = vv ? vv.offsetTop : 0;
+          const dynamicBottomInset = vv
+            ? Math.max(0, layoutHeight - (vv.height + vv.offsetTop))
+            : 0;
+
+          root.style.setProperty('--chat-vh', `${Math.max(320, Math.round(viewportHeight))}px`);
+          root.style.setProperty('--chat-viewport-bottom-inset', `${dynamicBottomInset}px`);
+
+          const safeBottom = parsePx(getComputedStyle(root).getPropertyValue('--chat-safe-bottom'));
+          const effectiveBottom = Math.max(safeBottom, dynamicBottomInset);
+          root.style.setProperty('--chat-effective-bottom', `${effectiveBottom}px`);
+          root.style.setProperty('--chat-viewport-top-inset', `${viewportOffsetTop}px`);
+        }
+
+        updateViewportInsets();
+        window.addEventListener('resize', updateViewportInsets, { passive: true });
+        window.addEventListener('orientationchange', updateViewportInsets, { passive: true });
+        window.addEventListener('pageshow', updateViewportInsets, { passive: true });
+        window.addEventListener('focusin', () => window.setTimeout(updateViewportInsets, 60), { passive: true });
+        window.addEventListener('focusout', () => window.setTimeout(updateViewportInsets, 60), { passive: true });
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', updateViewportInsets, { passive: true });
+          window.visualViewport.addEventListener('scroll', updateViewportInsets, { passive: true });
+        }
+      })();
+    </script>
+
     <!-- PDF.js Module Import -->
     <script type="module">
         import * as pdfjsLib from "../js/browser-rag/pdf.mjs";
