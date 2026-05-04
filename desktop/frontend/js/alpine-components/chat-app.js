@@ -123,6 +123,7 @@ import {
     dataUrlToBlob,
     blobToDataUrl
 } from '../workspace-file-store.js';
+import { extractImageTextWithOcr } from './image-ocr.js';
 
 window.askAgent = askAgent;
 
@@ -409,12 +410,22 @@ function chatApp() {
         manualScrollLock: false,
         interactionMode: 'ask',
         availableModels: [],
-        localRagEnabled: false,
+        legacyLocalRagEnabled: false,
         localRagManagerOpen: false,
         localRagMode: 'hybrid-fallback',
         localRagLastModeUsed: 'none',
         localRagStatusText: '',
         localRagFileStates: {},
+        get localRagEnabled() {
+            return !!this.getCurrentSessionRecord?.()?.privateStoreEnabled;
+        },
+        set localRagEnabled(value) {
+            const session = this.getCurrentSessionRecord?.();
+            if (!session) return;
+            session.privateStoreEnabled = !!value;
+            session.updatedAt = new Date().toISOString();
+            this.persistAppState();
+        },
         ragWorker: null,
         ragWorkerReady: false,
         ragWorkerJobs: {},
@@ -439,9 +450,10 @@ function chatApp() {
         },
         modal: {
             show: false,
-            type: '', // 'edit' or 'delete'
+            type: '', // 'edit' | 'delete' | 'clear'
             value: '',
-            sessionId: null
+            sessionId: null,
+            clearIncludeWorkspaces: false
         },
         workspaceModal: {
             show: false,
@@ -1294,10 +1306,21 @@ function chatApp() {
             const workspaceIds = new Set(this.workspaces.map(w => w.id));
             this.sessions = this.sessions.map(s => ({
                 ...s,
-                workspaceId: s.workspaceId && workspaceIds.has(s.workspaceId) ? s.workspaceId : null
+                privateStoreEnabled: typeof s.privateStoreEnabled === 'boolean'
+                    ? s.privateStoreEnabled
+                    : !!this.legacyLocalRagEnabled,
+                workspaceId: s.workspaceId && workspaceIds.has(s.workspaceId) ? s.workspaceId : null,
+                localDocumentRefs: Array.isArray(s.localDocumentRefs) ? s.localDocumentRefs : []
+            }));
+            this.workspaces = this.workspaces.map(workspace => ({
+                ...workspace,
+                localDocumentRefs: Array.isArray(workspace.localDocumentRefs) ? workspace.localDocumentRefs : []
             }));
             this.sessions.forEach(session => {
                 this.pruneSessionDocumentRefs(session.id);
+            });
+            this.workspaces.forEach(workspace => {
+                this.pruneWorkspaceDocumentRefs(workspace.id);
             });
         },
 
@@ -1306,7 +1329,7 @@ function chatApp() {
                 const raw = localStorage.getItem(STORAGE_KEYS.localRagPrefs);
                 if (!raw) return;
                 const parsed = JSON.parse(raw);
-                this.localRagEnabled = !!parsed.localRagEnabled;
+                this.legacyLocalRagEnabled = !!parsed.localRagEnabled;
                 this.localRagFileStates = parsed.localRagFileStates || {};
             } catch (error) {
                 console.warn('[ChatApp] Failed to load local RAG preferences:', error);
@@ -1332,7 +1355,7 @@ function chatApp() {
         persistLocalRagPrefs() {
             try {
                 localStorage.setItem(STORAGE_KEYS.localRagPrefs, JSON.stringify({
-                    localRagEnabled: this.localRagEnabled,
+                    localRagEnabled: this.getCurrentSessionPrivateStoreEnabled(),
                     localRagFileStates: this.localRagFileStates
                 }));
             } catch (error) {
@@ -1449,9 +1472,10 @@ function chatApp() {
         },
 
         buildLocalRagFileId(file, scope) {
+            const scopeType = scope.scopeType || (scope.chatId ? 'chat' : 'workspace');
             const workspacePart = scope.workspaceId || 'unassigned';
             const chatPart = scope.chatId || 'none';
-            return `${workspacePart}::${chatPart}::${file.name}::${file.size || 0}::${file.lastModified || 0}`;
+            return `${scopeType}::${workspacePart}::${chatPart}::${file.name}::${file.size || 0}::${file.lastModified || 0}`;
         },
 
         setLocalRagFileState(fileId, patch) {
@@ -1515,6 +1539,7 @@ function chatApp() {
         getUploadedFileLocalRagState() {
             if (!this.uploadedFile) return null;
             const scope = {
+                scopeType: 'chat',
                 workspaceId: this.getCurrentWorkspaceIdForSession(this.currentSession),
                 chatId: this.currentSession
             };
@@ -1524,6 +1549,98 @@ function chatApp() {
 
         getCurrentSessionRecord(sessionId = this.currentSession) {
             return this.sessions.find(s => s.id === sessionId) || null;
+        },
+
+        getWorkspaceById(workspaceId) {
+            return this.workspaces.find(workspace => workspace.id === workspaceId) || null;
+        },
+
+        getWorkspaceDocumentRefs(workspaceId = this.selectedWorkspaceId) {
+            const workspace = this.getWorkspaceById(workspaceId);
+            return Array.isArray(workspace?.localDocumentRefs) ? workspace.localDocumentRefs : [];
+        },
+
+        addWorkspaceDocumentRef(ref, workspaceId = this.selectedWorkspaceId) {
+            const workspace = this.getWorkspaceById(workspaceId);
+            if (!workspace || !ref?.fileId) return;
+
+            const existingRefs = Array.isArray(workspace.localDocumentRefs) ? workspace.localDocumentRefs : [];
+            const alreadyExists = existingRefs.some(item => item?.fileId === ref.fileId);
+            if (alreadyExists) {
+                workspace.localDocumentRefs = existingRefs.map(item => (
+                    item?.fileId === ref.fileId
+                        ? { ...item, ...ref, updatedAt: new Date().toISOString() }
+                        : item
+                ));
+            } else {
+                workspace.localDocumentRefs = [
+                    ...existingRefs,
+                    {
+                        ...ref,
+                        addedAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    }
+                ];
+            }
+            workspace.updatedAt = new Date().toISOString();
+        },
+
+        pruneWorkspaceDocumentRefs(workspaceId = this.selectedWorkspaceId) {
+            const workspace = this.getWorkspaceById(workspaceId);
+            if (!workspace) return;
+
+            const refs = Array.isArray(workspace.localDocumentRefs) ? workspace.localDocumentRefs : [];
+            workspace.localDocumentRefs = refs.filter(ref => {
+                const state = ref?.fileId ? this.localRagFileStates?.[ref.fileId] : null;
+                return state?.status === 'indexed';
+            });
+        },
+
+        removeLocalRagState(fileId) {
+            if (!fileId || !this.localRagFileStates?.[fileId]) return;
+            const nextStates = { ...this.localRagFileStates };
+            delete nextStates[fileId];
+            this.localRagFileStates = nextStates;
+        },
+
+        removeLocalRagStatesByFilters(filters = {}) {
+            const nextStates = {};
+            for (const [fileId, state] of Object.entries(this.localRagFileStates || {})) {
+                if (Array.isArray(filters.fileIds) && filters.fileIds.length > 0 && !filters.fileIds.includes(fileId)) {
+                    nextStates[fileId] = state;
+                    continue;
+                }
+                if (filters.scopeType && state?.scopeType !== filters.scopeType) {
+                    nextStates[fileId] = state;
+                    continue;
+                }
+                if (filters.sourceType && state?.sourceType !== filters.sourceType) {
+                    nextStates[fileId] = state;
+                    continue;
+                }
+                if (filters.workspaceId !== undefined && state?.workspaceId !== filters.workspaceId) {
+                    nextStates[fileId] = state;
+                    continue;
+                }
+                if (filters.chatId !== undefined && state?.chatId !== filters.chatId) {
+                    nextStates[fileId] = state;
+                    continue;
+                }
+            }
+            this.localRagFileStates = nextStates;
+        },
+
+        getCurrentSessionPrivateStoreEnabled(sessionId = this.currentSession) {
+            return !!this.getCurrentSessionRecord(sessionId)?.privateStoreEnabled;
+        },
+
+        setCurrentSessionPrivateStoreEnabled(enabled, sessionId = this.currentSession) {
+            const session = this.getCurrentSessionRecord(sessionId);
+            if (!session) return false;
+            session.privateStoreEnabled = !!enabled;
+            session.updatedAt = new Date().toISOString();
+            this.persistAppState();
+            return true;
         },
 
         getSessionDocumentRefs(sessionId = this.currentSession) {
@@ -1579,7 +1696,8 @@ function chatApp() {
         },
 
         toggleLocalRagEnabled() {
-            this.localRagEnabled = !this.localRagEnabled;
+            const nextValue = !this.getCurrentSessionPrivateStoreEnabled();
+            this.setCurrentSessionPrivateStoreEnabled(nextValue);
         },
 
         async removeSessionDocument(fileId, sessionId = this.currentSession) {
@@ -1601,12 +1719,7 @@ function chatApp() {
             }
 
             session.localDocumentRefs = this.getSessionDocumentRefs(sessionId).filter(item => item?.fileId !== fileId);
-
-            if (this.localRagFileStates?.[fileId]) {
-                const nextStates = { ...this.localRagFileStates };
-                delete nextStates[fileId];
-                this.localRagFileStates = nextStates;
-            }
+            this.removeLocalRagState(fileId);
 
             if (this.uploadedFile) {
                 const uploadedFileId = this.buildLocalRagFileId(this.uploadedFile, {
@@ -1628,8 +1741,40 @@ function chatApp() {
             for (const ref of refs) {
                 await this.removeSessionDocument(ref.fileId, sessionId);
             }
+            this.inFlightRequests.delete(sessionId);
             this.localRagManagerOpen = false;
             this.localRagStatusText = '';
+        },
+
+        async removeWorkspaceDocument(fileId, workspaceId = this.selectedWorkspaceId) {
+            const workspace = this.getWorkspaceById(workspaceId);
+            if (!workspace || !fileId) return;
+
+            const ref = this.getWorkspaceDocumentRefs(workspaceId).find(item => item?.fileId === fileId);
+            if (!ref) return;
+
+            await this.ensureLocalRetriever();
+            if (window.browserRetriever?.deleteDocumentsByFilters) {
+                await window.browserRetriever.deleteDocumentsByFilters({
+                    sourceType: ref?.sourceType || 'workspaceAttachment',
+                    workspaceId,
+                    chatId: null,
+                    fileId
+                });
+            }
+
+            workspace.localDocumentRefs = this.getWorkspaceDocumentRefs(workspaceId).filter(item => item?.fileId !== fileId);
+            this.removeLocalRagState(fileId);
+            workspace.updatedAt = new Date().toISOString();
+            this.persistLocalRagPrefs();
+            this.saveSessions();
+        },
+
+        async clearWorkspaceDocumentStore(workspaceId = this.selectedWorkspaceId) {
+            const refs = [...this.getWorkspaceDocumentRefs(workspaceId)];
+            for (const ref of refs) {
+                await this.removeWorkspaceDocument(ref.fileId, workspaceId);
+            }
         },
 
         async clearAllPrivateDocumentStores() {
@@ -1638,6 +1783,9 @@ function chatApp() {
             if (window.browserRetriever?.deleteDocumentsByFilters) {
                 await window.browserRetriever.deleteDocumentsByFilters({
                     sourceType: 'chatAttachment'
+                });
+                await window.browserRetriever.deleteDocumentsByFilters({
+                    sourceType: 'workspaceAttachment'
                 });
             } else if (window.browserRetriever?.clearAllDocuments) {
                 await window.browserRetriever.clearAllDocuments();
@@ -1648,14 +1796,13 @@ function chatApp() {
                 localDocumentRefs: [],
                 updatedAt: new Date().toISOString()
             }));
+            this.workspaces = this.workspaces.map(workspace => ({
+                ...workspace,
+                localDocumentRefs: [],
+                updatedAt: new Date().toISOString()
+            }));
 
-            const nextStates = {};
-            for (const [fileId, state] of Object.entries(this.localRagFileStates || {})) {
-                if (state?.sourceType && state.sourceType !== 'chatAttachment') {
-                    nextStates[fileId] = state;
-                }
-            }
-            this.localRagFileStates = nextStates;
+            this.localRagFileStates = {};
             this.localRagStatusText = '';
             this.localRagManagerOpen = false;
             this.persistLocalRagPrefs();
@@ -1704,6 +1851,7 @@ function chatApp() {
         async indexUploadedDocumentForLocalRag(file, sessionId = this.currentSession) {
             const limits = getRagLimits();
             const scope = {
+                scopeType: 'chat',
                 workspaceId: this.getCurrentWorkspaceIdForSession(sessionId),
                 chatId: sessionId
             };
@@ -1731,6 +1879,7 @@ function chatApp() {
             this.setLocalRagFileState(fileId, {
                 status: 'indexing',
                 name: file.name,
+                scopeType: scope.scopeType,
                 sourceType: 'chatAttachment',
                 workspaceId: scope.workspaceId,
                 chatId: scope.chatId,
@@ -1817,6 +1966,130 @@ function chatApp() {
             return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
         },
 
+        async indexWorkspaceFileForLocalRag(file, workspaceId = this.selectedWorkspaceId) {
+            const limits = getRagLimits();
+            const scope = {
+                scopeType: 'workspace',
+                workspaceId,
+                chatId: null
+            };
+
+            if (!workspaceId) {
+                return { ok: false, error: 'no-workspace' };
+            }
+
+            const selectionError = this.validateLocalRagFileSelection(file, workspaceId);
+            if (selectionError) {
+                return { ok: false, error: selectionError };
+            }
+
+            const fileId = this.buildLocalRagFileId(file, scope);
+            const existingState = this.localRagFileStates[fileId];
+            if (existingState?.status === 'indexed') {
+                this.addWorkspaceDocumentRef({
+                    fileId,
+                    name: file.name,
+                    workspaceId,
+                    chatId: null,
+                    scopeType: scope.scopeType,
+                    sourceType: 'workspaceAttachment',
+                    chunkCount: existingState.chunkCount || 0,
+                    estimatedBytes: existingState.estimatedBytes || 0
+                }, workspaceId);
+                return { ok: true, fileId, chunkCount: existingState.chunkCount || 0 };
+            }
+
+            this.setLocalRagFileState(fileId, {
+                status: 'indexing',
+                name: file.name,
+                scopeType: scope.scopeType,
+                sourceType: 'workspaceAttachment',
+                workspaceId,
+                chatId: null,
+                chunkCount: 0,
+                estimatedBytes: 0,
+                error: ''
+            });
+
+            if (this.activeIndexJobId) {
+                this.cancelRagWorkerTask(this.activeIndexJobId);
+            }
+
+            let extractedText = '';
+            try {
+                extractedText = await this.extractTextForLocalRag(file);
+            } catch (extractionError) {
+                this.setLocalRagFileState(fileId, {
+                    status: 'failed',
+                    error: extractionError.message || 'Extraction failed'
+                });
+                return { ok: false, fileId, error: extractionError.message || 'Extraction failed' };
+            }
+
+            const extractedTextBytes = new TextEncoder().encode(extractedText || '').length;
+
+            const workerTask = await this.postRagWorkerTask(
+                'indexText',
+                {
+                    text: extractedText,
+                    descriptor: {
+                        fileId,
+                        source: file.name,
+                        sourceName: file.name,
+                        sourceType: 'workspaceAttachment',
+                        workspaceId,
+                        chatId: null,
+                        replaceExisting: true,
+                        extractedTextBytes
+                    },
+                    limits
+                },
+                {
+                    onProgress: (progress) => {
+                        const processed = Number(progress?.processedChunks || 0);
+                        const total = Number(progress?.totalChunks || 0);
+                        this.localRagStatusText = `Indexing workspace file... ${processed}/${total}`;
+                    }
+                }
+            );
+            this.activeIndexJobId = workerTask.jobId;
+            let result;
+            try {
+                result = await workerTask.promise;
+            } finally {
+                this.activeIndexJobId = null;
+            }
+
+            if (!result?.success) {
+                const errorMessage = result?.error || 'Unknown local indexing error';
+                this.setLocalRagFileState(fileId, {
+                    status: 'failed',
+                    error: errorMessage
+                });
+                return { ok: false, fileId, error: errorMessage };
+            }
+
+            this.setLocalRagFileState(fileId, {
+                status: 'indexed',
+                chunkCount: result.chunkCount || 0,
+                estimatedBytes: result.estimatedBytes || 0,
+                extractedTextBytes: result.extractedTextBytes || 0,
+                error: ''
+            });
+            this.addWorkspaceDocumentRef({
+                fileId,
+                name: file.name,
+                workspaceId,
+                chatId: null,
+                scopeType: scope.scopeType,
+                sourceType: 'workspaceAttachment',
+                chunkCount: result.chunkCount || 0,
+                estimatedBytes: result.estimatedBytes || 0
+            }, workspaceId);
+            this.updateLocalRagWarnings(workspaceId);
+            return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
+        },
+
         async buildLocalContextForMessage(query, uploadedDocumentFile, sessionId = this.currentSession) {
             if (uploadedDocumentFile) {
                 const indexResult = await this.indexUploadedDocumentForLocalRag(uploadedDocumentFile, sessionId);
@@ -1826,14 +2099,20 @@ function chatApp() {
             }
 
             const scope = {
+                scopeType: 'chat',
                 workspaceId: this.getCurrentWorkspaceIdForSession(sessionId),
                 chatId: sessionId
             };
             const sessionFileIds = this.getSessionDocumentRefs(scope.chatId)
                 .map(ref => ref?.fileId)
                 .filter(Boolean);
+            const workspaceFileIds = scope.workspaceId
+                ? this.getWorkspaceDocumentRefs(scope.workspaceId)
+                    .map(ref => ref?.fileId)
+                    .filter(Boolean)
+                : [];
 
-            if (sessionFileIds.length === 0) {
+            if (sessionFileIds.length === 0 && workspaceFileIds.length === 0) {
                 return { ok: false, reason: 'no-session-documents' };
             }
 
@@ -1842,29 +2121,54 @@ function chatApp() {
                 this.cancelRagWorkerTask(this.activeRetrievalJobId);
             }
 
-            const workerTask = await this.postRagWorkerTask('retrieve', {
-                query,
-                maxResults: limits.RETRIEVAL_TOP_K || 5,
-                filters: {
-                    sourceType: 'chatAttachment',
-                    workspaceId: scope.workspaceId,
-                    chatId: scope.chatId,
-                    fileIds: sessionFileIds
-                },
-                options: {
-                    candidateLimitPerSource: limits.RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE || 20,
-                    maxPerFile: limits.RETRIEVAL_MAX_PER_FILE || 2
-                }
-            });
-            this.activeRetrievalJobId = workerTask.jobId;
-            let docs;
-            try {
-                docs = (await workerTask.promise) || [];
-            } finally {
-                this.activeRetrievalJobId = null;
+            const retrievalJobs = [];
+            if (sessionFileIds.length > 0) {
+                retrievalJobs.push(this.postRagWorkerTask('retrieve', {
+                    query,
+                    maxResults: limits.RETRIEVAL_TOP_K || 5,
+                    filters: {
+                        sourceType: 'chatAttachment',
+                        workspaceId: scope.workspaceId,
+                        chatId: scope.chatId,
+                        fileIds: sessionFileIds
+                    },
+                    options: {
+                        candidateLimitPerSource: limits.RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE || 20,
+                        maxPerFile: limits.RETRIEVAL_MAX_PER_FILE || 2
+                    }
+                }));
+            }
+            if (workspaceFileIds.length > 0) {
+                retrievalJobs.push(this.postRagWorkerTask('retrieve', {
+                    query,
+                    maxResults: limits.RETRIEVAL_TOP_K || 5,
+                    filters: {
+                        sourceType: 'workspaceAttachment',
+                        workspaceId: scope.workspaceId,
+                        chatId: null,
+                        fileIds: workspaceFileIds
+                    },
+                    options: {
+                        candidateLimitPerSource: limits.RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE || 20,
+                        maxPerFile: limits.RETRIEVAL_MAX_PER_FILE || 2
+                    }
+                }));
             }
 
-            if (!docs || docs.length === 0) {
+            const docs = [];
+            for (const workerTask of retrievalJobs) {
+                this.activeRetrievalJobId = workerTask.jobId;
+                try {
+                    const result = (await workerTask.promise) || [];
+                    if (Array.isArray(result)) {
+                        docs.push(...result);
+                    }
+                } finally {
+                    this.activeRetrievalJobId = null;
+                }
+            }
+
+            if (docs.length === 0) {
                 return { ok: false, reason: 'no-local-results' };
             }
 
@@ -1891,14 +2195,14 @@ function chatApp() {
             } catch (error) {
                 console.warn('[ChatApp] Legacy session migration failed:', error);
             }
-            this.sessions = this.normalizeSessions(legacy || []);
+            this.sessions = this.normalizeSessions(legacy || [], !!this.legacyLocalRagEnabled);
             this.workspaces = [];
             this.workspaceFiles = [];
             this.currentSession = this.sessions[0]?.id || null;
             this.persistAppState();
         },
 
-        normalizeSessions(sessions) {
+        normalizeSessions(sessions, defaultPrivateStoreEnabled = false) {
             return (sessions || []).map((s, idx) => ({
                 id: s.id || makeId('chat'),
                 name: s.name || `Chat ${idx + 1}`,
@@ -1907,6 +2211,9 @@ function chatApp() {
                     : [],
                 localDocumentRefs: Array.isArray(s.localDocumentRefs) ? s.localDocumentRefs : [],
                 workspaceId: s.workspaceId ?? null,
+                privateStoreEnabled: typeof s.privateStoreEnabled === 'boolean'
+                    ? s.privateStoreEnabled
+                    : !!defaultPrivateStoreEnabled,
                 createdAt: s.createdAt || new Date().toISOString(),
                 updatedAt: s.updatedAt || new Date().toISOString(),
                 modelOverride: s.modelOverride || null
@@ -1923,6 +2230,7 @@ function chatApp() {
                 pinnedNote: w.pinnedNote || '',
                 defaultModel: w.defaultModel || '',
                 defaultSettings: w.defaultSettings || {},
+                localDocumentRefs: Array.isArray(w.localDocumentRefs) ? w.localDocumentRefs : [],
                 createdAt: w.createdAt || new Date().toISOString(),
                 updatedAt: w.updatedAt || new Date().toISOString()
             }));
@@ -2701,6 +3009,7 @@ function chatApp() {
                 name: `Chat ${this.sessions.length + 1}`,
                 messages: [],
                 workspaceId: workspaceId || null,
+                privateStoreEnabled: false,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 modelOverride: workspaceDefaults?.defaultModel || null
@@ -2808,7 +3117,8 @@ function chatApp() {
                     show: true,
                     type: 'edit',
                     value: session.name,
-                    sessionId: sessionId
+                    sessionId: sessionId,
+                    clearIncludeWorkspaces: false
                 };
             }
         },
@@ -2818,11 +3128,22 @@ function chatApp() {
                 show: true,
                 type: 'delete',
                 value: '',
-                sessionId: sessionId
+                sessionId: sessionId,
+                clearIncludeWorkspaces: false
+            };
+        },
+
+        openClearChatsModal() {
+            this.modal = {
+                show: true,
+                type: 'clear',
+                value: '',
+                sessionId: null,
+                clearIncludeWorkspaces: false
             };
         },
         
-        confirmModal() {
+        async confirmModal() {
             if (this.modal.type === 'edit') {
                 const session = this.sessions.find(s => s.id === this.modal.sessionId);
                 if (session && this.modal.value.trim()) {
@@ -2832,6 +3153,7 @@ function chatApp() {
             } else if (this.modal.type === 'delete') {
                 const index = this.sessions.findIndex(s => s.id === this.modal.sessionId);
                 if (index !== -1) {
+                    await this.clearSessionDocumentStore(this.modal.sessionId);
                     this.sessions.splice(index, 1);
                     
                     // If we deleted the current session, switch to another or create new
@@ -2850,9 +3172,75 @@ function chatApp() {
                     
                     this.saveSessions();
                 }
+            } else if (this.modal.type === 'clear') {
+                await this.executeClearChats({
+                    includeWorkspaces: this.modal.clearIncludeWorkspaces === true
+                });
             }
             
             this.modal.show = false;
+        },
+
+        async executeClearChats({ includeWorkspaces = false } = {}) {
+            const sessionsToRemove = includeWorkspaces
+                ? [...this.sessions]
+                : this.sessions.filter(s => !s.workspaceId);
+            const removedSessionIds = new Set(sessionsToRemove.map(s => s.id));
+
+            if (removedSessionIds.size === 0 && !includeWorkspaces) {
+                return;
+            }
+
+            if (includeWorkspaces) {
+                const workspaceStorageKeys = this.workspaceFiles
+                    .map(file => file?.storageKey)
+                    .filter(Boolean);
+
+                await clearWorkspaceFileBlobs(workspaceStorageKeys);
+                await this.clearAllPrivateDocumentStores();
+                this.inFlightRequests.clear();
+
+                this.sessions = [];
+                this.workspaces = [];
+                this.workspaceFiles = [];
+                this.workspaceExpanded = {};
+                this.currentWorkspaceFilter = 'all';
+                this.selectedWorkspaceId = null;
+                this.workspaceDetailsOpen = false;
+            } else {
+                for (const session of sessionsToRemove) {
+                    await this.clearSessionDocumentStore(session.id);
+                }
+                this.sessions = this.sessions.filter(s => !removedSessionIds.has(s.id));
+            }
+
+            for (const sessionId of removedSessionIds) {
+                this.inFlightRequests.delete(sessionId);
+            }
+
+            if (this.currentSession && removedSessionIds.has(this.currentSession)) {
+                if (this.sessions.length > 0) {
+                    this.selectSession(this.sessions[0].id);
+                } else {
+                    this.currentSession = null;
+                    this.messages = [];
+                }
+            } else if (this.currentSession) {
+                const currentExists = this.sessions.find(s => s.id === this.currentSession);
+                if (currentExists) {
+                    this.messages = Array.isArray(currentExists.messages) ? currentExists.messages : [];
+                } else if (this.sessions.length > 0) {
+                    this.selectSession(this.sessions[0].id);
+                } else {
+                    this.currentSession = null;
+                    this.messages = [];
+                }
+            } else {
+                this.messages = [];
+            }
+
+            this.persistAppState();
+            await this.refreshStorageEstimate();
         },
 
         assignSessionToWorkspace(sessionId, workspaceId) {
@@ -2955,6 +3343,7 @@ function chatApp() {
                     pinnedNote: '',
                     defaultModel: '',
                     defaultSettings: {},
+                    localDocumentRefs: [],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 });
@@ -2971,12 +3360,27 @@ function chatApp() {
                 const deletedSessionIds = new Set(
                     this.sessions.filter(s => s.workspaceId === workspaceId).map(s => s.id)
                 );
+                const workspaceRefs = [...this.getWorkspaceDocumentRefs(workspaceId)];
                 const storageKeys = this.workspaceFiles
                     .filter(f => f.workspaceId === workspaceId)
                     .map(f => f.storageKey)
                     .filter(Boolean);
 
                 await clearWorkspaceFileBlobs(storageKeys);
+                for (const sessionId of deletedSessionIds) {
+                    await this.clearSessionDocumentStore(sessionId);
+                }
+                for (const ref of workspaceRefs) {
+                    if (window.browserRetriever?.deleteDocumentsByFilters && ref?.fileId) {
+                        await window.browserRetriever.deleteDocumentsByFilters({
+                            sourceType: 'workspaceAttachment',
+                            workspaceId,
+                            chatId: null,
+                            fileId: ref.fileId
+                        });
+                    }
+                    this.removeLocalRagState(ref.fileId);
+                }
                 this.workspaces = this.workspaces.filter(w => w.id !== workspaceId);
                 this.workspaceFiles = this.workspaceFiles.filter(f => f.workspaceId !== workspaceId);
                 const { [workspaceId]: _removed, ...restExpanded } = this.workspaceExpanded;
@@ -2990,7 +3394,8 @@ function chatApp() {
                     if (this.sessions.length > 0) {
                         this.selectSession(this.sessions[0].id);
                     } else {
-                        this.newChat();
+                        this.currentSession = null;
+                        this.messages = [];
                     }
                 }
             }
@@ -3059,6 +3464,16 @@ function chatApp() {
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 });
+
+                if (!file.type.startsWith('image/')) {
+                    try {
+                        await this.indexWorkspaceFileForLocalRag(file, workspace.id);
+                        this.localRagStatusText = this.getLocalRagStatusLabel();
+                    } catch (error) {
+                        console.error('[ChatApp] Workspace file indexing failed:', error);
+                        this.localRagStatusText = `Workspace indexing failed: ${error.message}`;
+                    }
+                }
             }
             event.target.value = '';
             this.persistAppState();
@@ -3069,6 +3484,7 @@ function chatApp() {
             const file = this.workspaceFiles.find(f => f.id === fileId);
             if (!file) return;
 
+            await this.removeWorkspaceDocument(fileId, file.workspaceId);
             if (file.storageKey) {
                 await deleteWorkspaceFileBlob(file.storageKey);
             }
@@ -3165,6 +3581,7 @@ function chatApp() {
                     ...data.workspace,
                     id: importedWorkspaceId,
                     name,
+                    localDocumentRefs: Array.isArray(data.workspace.localDocumentRefs) ? data.workspace.localDocumentRefs : [],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 };
@@ -3173,6 +3590,8 @@ function chatApp() {
                     ...chat,
                     id: makeId(`chati${idx}`),
                     workspaceId: importedWorkspaceId,
+                    privateStoreEnabled: typeof chat.privateStoreEnabled === 'boolean' ? chat.privateStoreEnabled : false,
+                    localDocumentRefs: Array.isArray(chat.localDocumentRefs) ? chat.localDocumentRefs : [],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
                 }));
@@ -3232,15 +3651,7 @@ function chatApp() {
         },
         
         clearAllSessions() {
-            if (confirm('Are you sure you want to clear all sessions?')) {
-                this.sessions = [];
-                this.messages = [];
-                this.currentSession = null;
-                this.persistAppState();
-                // Do not create a new default session here. Let the user
-                // start a new chat manually or create one automatically
-                // when they send their first message.
-            }
+            this.openClearChatsModal();
         },
         
         selectModel(modelId) {
@@ -3303,6 +3714,22 @@ function chatApp() {
         selectedModelSupportsThinking(modelId = this.selectedModel) {
             const model = this.availableModels.find(m => m.id === modelId);
             return model?.thinking === true || model?.iconThinking === true;
+        },
+
+        selectedModelSupportsVision(modelId = this.selectedModel) {
+            const model = this.availableModels.find(m => m.id === modelId);
+            return model?.vision === true || model?.iconVision === true;
+        },
+
+        buildImageOcrContextBlock(query, ocrText) {
+            return [
+                'The attached image was converted to text using OCR because the selected model does not support vision.',
+                '',
+                'OCR text:',
+                ocrText,
+                '',
+                `User question: ${query}`
+            ].join('\n');
         },
 
         getAgentModeHint(modelId = this.selectedModel) {
@@ -3442,6 +3869,9 @@ function chatApp() {
                 this.newChat();
             }
             const sessionId = this.currentSession;
+            const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
+            const hasWorkspaceSharedDocs = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
+            const needsLocalRagEngine = this.localRagEnabled || hasSessionPrivateDocs || hasWorkspaceSharedDocs;
             if (this.isSessionAtConcurrencyLimit(sessionId)) {
                 console.warn('[ChatApp] Session reached max concurrent requests', {
                     sessionId,
@@ -3453,8 +3883,8 @@ function chatApp() {
             // Sending a message should return to normal chat view.
             this.workspaceDetailsOpen = false;
             
-            // If Local RAG is enabled, ensure scripts are loaded
-            if (this.localRagEnabled) {
+            // If any local-scoped retrieval may be needed, ensure scripts are loaded.
+            if (needsLocalRagEngine) {
                 try {
                     await ensureRagLoaded();
                 } catch (error) {
@@ -3560,19 +3990,46 @@ function chatApp() {
                 let finalQuery = query;
                 let fileForAgent = this.uploadedFile;
                 this.localRagLastModeUsed = 'none';
+                const hasImageUpload = !!(this.uploadedFile && this.uploadedFile.type.startsWith('image/'));
+
+                if (hasImageUpload && !this.selectedModelSupportsVision(this.selectedModel)) {
+                    try {
+                        const ocrResult = await extractImageTextWithOcr(this.uploadedFile);
+                        const ocrText = (ocrResult?.text || '').trim();
+                        if (!ocrText) {
+                            throw new Error('OCR did not extract readable text from the image.');
+                        }
+                        finalQuery = this.buildImageOcrContextBlock(query, ocrText);
+                        fileForAgent = null;
+                    } catch (ocrError) {
+                        const errorMessage = `Image OCR failed: ${ocrError.message || 'Unable to extract text from the image.'}`;
+                        sessionMessages.push({
+                            id: makeId('msg'),
+                            role: 'assistant',
+                            content: errorMessage
+                        });
+                        if (sessionId === this.currentSession) {
+                            this.messages = sessionMessages;
+                        }
+                        this.saveSessions(sessionId);
+                        return;
+                    }
+                }
 
                 const isDocumentUpload = !!(this.uploadedFile && !this.uploadedFile.type.startsWith('image/'));
-                const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
-                if (this.localRagEnabled && (isDocumentUpload || hasSessionPrivateDocs)) {
+                const shouldIndexUploadedDocumentLocally = isDocumentUpload && this.getCurrentSessionPrivateStoreEnabled(sessionId);
+                if (hasSessionPrivateDocs || hasWorkspaceSharedDocs || shouldIndexUploadedDocumentLocally) {
                     try {
                         const localResult = await this.buildLocalContextForMessage(
                             query,
-                            isDocumentUpload ? this.uploadedFile : null,
+                            shouldIndexUploadedDocumentLocally ? this.uploadedFile : null,
                             sessionId
                         );
                         if (localResult.ok) {
                             finalQuery = this.buildRagContextBlock(query, localResult.context);
-                            fileForAgent = null; // Prevent backend rag_chain route when local context is available
+                            if (shouldIndexUploadedDocumentLocally) {
+                                fileForAgent = null; // Prevent backend rag_chain route when the upload is already represented in local context
+                            }
                             this.localRagLastModeUsed = 'local';
                             this.localRagStatusText = `Using local retrieval (${localResult.usedChunks} chunks)`;
                         } else {

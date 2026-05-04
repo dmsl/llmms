@@ -1470,7 +1470,7 @@
                             <i class="fas fa-gear"></i> Settings
                         </button>
                         <button
-                            @click="clearAllSessions()"
+                            @click="openClearChatsModal()"
                             style="display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:8px; border-radius:var(--radius); border:1px solid rgba(220,38,38,0.35); color:#dc2626; background:rgba(220,38,38,0.06); font-size:0.65rem; font-family:var(--font-body); letter-spacing:0.18em; text-transform:uppercase; cursor:pointer; transition:background 0.18s, border-color 0.18s;"
                             onmouseover="this.style.background='rgba(220,38,38,0.14)'"
                             onmouseout="this.style.background='rgba(220,38,38,0.06)'"
@@ -2288,7 +2288,7 @@
         </div>
     </div>
 
-    <!-- Modal for Edit/Delete Session -->
+    <!-- Modal for Edit/Delete/Clear Sessions -->
     <div
         x-show="modal.show"
         @click="modal.show = false"
@@ -2341,6 +2341,41 @@
                     <div style="display:flex; gap:8px;">
                         <button @click="modal.show = false" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0;">Cancel</button>
                         <button @click="confirmModal()" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0; background:rgba(220,38,38,0.1); color:#dc2626; border-color:rgba(220,38,38,0.25);">Delete</button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Clear Chats -->
+            <template x-if="modal.type === 'clear'">
+                <div>
+                    <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:10px;">
+                        <div style="width:34px; height:34px; background:rgba(220,38,38,0.08); border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <i class="fas fa-trash-alt" style="color:#dc2626; font-size:0.88rem;"></i>
+                        </div>
+                        <div>
+                            <h3 style="font-family:'Space Grotesk',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-strong); margin:0 0 4px;">Clear Chats</h3>
+                            <p style="font-size:0.8rem; color:var(--muted); margin:0; line-height:1.45;">Choose what to remove from chat history.</p>
+                        </div>
+                    </div>
+
+                    <label style="display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:rgba(106,66,194,0.04); cursor:pointer;">
+                        <input
+                            type="checkbox"
+                            x-model="modal.clearIncludeWorkspaces"
+                            style="accent-color:var(--accent); width:14px; height:14px; flex-shrink:0;">
+                        <span style="font-size:0.8rem; color:var(--text); font-weight:500;">Also clear workspaces</span>
+                    </label>
+
+                    <p x-show="!modal.clearIncludeWorkspaces" style="margin:8px 2px 0; font-size:0.75rem; color:var(--muted); line-height:1.45;">
+                        Will clear only unassigned chats.
+                    </p>
+                    <p x-show="modal.clearIncludeWorkspaces" style="margin:8px 2px 0; font-size:0.75rem; color:#dc2626; line-height:1.45;">
+                        Will clear all workspaces, their chats, and related data.
+                    </p>
+
+                    <div style="display:flex; gap:8px; margin-top:14px;">
+                        <button @click="modal.show = false" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0;">Cancel</button>
+                        <button @click="confirmModal()" class="ds-btn" style="flex:1; font-size:0.8rem; padding:7px 0; background:rgba(220,38,38,0.1); color:#dc2626; border-color:rgba(220,38,38,0.25);">Clear</button>
                     </div>
                 </div>
             </template>
