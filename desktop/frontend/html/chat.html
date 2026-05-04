@@ -1893,58 +1893,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Interaction Mode Selector -->
-                                <div class="relative composer-mode-desktop" x-data="{ open: false }">
-                                    <button
-                                        @click="open = !open"
-                                        class="ds-btn"
-                                        style="font-size:0.7rem; padding:6px 12px; border-color:var(--border); color:var(--text); gap:6px;">
-                                        <span x-text="interactionMode === 'agent' ? 'Agent' : 'Ask'"></span>
-                                        <i class="fas fa-chevron-down" style="font-size:0.6rem;"></i>
-                                    </button>
-                                    <div
-                                        x-show="open"
-                                        @click.away="open = false"
-                                        x-transition
-                                        style="position:absolute; bottom:calc(100% + 8px); left:0; z-index:200; min-width:140px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:4px 0; box-shadow:0 8px 24px rgba(106,66,194,0.12);">
-                                        <button
-                                            @click="selectInteractionMode('ask'); open = false"
-                                            style="width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); transition:background 0.15s;"
-                                            onmouseover="this.style.background='rgba(106,66,194,0.07)'"
-                                            onmouseout="this.style.background='none'">
-                                            Ask
-                                        </button>
-                                        <button
-                                            @click="if (modelSupportsAgent()) { selectInteractionMode('agent'); open = false }"
-                                            :disabled="!modelSupportsAgent()"
-                                            :style="modelSupportsAgent() ? 'width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:pointer; color:var(--text); font-family:var(--font-body); transition:background 0.15s;' : 'width:100%; text-align:left; padding:7px 12px; font-size:0.78rem; background:none; border:none; cursor:not-allowed; color:var(--muted); font-family:var(--font-body); opacity:0.65;'"
-                                            onmouseover="if(!this.disabled){this.style.background='rgba(106,66,194,0.07)'}"
-                                            onmouseout="this.style.background='none'">
-                                            Agent
-                                        </button>
-                                        <div x-show="!modelSupportsAgent()" style="padding:4px 12px 6px; font-size:0.62rem; color:var(--muted); border-top:1px solid var(--border);">
-                                            <span x-text="getAgentModeHint()"></span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="composer-mode-mobile" style="display:none; align-items:center; gap:4px; padding:3px; border:1px solid var(--border); border-radius:var(--radius); background:color-mix(in srgb, var(--surface) 94%, transparent);">
-                                    <button
-                                        @click="selectInteractionMode('ask')"
-                                        :style="interactionMode === 'ask'
-                                            ? 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:rgba(106,66,194,0.12); color:var(--accent); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'
-                                            : 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:transparent; color:var(--muted); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'">
-                                        <i class="fas fa-comment-dots" style="font-size:0.68rem;"></i>
-                                    </button>
-                                    <button
-                                        @click="if (modelSupportsAgent()) { selectInteractionMode('agent') }"
-                                        :disabled="!modelSupportsAgent()"
-                                        :style="interactionMode === 'agent'
-                                            ? 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:rgba(106,66,194,0.12); color:var(--accent); font-size:0.68rem; font-family:var(--font-body); cursor:pointer;'
-                                            : 'display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; border:none; border-radius:var(--radius); background:transparent; color:' + (modelSupportsAgent() ? 'var(--muted)' : 'color-mix(in srgb, var(--muted) 78%, transparent)') + '; font-size:0.68rem; font-family:var(--font-body); cursor:' + (modelSupportsAgent() ? 'pointer' : 'not-allowed') + '; opacity:' + (modelSupportsAgent() ? '1' : '0.6') + ';'">
-                                        <i class="fas fa-wand-magic-sparkles" style="font-size:0.68rem;"></i>
-                                    </button>
-                                </div>
                             </div>
 
                             <div data-tour="composer-context" x-data="{ mobileOpen: false }" style="margin-left:auto; display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; min-width:0; max-width:100%; position:relative;">

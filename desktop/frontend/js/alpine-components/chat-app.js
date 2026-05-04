@@ -124,6 +124,7 @@ import {
     blobToDataUrl
 } from '../workspace-file-store.js';
 import { extractImageTextWithOcr } from './image-ocr.js';
+import { formatEvidenceContext } from '../searchProviders.js';
 
 window.askAgent = askAgent;
 
@@ -408,7 +409,7 @@ function chatApp() {
         thinkingEnabled: false,
         autoScrollEnabled: true,
         manualScrollLock: false,
-        interactionMode: 'ask',
+        interactionMode: 'agent',
         availableModels: [],
         legacyLocalRagEnabled: false,
         localRagManagerOpen: false,
@@ -1848,6 +1849,24 @@ function chatApp() {
             ].join('\n');
         },
 
+        buildKnowledgeContextBlock(query, { localContext = '', evidenceBundle = null } = {}) {
+            const sections = [
+                'Use the evidence below to answer the question. If the evidence is incomplete, say so briefly rather than guessing.'
+            ];
+
+            if (localContext) {
+                sections.push('', 'Local context:', localContext);
+            }
+
+            if (Array.isArray(evidenceBundle?.items) && evidenceBundle.items.length > 0) {
+                const webEvidence = formatEvidenceContext(evidenceBundle, { maxItems: 12 });
+                sections.push('', webEvidence);
+            }
+
+            sections.push('', `User question: ${query}`);
+            return sections.join('\n');
+        },
+
         async indexUploadedDocumentForLocalRag(file, sessionId = this.currentSession) {
             const limits = getRagLimits();
             const scope = {
@@ -2937,10 +2956,6 @@ function chatApp() {
                     }
                 }
 
-                if (!this.modelSupportsAgent(this.selectedModel) && this.interactionMode === 'agent') {
-                    this.interactionMode = 'ask';
-                }
-
                 console.log('[ChatApp] Successfully loaded models');
             } catch (error) {
                 console.error('[ChatApp] Failed to load models from provider:', error);
@@ -2989,10 +3004,6 @@ function chatApp() {
                 } catch (fallbackError) {
                     console.error('[ChatApp] Failed to load models from backend fallback:', fallbackError);
                     this.availableModels = [];
-                } finally {
-                    if (this.interactionMode === 'agent') {
-                        this.interactionMode = 'ask';
-                    }
                 }
             }
         },
@@ -3667,10 +3678,6 @@ function chatApp() {
                     model.toolSupportProvenance = 'verified';
                     model.tools = !!isToolCapable;
                 }
-
-                if (!isToolCapable && this.interactionMode === 'agent' && this.selectedModel === modelId) {
-                    this.interactionMode = 'ask';
-                }
             }).catch(() => {
                 const model = this.availableModels.find(m => m.id === modelId);
                 if (model) {
@@ -3678,22 +3685,11 @@ function chatApp() {
                     model.toolSupportProvenance = 'unknown';
                     model.tools = false;
                 }
-                if (this.interactionMode === 'agent') {
-                    this.interactionMode = 'ask';
-                }
             });
-
-            if (!this.modelSupportsAgent(modelId) && this.interactionMode === 'agent') {
-                this.interactionMode = 'ask';
-            }
         },
 
         selectInteractionMode(mode) {
-            if (mode === 'agent' && !this.modelSupportsAgent(this.selectedModel)) {
-                this.interactionMode = 'ask';
-                return;
-            }
-            this.interactionMode = mode;
+            this.interactionMode = mode === 'ask' ? 'ask' : 'agent';
         },
 
         toggleThinking() {
@@ -3956,7 +3952,7 @@ function chatApp() {
                     content: m.rawText ?? m.content
                 })).filter(m => m.role !== 'reasoning');
                 
-                const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
+                const canUseAgent = this.interactionMode === 'agent';
 
                 // Get MCP tools only for Agent mode (don't start with basicToolSchemas in web mode)
                 let toolSchemas = [];
@@ -3991,6 +3987,7 @@ function chatApp() {
                 let fileForAgent = this.uploadedFile;
                 this.localRagLastModeUsed = 'none';
                 const hasImageUpload = !!(this.uploadedFile && this.uploadedFile.type.startsWith('image/'));
+                let localContext = '';
 
                 if (hasImageUpload && !this.selectedModelSupportsVision(this.selectedModel)) {
                     try {
@@ -4026,7 +4023,7 @@ function chatApp() {
                             sessionId
                         );
                         if (localResult.ok) {
-                            finalQuery = this.buildRagContextBlock(query, localResult.context);
+                            localContext = localResult.context;
                             if (shouldIndexUploadedDocumentLocally) {
                                 fileForAgent = null; // Prevent backend rag_chain route when the upload is already represented in local context
                             }

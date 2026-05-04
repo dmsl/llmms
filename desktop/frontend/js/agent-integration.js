@@ -15,11 +15,24 @@ import {
   probeToolSupport,
   requestProviderCompletion
 } from './llm-provider-adapters.js';
+import {
+  gatherEvidence,
+  searchWikipedia,
+  searchWikidata,
+  searchCrossref,
+  searchEuropePMC,
+  searchGDELT,
+  searchHN
+} from './searchProviders.js';
 
 const RAG_ENDPOINT = 'https://chatucy.cs.ucy.ac.cy/api/rag_chain';
 const LLM_MAX_RETRIES = 2;
 const TOOL_RESULT_CHAR_LIMIT = 8000;
 const MODEL_CAPABILITY_CACHE_TTL_MS = 5 * 60 * 1000;
+const MINI_SEARCH_MAX_STEPS = 2;
+const MINI_SEARCH_TIMEOUT_MS = 9000;
+const MINI_SEARCH_DEFAULT_LIMIT = 6;
+const MINI_SEARCH_TOOL_REGEX = /<mini_tool>\s*([\s\S]*?)\s*<\/mini_tool>/i;
 
 let modelCapabilityCache = new Map();
 let modelCapabilityCacheLoadedAt = 0;
@@ -206,14 +219,13 @@ export async function askAgent(
 
   const modelSupportsTooling = await supportsToolsFromProvider(model);
   const hasAvailableTools = Array.isArray(toolSchemas) && toolSchemas.length > 0;
-  const normalizedMode = mode === 'agent' && modelSupportsTooling && hasAvailableTools ? 'agent' : 'ask';
+  const normalizedMode = mode === 'agent' ? 'agent' : 'ask';
 
   let messages = buildSteeringPrompts(normalizedMode, toolSchemas);
   messages = messages.concat(await buildMessages(conversationHistory, userMessage, uploadedFile));
 
-  if (normalizedMode === 'ask') {
-    return callLLM(messages, [], model, false, {
-      stream: true,
+  if (normalizedMode === 'ask' || !modelSupportsTooling || !hasAvailableTools) {
+    return runMiniSearchLoop(messages, model, userMessage, {
       handlers,
       thinkingEnabled: handlers?.thinkingEnabled === true,
       thinkingSupported: handlers?.thinkingSupported === true
@@ -281,6 +293,203 @@ export async function askAgent(
     toolCalls: [],
     finishReason: 'max_iterations'
   };
+}
+
+function buildMiniSearchInstruction() {
+  return `You can optionally call mini search tools even when native function-calling is unavailable.
+
+If you need fresh/external information, output ONLY one command in this exact format and nothing else:
+<mini_tool>{"name":"search_web","arguments":{"query":"...","category":"general","providerBudget":4,"totalLimit":12}}</mini_tool>
+
+Available mini search tools:
+- search_web: federated web evidence across registered providers
+- search_wikipedia: Wikipedia search
+- search_wikidata: Wikidata entity search
+- search_crossref: Crossref papers
+- search_europepmc: Europe PMC papers
+- search_gdelt: GDELT news
+- search_hn: Hacker News
+
+Rules:
+- If no lookup is needed, answer normally.
+- Keep arguments as a JSON object.
+- When tool results are provided later, ground the final answer in those results and cite URLs when available.`;
+}
+
+function extractMiniToolCommand(text) {
+  const raw = String(text || '');
+  const match = raw.match(MINI_SEARCH_TOOL_REGEX);
+  if (!match) return null;
+
+  let payload = String(match[1] || '').trim();
+  payload = payload.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  if (!payload) return null;
+
+  try {
+    const parsed = JSON.parse(payload);
+    const name = typeof parsed?.name === 'string' ? parsed.name.trim() : '';
+    const args = isPlainObject(parsed?.arguments) ? parsed.arguments : {};
+    if (!name) return null;
+    return { name, args };
+  } catch {
+    return null;
+  }
+}
+
+function clampInteger(value, fallback, min, max) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(num)));
+}
+
+function normalizeMiniSearchArgs(args, defaultQuery) {
+  const sourceArgs = isPlainObject(args) ? args : {};
+  const query = String(sourceArgs.query || defaultQuery || '').trim();
+  return {
+    query,
+    category: typeof sourceArgs.category === 'string' ? sourceArgs.category.trim().toLowerCase() : undefined,
+    providerBudget: clampInteger(sourceArgs.providerBudget, 4, 1, 6),
+    totalLimit: clampInteger(sourceArgs.totalLimit, 12, 1, 20),
+    limit: clampInteger(sourceArgs.limit, MINI_SEARCH_DEFAULT_LIMIT, 1, 12),
+    timeoutMs: clampInteger(sourceArgs.timeoutMs, MINI_SEARCH_TIMEOUT_MS, 1000, 15000)
+  };
+}
+
+async function executeMiniSearchCommand(command, defaultQuery) {
+  const name = String(command?.name || '').trim().toLowerCase();
+  const parsedArgs = normalizeMiniSearchArgs(command?.args, defaultQuery);
+  if (!parsedArgs.query) {
+    throw new Error('Mini search command requires a non-empty query');
+  }
+
+  if (name === 'search_web') {
+    const bundle = await gatherEvidence(parsedArgs.query, {
+      category: parsedArgs.category,
+      providerBudget: parsedArgs.providerBudget,
+      totalLimit: parsedArgs.totalLimit,
+      timeoutMs: parsedArgs.timeoutMs
+    });
+    return {
+      tool: name,
+      query: parsedArgs.query,
+      itemCount: Array.isArray(bundle?.items) ? bundle.items.length : 0,
+      sources: Array.isArray(bundle?.sources)
+        ? bundle.sources.map(src => ({
+            id: src.id,
+            label: src.label,
+            ok: src.ok !== false,
+            error: src.error || null
+          }))
+        : [],
+      items: Array.isArray(bundle?.items) ? bundle.items.slice(0, parsedArgs.totalLimit) : [],
+      generatedAt: bundle?.generatedAt || new Date().toISOString()
+    };
+  }
+
+  const providerMap = {
+    search_wikipedia: searchWikipedia,
+    search_wikidata: searchWikidata,
+    search_crossref: searchCrossref,
+    search_europepmc: searchEuropePMC,
+    search_gdelt: searchGDELT,
+    search_hn: searchHN
+  };
+
+  const providerSearch = providerMap[name];
+  if (!providerSearch) {
+    throw new Error(`Unknown mini search tool: ${command?.name}`);
+  }
+
+  const items = await providerSearch(parsedArgs.query, {
+    timeoutMs: parsedArgs.timeoutMs,
+    limit: parsedArgs.limit
+  });
+
+  return {
+    tool: name,
+    query: parsedArgs.query,
+    itemCount: Array.isArray(items) ? items.length : 0,
+    items: Array.isArray(items) ? items.slice(0, parsedArgs.limit) : [],
+    generatedAt: new Date().toISOString()
+  };
+}
+
+async function runMiniSearchLoop(messages, model, userMessage, options = {}) {
+  const runSimpleAskFallback = () =>
+    callLLM(messages, [], model, false, {
+      stream: true,
+      handlers: options.handlers,
+      thinkingEnabled: options.thinkingEnabled === true,
+      thinkingSupported: options.thinkingSupported === true
+    });
+
+  try {
+    const loopMessages = [
+      ...messages,
+      {
+        role: 'developer',
+        content: buildMiniSearchInstruction()
+      }
+    ];
+
+    let lastResponse = null;
+    let lastText = '';
+
+    for (let step = 0; step < MINI_SEARCH_MAX_STEPS; step++) {
+      const response = await callLLM(loopMessages, [], model, false, {
+        stream: false,
+        handlers: options.handlers,
+        thinkingEnabled: options.thinkingEnabled === true,
+        thinkingSupported: options.thinkingSupported === true
+      });
+      lastResponse = response;
+      const assistantText = extractFinalContent(response);
+      lastText = assistantText;
+      const command = extractMiniToolCommand(assistantText);
+
+      if (!command) {
+        return {
+          ...response,
+          text: assistantText
+        };
+      }
+
+      console.info('[MiniSearch] Mini API requested by model:', command.name, command.args || {});
+
+      let toolPayload;
+      try {
+        toolPayload = await executeMiniSearchCommand(command, userMessage);
+        console.info('[MiniSearch] Mini API call succeeded:', command.name, {
+          items: Array.isArray(toolPayload?.items) ? toolPayload.items.length : 0
+        });
+      } catch (error) {
+        console.warn('[MiniSearch] Mini API call failed; falling back to simple ask mode:', command.name, error);
+        return runSimpleAskFallback();
+      }
+
+      loopMessages.push({
+        role: 'assistant',
+        content: assistantText
+      });
+      loopMessages.push({
+        role: 'user',
+        content: [
+          'Mini tool result JSON:',
+          JSON.stringify(toolPayload),
+          'Now provide the best final answer for the original user request using this result.'
+        ].join('\n')
+      });
+    }
+
+    return {
+      ...(lastResponse || {}),
+      text: lastText || `Mini search loop stopped after ${MINI_SEARCH_MAX_STEPS} steps.`,
+      finishReason: 'max_mini_search_steps'
+    };
+  } catch (error) {
+    console.warn('[MiniSearch] Mini loop failed; falling back to simple ask mode:', error);
+    return runSimpleAskFallback();
+  }
 }
 
 function buildSteeringPrompts(mode, toolSchemas = []) {
