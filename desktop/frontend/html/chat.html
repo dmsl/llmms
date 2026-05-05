@@ -1898,6 +1898,38 @@
                                         </div>
                                     </div>
                                 </div>
+                                <button
+                                    x-show="selectedModelSupportsThinking()"
+                                    @click="toggleThinking()"
+                                    type="button"
+                                    :style="thinkingEnabled
+                                        ? 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'
+                                        : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
+                                    title="Enable or disable model thinking/reasoning. Disabled by default to avoid hidden reasoning traces.">
+                                    <i class="fas fa-brain" style="font-size:0.65rem;"></i>
+                                    <span class="composer-thinking-label" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Thinking</span>
+                                    <span
+                                        class="composer-thinking-switch"
+                                        aria-hidden="true"
+                                        :style="thinkingEnabled
+                                            ? 'width:30px; height:18px; border-radius:999px; background:var(--accent); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'
+                                            : 'width:30px; height:18px; border-radius:999px; background:rgba(106,66,194,0.14); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'">
+                                        <span
+                                            :style="thinkingEnabled
+                                                ? 'position:absolute; top:2px; left:14px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.18); transition:left 0.18s ease;'
+                                                : 'position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.18); transition:left 0.18s ease;'"></span>
+                                    </span>
+                                </button>
+                                <button
+                                    @click="toggleLocalRagEnabled()"
+                                    type="button"
+                                    :style="localRagEnabled
+                                        ? 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'
+                                        : 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'"
+                                    :title="localRagEnabled ? 'Private document store enabled' : 'Private document store disabled'">
+                                    <i class="fas fa-database" style="font-size:0.8rem;"></i>
+                                    <span style="font-size:0.62rem; margin-left:4px;" x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
+                                </button>
 
                             </div>
 
@@ -1921,56 +1953,6 @@
                                     </button>
                                     <input type="file" multiple x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
 
-                                    <!-- Thinking Toggle -->
-                                    <button
-                                        x-show="selectedModelSupportsThinking()"
-                                        @click="toggleThinking()"
-                                        type="button"
-                                        :style="thinkingEnabled
-                                            ? 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'
-                                            : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
-                                        title="Enable or disable model thinking/reasoning. Disabled by default to avoid hidden reasoning traces.">
-                                        <i class="fas fa-brain" style="font-size:0.65rem;"></i>
-                                        <span class="composer-thinking-label" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Thinking</span>
-                                        <span
-                                            class="composer-thinking-switch"
-                                            aria-hidden="true"
-                                            :style="thinkingEnabled
-                                                ? 'width:30px; height:18px; border-radius:999px; background:var(--accent); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'
-                                                : 'width:30px; height:18px; border-radius:999px; background:rgba(106,66,194,0.14); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'">
-                                            <span
-                                                :style="thinkingEnabled
-                                                    ? 'position:absolute; top:2px; left:14px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.18); transition:left 0.18s ease;'
-                                                    : 'position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.18); transition:left 0.18s ease;'"></span>
-                                        </span>
-                                    </button>
-
-                                    <!-- Local RAG Controls -->
-                                    <div style="display:flex; align-items:center; gap:6px;">
-                                        <button
-                                            @click="toggleLocalRagEnabled()"
-                                            type="button"
-                                            :style="localRagEnabled
-                                                ? 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'
-                                                : 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'"
-                                            :title="localRagEnabled ? 'Private document store enabled' : 'Private document store disabled'">
-                                            <i class="fas fa-database" style="font-size:0.8rem;"></i>
-                                            <span style="font-size:0.62rem; margin-left:4px;" x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
-                                        </button>
-                                        <button
-                                            @click="localRagManagerOpen = true"
-                                            type="button"
-                                            :style="localRagManagerOpen
-                                                ? 'position:relative; display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'
-                                                : 'position:relative; display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'"
-                                            title="Open private document store">
-                                            <i class="fas fa-folder-open" style="font-size:0.82rem;"></i>
-                                            <span
-                                                x-show="getSessionPrivateDocCount() > 0"
-                                                style="position:absolute; top:-5px; right:-5px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; background:var(--accent); color:#fff; font-size:0.58rem; line-height:16px; text-align:center; font-weight:600;"
-                                                x-text="getSessionPrivateDocCount()"></span>
-                                        </button>
-                                    </div>
 
                                     <!-- Live Browser View Toggle -->
                                     <button
