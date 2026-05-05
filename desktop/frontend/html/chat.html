@@ -1924,11 +1924,11 @@
                                     @click="toggleLocalRagEnabled()"
                                     type="button"
                                     :style="localRagEnabled
-                                        ? 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'
-                                        : 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'"
+                                        ? 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'
+                                        : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
                                     :title="localRagEnabled ? 'Private document store enabled' : 'Private document store disabled'">
                                     <i class="fas fa-database" style="font-size:0.8rem;"></i>
-                                    <span style="font-size:0.62rem; margin-left:4px;" x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
+                                    <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
                                 </button>
 
                             </div>
