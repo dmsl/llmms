@@ -65,6 +65,9 @@ function classifyQuery(query) {
   const text = String(query || '').toLowerCase();
   const categories = [];
 
+  if (/\b(weather|temperature|forecast|rain|raining|snow|wind|humidity|uv index|sunrise|sunset|climate)\b/.test(text)) {
+    categories.push('weather');
+  }
   if (/\b(today|latest|recent|news|headline|breaking|current|now|this week|this month)\b/.test(text)) {
     categories.push('news');
   }
@@ -83,6 +86,56 @@ function classifyQuery(query) {
     primary: categories[0],
     categories
   };
+}
+
+async function searchOpenMeteo(query, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const geoUrl =
+    'https://geocoding-api.open-meteo.com/v1/search' +
+    `?name=${encodeURIComponent(query)}` +
+    '&count=1&language=en&format=json';
+
+  const geoData = await safeFetchJson(geoUrl, { timeoutMs });
+  const location = Array.isArray(geoData?.results) ? geoData.results[0] : null;
+  if (!location) return [];
+
+  const lat = Number(location.latitude);
+  const lon = Number(location.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+
+  const weatherUrl =
+    'https://api.open-meteo.com/v1/forecast' +
+    `?latitude=${lat}` +
+    `&longitude=${lon}` +
+    '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum' +
+    '&timezone=auto&forecast_days=2';
+
+  const weatherData = await safeFetchJson(weatherUrl, { timeoutMs });
+  const current = weatherData?.current || {};
+  const daily = weatherData?.daily || {};
+  const today = Array.isArray(daily.time) && daily.time.length > 0 ? 0 : -1;
+  const max = today >= 0 && Array.isArray(daily.temperature_2m_max) ? daily.temperature_2m_max[today] : null;
+  const min = today >= 0 && Array.isArray(daily.temperature_2m_min) ? daily.temperature_2m_min[today] : null;
+  const rain = today >= 0 && Array.isArray(daily.precipitation_sum) ? daily.precipitation_sum[today] : null;
+
+  const summary = [
+    Number.isFinite(current.temperature_2m) ? `Now ${current.temperature_2m}°C` : '',
+    Number.isFinite(current.apparent_temperature) ? `feels like ${current.apparent_temperature}°C` : '',
+    Number.isFinite(current.relative_humidity_2m) ? `humidity ${current.relative_humidity_2m}%` : '',
+    Number.isFinite(current.wind_speed_10m) ? `wind ${current.wind_speed_10m} km/h` : '',
+    Number.isFinite(max) && Number.isFinite(min) ? `today ${min}°C to ${max}°C` : '',
+    Number.isFinite(rain) ? `rain ${rain} mm` : ''
+  ].filter(Boolean).join(' · ');
+
+  const place = [location.name, location.country].filter(Boolean).join(', ');
+  return [
+    {
+      title: place ? `Current weather in ${place}` : 'Current weather',
+      url: `https://open-meteo.com/en/docs`,
+      snippet: truncateSnippet(summary),
+      source: 'Open-Meteo'
+    }
+  ];
 }
 
 async function searchGDELT(query, { timeoutMs = DEFAULT_TIMEOUT_MS, limit = DEFAULT_MAX_RESULTS_PER_SOURCE } = {}) {
@@ -267,6 +320,12 @@ function getDefaultProviderSet() {
       label: 'GDELT',
       category: 'news',
       search: searchGDELT
+    },
+    {
+      id: 'openmeteo',
+      label: 'Open-Meteo',
+      category: 'weather',
+      search: searchOpenMeteo
     },
     {
       id: 'hn',
