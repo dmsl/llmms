@@ -1,0 +1,19 @@
+{
+  "name": "Chat UCY",
+  "short_name": "ChatUCY",
+  "description": "Chat UCY AI assistant",
+  "start_url": "/chat.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f6f6",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/img/chatucy_logo.png",
+      "sizes": "917x774",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

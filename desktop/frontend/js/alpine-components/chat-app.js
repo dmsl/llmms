@@ -147,6 +147,7 @@ const STORAGE_KEYS = {
 };
 
 const ONBOARDING_STORAGE_KEY = 'chatucy_onboarding_seen_v1';
+const A2HS_SEEN_COOKIE_KEY = 'chatucy_a2hs_seen_v1';
 const ONBOARDING_STEPS = Object.freeze([
     {
         id: 'new-chat',
@@ -249,6 +250,33 @@ function prefersReducedMotion() {
     return typeof window !== 'undefined'
         && typeof window.matchMedia === 'function'
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function getCookieValue(name) {
+    try {
+        const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : '';
+    } catch {
+        return '';
+    }
+}
+
+function setCookieValue(name, value, maxAgeSeconds = 60 * 60 * 24 * 365) {
+    try {
+        document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax`;
+    } catch {
+        // no-op
+    }
+}
+
+function isA2hsDebugForced() {
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        return params.get('a2hs') === '1';
+    } catch {
+        return false;
+    }
 }
 
 function findScrollableAncestor(element) {
@@ -461,6 +489,9 @@ function chatApp() {
             scrollLock: null,
             closeTimer: null
         },
+        addToHomePromptOpen: false,
+        deferredInstallPrompt: null,
+        installPromptAvailable: false,
         modal: {
             show: false,
             type: '', // 'edit' | 'delete' | 'clear'
@@ -853,6 +884,18 @@ function chatApp() {
             this.$watch('sidebarOpen', (value) => {
                 localStorage.setItem('sidebar_open', value.toString());
             });
+            const pwaEvents = getEventManager('chat-app-pwa-install');
+            pwaEvents.add(window, 'beforeinstallprompt', (event) => {
+                event.preventDefault();
+                this.deferredInstallPrompt = event;
+                this.installPromptAvailable = true;
+                this.maybeShowAddToHomePrompt();
+            });
+            pwaEvents.add(window, 'appinstalled', () => {
+                this.installPromptAvailable = false;
+                this.deferredInstallPrompt = null;
+                this.dismissAddToHomePrompt();
+            });
 
             this.mcpConfigModal.loadLLMSettings();
             this.loadThinkingPreference();
@@ -889,6 +932,8 @@ function chatApp() {
 
             if (shouldAutoOpenOnboarding) {
                 this.$nextTick(() => this.openOnboarding());
+            } else {
+                this.$nextTick(() => this.maybeShowAddToHomePrompt());
             }
 
             await this.refreshStorageEstimate();
@@ -1047,6 +1092,85 @@ function chatApp() {
             }
 
             this.onboarding.sidebarStateBeforeTour = null;
+            this.$nextTick(() => this.maybeShowAddToHomePrompt());
+        },
+
+        isIosMobile() {
+            const ua = navigator.userAgent || '';
+            const iOS = /iPad|iPhone|iPod/.test(ua)
+                || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            return iOS && window.innerWidth <= 1024;
+        },
+
+        isRunningStandalonePwa() {
+            return window.matchMedia?.('(display-mode: standalone)')?.matches === true
+                || window.navigator.standalone === true;
+        },
+
+        hasSeenAddToHomePrompt() {
+            if (isA2hsDebugForced()) return false;
+            if (getCookieValue(A2HS_SEEN_COOKIE_KEY) === '1') return true;
+            return localStorage.getItem(A2HS_SEEN_COOKIE_KEY) === '1';
+        },
+
+        markAddToHomePromptSeen() {
+            setCookieValue(A2HS_SEEN_COOKIE_KEY, '1');
+            localStorage.setItem(A2HS_SEEN_COOKIE_KEY, '1');
+        },
+
+        dismissAddToHomePrompt() {
+            this.addToHomePromptOpen = false;
+            this.markAddToHomePromptSeen();
+        },
+
+        maybeShowAddToHomePrompt() {
+            if (isA2hsDebugForced()) {
+                this.addToHomePromptOpen = true;
+                return;
+            }
+            if (this.hasSeenAddToHomePrompt()) return;
+            if (this.isRunningStandalonePwa()) return;
+            if (this.installPromptAvailable || this.isIosMobile()) {
+                this.addToHomePromptOpen = true;
+            }
+        },
+
+        async handleAddToHomePromptClick() {
+            if (!this.installPromptAvailable || !this.deferredInstallPrompt) {
+                // Manual path (iOS / unsupported browsers): try opening native Share sheet.
+                if (navigator.share) {
+                    try {
+                        await navigator.share({
+                            title: 'Chat UCY',
+                            text: 'Open Chat UCY',
+                            url: window.location.href
+                        });
+                    } catch (error) {
+                        // User canceled share sheet or browser blocked it; keep tip visible.
+                        console.info('[ChatApp] Share sheet was not completed:', error?.message || error);
+                    }
+                }
+                return;
+            }
+            try {
+                this.deferredInstallPrompt.prompt();
+                const choice = await this.deferredInstallPrompt.userChoice;
+                if (choice?.outcome === 'accepted' || choice?.outcome === 'dismissed') {
+                    this.dismissAddToHomePrompt();
+                }
+            } catch (error) {
+                console.warn('[ChatApp] Install prompt failed:', error);
+            } finally {
+                this.deferredInstallPrompt = null;
+                this.installPromptAvailable = false;
+            }
+        },
+
+        getAddToHomePromptHintText() {
+            if (this.installPromptAvailable) {
+                return 'Tap to Install App';
+            }
+            return 'Share -> Add to Home Screen';
         },
 
         lockOnboardingScroll() {
