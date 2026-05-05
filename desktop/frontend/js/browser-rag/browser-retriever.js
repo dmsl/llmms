@@ -142,6 +142,100 @@ class BrowserRetriever {
         return chunks;
     }
 
+    tokenize(text) {
+        return String(text || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9@\.\-\s]/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean);
+    }
+
+    estimateTokenCount(text) {
+        return this.tokenize(text).length;
+    }
+
+    inferSectionHint(chunkText) {
+        const lines = String(chunkText || '')
+            .split('\n')
+            .map(s => s.trim())
+            .filter(Boolean);
+        const first = lines[0] || '';
+        const m = first.match(/^(slide|page|section|chapter)\s*[:#]?\s*\d*/i);
+        return m ? m[0] : '';
+    }
+
+    expandRetrievalQuery(query) {
+        const q = String(query || '').trim();
+        const low = q.toLowerCase();
+        const pronounLike = /\b(this|that|it|these|those|who did this|who made this)\b/.test(low);
+        if (!pronounLike) return { query: q, expanded: false, terms: [] };
+        const terms = ['author', 'credits', 'presented by', 'created by', 'contact', 'email', 'university', 'team'];
+        return { query: `${q} ${terms.join(' ')}`, expanded: true, terms };
+    }
+
+    lexicalScore(queryTokens, text) {
+        const docTokens = this.tokenize(text);
+        if (!queryTokens.length || !docTokens.length) return 0;
+        const tf = new Map();
+        for (const t of docTokens) tf.set(t, (tf.get(t) || 0) + 1);
+        let score = 0;
+        for (const t of queryTokens) {
+            const v = tf.get(t) || 0;
+            if (v > 0) score += 1 + Math.log(1 + v);
+        }
+        return score / Math.sqrt(docTokens.length + 4);
+    }
+
+    normalizeScores(items, key, outKey) {
+        const vals = items.map(x => Number(x[key]) || 0);
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+        const span = max - min;
+        for (const item of items) {
+            const v = Number(item[key]) || 0;
+            item[outKey] = span > 1e-9 ? (v - min) / span : 0;
+        }
+    }
+
+    rerankWithDiversity(items, { maxResults, maxPerFile, diversityLambda }) {
+        const selected = [];
+        const perFileCounts = new Map();
+        const remaining = [...items];
+
+        const sim = (a, b) => {
+            const sameFile = a?.metadata?.fileId && b?.metadata?.fileId && a.metadata.fileId === b.metadata.fileId;
+            const posA = Number(a?.metadata?.docPosition || 0);
+            const posB = Number(b?.metadata?.docPosition || 0);
+            const posSim = sameFile ? (1 - Math.min(1, Math.abs(posA - posB) * 4)) : 0;
+            return Math.max(0, posSim);
+        };
+
+        while (selected.length < maxResults && remaining.length > 0) {
+            let bestIdx = -1;
+            let bestScore = -Infinity;
+            for (let i = 0; i < remaining.length; i += 1) {
+                const cand = remaining[i];
+                const fileId = cand?.metadata?.fileId || '__unknown__';
+                const used = perFileCounts.get(fileId) || 0;
+                if (used >= maxPerFile) continue;
+                const relevance = Number(cand.hybridScore || 0);
+                let penalty = 0;
+                for (const s of selected) penalty = Math.max(penalty, sim(cand, s));
+                const mmr = relevance - (diversityLambda * penalty);
+                if (mmr > bestScore) {
+                    bestScore = mmr;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx === -1) break;
+            const chosen = remaining.splice(bestIdx, 1)[0];
+            selected.push(chosen);
+            const fileId = chosen?.metadata?.fileId || '__unknown__';
+            perFileCounts.set(fileId, (perFileCounts.get(fileId) || 0) + 1);
+        }
+        return selected;
+    }
+
     /**
      * Process a file and store its chunks in the vector DB
      * @param {File} file - The file to ingest
@@ -298,18 +392,31 @@ class BrowserRetriever {
                     const estimatedBytes = scope.estimateRagChunkBytes
                         ? scope.estimateRagChunkBytes(chunk)
                         : (limits.ESTIMATED_BYTES_PER_CHUNK || 4096);
+                    const chunkId = `${fileId}-chunk-${chunkIndex}`;
+                    const totalChunks = chunks.length;
+                    const docPosition = totalChunks > 1 ? (chunkIndex / (totalChunks - 1)) : 0;
+                    const sectionHint = this.inferSectionHint(chunk);
+                    const tokenCount = this.estimateTokenCount(chunk);
 
                     await this.vectorDB.addDocument({
-                        id: `${sourceType}:${workspaceId || 'none'}:${chatId || 'none'}:${fileId}-chunk-${chunkIndex}`,
+                        id: `${sourceType}:${workspaceId || 'none'}:${chatId || 'none'}:${chunkId}`,
                         text: chunk,
                         embedding: Array.from(embedding),
                         metadata: {
+                            chunkId,
                             source: sourceName,
                             sourceType,
                             workspaceId,
                             chatId,
                             fileId,
+                            chunkText: chunk,
                             chunkIndex,
+                            sectionHint,
+                            docPosition,
+                            tokenCount,
+                            extractionHints: {
+                                sourceName
+                            },
                             estimatedBytes,
                             extractedTextBytes
                         }
@@ -350,7 +457,8 @@ class BrowserRetriever {
      */
     async getContextForQuery(query, maxResults = 5, filters = {}) {
         try {
-            const results = await this.retrieveRelevantDocuments(query, maxResults, filters);
+            const retrieval = await this.retrieveRelevantDocuments(query, maxResults, filters);
+            const results = Array.isArray(retrieval) ? retrieval : (retrieval?.docs || []);
 
             // Combine results into a single context string
             let context = '';
@@ -393,40 +501,103 @@ class BrowserRetriever {
         console.log("retrieveRelevantDocuments: Received query:", query);
         try {
             const limits = this.getRagLimits();
+            const mode = options.mode || limits.HYBRID_MODE || 'balanced';
+            const semanticWeight = Number(options.semanticWeight ?? limits.HYBRID_SEMANTIC_WEIGHT ?? 0.62);
+            const lexicalWeight = Number(options.lexicalWeight ?? limits.HYBRID_LEXICAL_WEIGHT ?? 0.38);
+            const diversityLambda = Number(options.diversityLambda ?? limits.HYBRID_DIVERSITY_LAMBDA ?? 0.18);
             const candidateLimit = Math.max(
                 maxResults,
                 options.candidateLimitPerSource || limits.RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE || 20
             );
             const maxPerFile = Math.max(1, options.maxPerFile || limits.RETRIEVAL_MAX_PER_FILE || 2);
+            const expanded = this.expandRetrievalQuery(query);
+            const retrievalQuery = expanded.query;
 
             // Generate an embedding for the query text.
-            const queryEmbedding = await this.generateEmbedding(query);
+            const queryEmbedding = await this.generateEmbedding(retrievalQuery);
             console.log("retrieveRelevantDocuments: Generated embedding:", queryEmbedding.slice(0, 5), "...");
 
-            // Use the vector DB to find similar documents.
-            const candidates = await this.vectorDB.findSimilar(Array.from(queryEmbedding), candidateLimit, filters);
-            const perFileCounts = new Map();
-            const selected = [];
+            // Stage A: semantic candidates.
+            const semanticCandidates = await this.vectorDB.findSimilar(Array.from(queryEmbedding), candidateLimit, filters);
 
-            for (const doc of candidates) {
-                const fileId = doc?.metadata?.fileId || '__unknown__';
-                const used = perFileCounts.get(fileId) || 0;
-                if (used >= maxPerFile) {
-                    continue;
-                }
-                selected.push(doc);
-                perFileCounts.set(fileId, used + 1);
-                if (selected.length >= maxResults) {
-                    break;
+            // Stage A: lexical candidates.
+            const allDocs = await this.vectorDB.getAllDocuments();
+            const filteredDocs = allDocs.filter(doc => this.vectorDB.matchesMetadataFilters(doc, filters));
+            const queryTokens = this.tokenize(retrievalQuery);
+            const lexicalCandidates = filteredDocs
+                .map(doc => ({ ...doc, lexical: this.lexicalScore(queryTokens, doc.text) }))
+                .sort((a, b) => b.lexical - a.lexical)
+                .slice(0, candidateLimit);
+
+            // Stage B: merge + score fusion.
+            const merged = new Map();
+            for (const doc of semanticCandidates) {
+                merged.set(doc.id, { ...doc, semantic: Number(doc.similarity || 0), lexical: 0 });
+            }
+            for (const doc of lexicalCandidates) {
+                const prev = merged.get(doc.id);
+                if (prev) {
+                    prev.lexical = Math.max(Number(prev.lexical || 0), Number(doc.lexical || 0));
+                } else {
+                    merged.set(doc.id, { ...doc, semantic: 0, lexical: Number(doc.lexical || 0) });
                 }
             }
+            const candidates = [...merged.values()];
+            if (candidates.length === 0) {
+                return {
+                    docs: [],
+                    diagnostics: {
+                        mode,
+                        expandedQuery: expanded.expanded,
+                        expansionTerms: expanded.terms,
+                        candidateCounts: { semantic: 0, lexical: 0, merged: 0 }
+                    }
+                };
+            }
+
+            this.normalizeScores(candidates, 'semantic', 'semanticNorm');
+            this.normalizeScores(candidates, 'lexical', 'lexicalNorm');
+            for (const c of candidates) {
+                c.hybridScore = (semanticWeight * c.semanticNorm) + (lexicalWeight * c.lexicalNorm);
+                const t = String(retrievalQuery || '').toLowerCase();
+                const roleIntent = /\bwho\b|\bauthor\b|\bcreated\b|\bpresented\b/.test(t);
+                if (roleIntent && /\b(author|credits|presented by|created by|contact|email)\b/i.test(String(c.text || ''))) {
+                    c.hybridScore += 0.12;
+                }
+            }
+            candidates.sort((a, b) => b.hybridScore - a.hybridScore);
+            const selected = this.rerankWithDiversity(candidates, {
+                maxResults,
+                maxPerFile,
+                diversityLambda
+            });
 
             console.log("retrieveRelevantDocuments: Retrieved", selected.length, "documents");
-
-            return selected;
+            return {
+                docs: selected,
+                diagnostics: {
+                    mode: `hybrid-${mode}`,
+                    expandedQuery: expanded.expanded,
+                    expansionTerms: expanded.terms,
+                    candidateCounts: {
+                        semantic: semanticCandidates.length,
+                        lexical: lexicalCandidates.length,
+                        merged: candidates.length
+                    },
+                    weights: { semanticWeight, lexicalWeight, diversityLambda },
+                    scoreSummary: {
+                        topHybrid: Number(selected[0]?.hybridScore || 0),
+                        bottomHybrid: Number(selected[selected.length - 1]?.hybridScore || 0)
+                    },
+                    diversity: {
+                        uniqueFileCount: new Set(selected.map(d => d?.metadata?.fileId).filter(Boolean)).size,
+                        positionCoverage: selected.map(d => Number(d?.metadata?.docPosition ?? -1))
+                    }
+                }
+            };
         } catch (error) {
             console.error("Error in retrieveRelevantDocuments:", error);
-            return [];
+            return { docs: [], diagnostics: { error: error.message || String(error) } };
         }
     }
 

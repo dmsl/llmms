@@ -37,9 +37,14 @@ const DEFAULT_RAG_LIMITS = {
     WARN_THRESHOLD_RATIO: 0.8,
     ESTIMATED_BYTES_PER_CHUNK: 4096,
     EMBEDDING_BATCH_SIZE: 8,
-    RETRIEVAL_TOP_K: 5,
-    RETRIEVAL_MAX_PER_FILE: 2,
-    RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE: 20
+    RETRIEVAL_TOP_K: 10,
+    RETRIEVAL_MAX_PER_FILE: 6,
+    RETRIEVAL_CANDIDATE_LIMIT_PER_SOURCE: 60,
+    HYBRID_MODE: 'balanced',
+    HYBRID_SEMANTIC_WEIGHT: 0.62,
+    HYBRID_LEXICAL_WEIGHT: 0.38,
+    HYBRID_DIVERSITY_LAMBDA: 0.18,
+    HYBRID_CONTEXT_CHAR_BUDGET: 9000
 };
 
 function getRagLimits() {
@@ -2278,12 +2283,16 @@ function chatApp() {
             }
 
             const docs = [];
+            const diagnostics = [];
             for (const workerTask of retrievalJobs) {
                 this.activeRetrievalJobId = workerTask.jobId;
                 try {
                     const result = (await workerTask.promise) || [];
                     if (Array.isArray(result)) {
                         docs.push(...result);
+                    } else if (result && Array.isArray(result.docs)) {
+                        docs.push(...result.docs);
+                        diagnostics.push(result.diagnostics || {});
                     }
                 } finally {
                     this.activeRetrievalJobId = null;
@@ -2297,17 +2306,35 @@ function chatApp() {
             this.ragLog('RAG:retrieveDone', {
                 sessionId,
                 chunks: docs.length,
-                fileIdsHit: [...new Set(docs.map(d => d?.metadata?.fileId).filter(Boolean))]
+                fileIdsHit: [...new Set(docs.map(d => d?.metadata?.fileId).filter(Boolean))],
+                candidateCounts: diagnostics.map(d => d?.candidateCounts || null),
+                scoreSummary: diagnostics.map(d => d?.scoreSummary || null),
+                mode: diagnostics.map(d => d?.mode || null),
+                expandedQuery: diagnostics.map(d => d?.expandedQuery || null)
             });
 
-            const context = docs
-                .map((doc) => `[Source: ${doc.metadata?.source || 'document'}, Chunk: ${(doc.metadata?.chunkIndex ?? 0) + 1}]\n${doc.text}`)
-                .join('\n\n');
+            const charBudget = Number(limits.HYBRID_CONTEXT_CHAR_BUDGET || 9000);
+            let used = 0;
+            const contextParts = [];
+            for (const doc of docs) {
+                const src = doc.metadata?.source || 'document';
+                const chunkNo = (doc.metadata?.chunkIndex ?? 0) + 1;
+                const pos = Number(doc.metadata?.docPosition ?? -1);
+                const posLabel = pos >= 0 ? `, Pos: ${Math.round(pos * 100)}%` : '';
+                const section = doc.metadata?.sectionHint ? `, Section: ${doc.metadata.sectionHint}` : '';
+                const block = `[Source: ${src}, Chunk: ${chunkNo}${posLabel}${section}]\n${doc.text}`;
+                if (used + block.length > charBudget && contextParts.length > 0) break;
+                contextParts.push(block);
+                used += block.length + 2;
+            }
+            const context = contextParts.join('\n\n');
 
+            const firstMode = diagnostics.find(d => d?.mode)?.mode || 'hybrid-balanced';
             return {
                 ok: true,
                 context,
-                usedChunks: docs.length
+                usedChunks: contextParts.length,
+                retrievalMode: firstMode
             };
         },
 
@@ -4175,7 +4202,7 @@ function chatApp() {
                         if (localResult.ok) {
                             localContext = localResult.context;
                             this.localRagLastModeUsed = 'local';
-                            this.localRagStatusText = `Using local retrieval (${localResult.usedChunks} chunks)`;
+                            this.localRagStatusText = `Using ${localResult.retrievalMode || 'hybrid-balanced'} (${localResult.usedChunks} chunks)`;
                         } else {
                             this.localRagLastModeUsed = 'local';
                             this.localRagStatusText = `Local retrieval unavailable: ${localResult.reason || 'no-relevant-chunks'}`;
