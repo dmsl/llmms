@@ -3869,7 +3869,6 @@ function chatApp() {
             }
             const sessionId = this.currentSession;
             this.setModelStatus(this.selectedModel, 'loading');
-            this.modelLoadingHint = 'Model is loading into memory...';
             const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
             const hasWorkspaceSharedDocs = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
             const needsLocalRagEngine = this.localRagEnabled || hasSessionPrivateDocs || hasWorkspaceSharedDocs;
@@ -4040,6 +4039,10 @@ function chatApp() {
 
                 const isDocumentUpload = !!(fileForAgent && !fileForAgent.type.startsWith('image/'));
                 const shouldIndexUploadedDocumentLocally = isDocumentUpload && this.getCurrentSessionPrivateStoreEnabled(sessionId);
+                if (this.localRagEnabled && isDocumentUpload) {
+                    // Local RAG mode must keep document processing browser-side only.
+                    fileForAgent = null;
+                }
                 if (hasSessionPrivateDocs || hasWorkspaceSharedDocs || shouldIndexUploadedDocumentLocally) {
                     try {
                         const localResult = await this.buildLocalContextForMessage(
@@ -4049,19 +4052,16 @@ function chatApp() {
                         );
                         if (localResult.ok) {
                             localContext = localResult.context;
-                            if (shouldIndexUploadedDocumentLocally) {
-                                fileForAgent = null; // Prevent backend rag_chain route when the upload is already represented in local context
-                            }
                             this.localRagLastModeUsed = 'local';
                             this.localRagStatusText = `Using local retrieval (${localResult.usedChunks} chunks)`;
                         } else {
-                            this.localRagLastModeUsed = 'backend';
-                            this.localRagStatusText = 'Local retrieval unavailable. Using backend document processing.';
+                            this.localRagLastModeUsed = 'local';
+                            this.localRagStatusText = 'Local retrieval found no relevant chunks.';
                         }
                     } catch (localError) {
-                        console.warn('[ChatApp] Local retrieval failed, falling back to backend:', localError);
-                        this.localRagLastModeUsed = 'backend';
-                        this.localRagStatusText = 'Local retrieval unavailable. Using backend document processing.';
+                        console.warn('[ChatApp] Local retrieval failed (no backend fallback for Local RAG mode):', localError);
+                        this.localRagLastModeUsed = 'local';
+                        this.localRagStatusText = 'Local retrieval failed in browser.';
                     }
                 }
 
@@ -4088,7 +4088,6 @@ function chatApp() {
 
                 this.applyFinalProviderResponse(result, assistantMessageId, sessionId);
                 this.setModelStatus(this.selectedModel, 'ready');
-                this.modelLoadingHint = '';
                 this.uploadedFiles = [];
                 
                 // Auto-generate session name from first message
@@ -4106,7 +4105,6 @@ function chatApp() {
                 
             } catch (error) {
                 console.error('Error sending message:', error);
-                this.modelLoadingHint = '';
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
                 const suffix = canUseAgent
                     ? 'Please ensure the model server and MCP tools are accessible.'
