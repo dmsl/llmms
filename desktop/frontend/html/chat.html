@@ -1518,7 +1518,7 @@
                     </button>
 
                     <!-- Center: Title -->
-                    <span class="ds-app-header-title">Chat UCY</span>
+                    <a href="/home.html" class="ds-app-header-title" style="text-decoration:none;">Chat UCY</a>
 
                     <!-- Right: nav + logos + menu -->
                     <div style="display:flex; align-items:center; gap:var(--space-3);">
@@ -1560,6 +1560,8 @@
                                 <a href="/llmms.html"><i class="fas fa-route" style="width:14px;"></i> LLM-MS</a>
                                 <a href="/privacy.html"><i class="fas fa-lock" style="width:14px;"></i> Privacy</a>
                                 <a href="/terms.html"><i class="fas fa-file-alt" style="width:14px;"></i> Terms</a>
+                                <button @click="open = false; sidebarOpen = true"><i class="fas fa-comments" style="width:14px;"></i><span>Open chats</span></button>
+                                <button @click="open = false; localRagManagerOpen = true"><i class="fas fa-folder-open" style="width:14px;"></i><span>Open files</span></button>
                                 <div class="ds-dropdown-menu-divider"></div>
                                 <button @click="open = false; mcpConfigModal.show = true; mcpConfigModal.activeTab = 'llm'; mcpConfigModal.loadServers(); mcpConfigModal.loadTools()">
                                     <i class="fas fa-cog" style="width:14px;"></i>
@@ -1813,18 +1815,21 @@
             <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0">
                 <div class="mx-auto" :style="workspaceDetailsOpen && getCurrentWorkspace() ? 'max-width:1020px;' : 'max-width:72rem;'">
                     <!-- File info display -->
-                    <div x-show="uploadedFile" style="margin-bottom:8px; padding:7px 12px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:space-between;">
-                        <div style="display:grid; gap:2px;">
-                            <div style="display:flex; align-items:center; gap:8px;">
-                            <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
-                            <span style="font-size:0.82rem; color:var(--text);" x-text="uploadedFileName"></span>
+                    <div x-show="uploadedFiles.length > 0" style="margin-bottom:8px; display:grid; gap:8px;">
+                        <template x-for="f in uploadedFiles" :key="f.id">
+                            <div style="padding:7px 12px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                                <div style="display:grid; gap:2px; min-width:0;">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
+                                        <span style="font-size:0.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="f.name"></span>
+                                    </div>
+                                    <span style="font-size:0.68rem; color:var(--muted);" x-text="f.status + (f.error ? ' - ' + f.error : '')"></span>
+                                </div>
+                                <button x-show="f.status !== 'ingesting'" @click="removeUploadedFile(f.id)" style="background:none; border:none; cursor:pointer; color:var(--muted); font-size:0.8rem;" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--muted)'"><i class="fas fa-times"></i></button>
                             </div>
-                            <span x-show="localRagEnabled && getLocalRagStatusLabel()" style="font-size:0.68rem; color:var(--muted);" x-text="getLocalRagStatusLabel()"></span>
-                        </div>
-                        <button @click="clearFile()" style="background:none; border:none; cursor:pointer; color:var(--muted); font-size:0.8rem;" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--muted)'">
-                            <i class="fas fa-times"></i>
-                        </button>
+                        </template>
                     </div>
+                    <div x-show="modelLoadingHint" style="margin-bottom:8px; font-size:0.68rem; color:var(--muted);" x-text="modelLoadingHint"></div>
                     
                     <div data-tour="composer-shell" style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 2px 16px rgba(106,66,194,0.08); padding:10px 12px;">
                         <!-- Main Input Row -->
@@ -1841,7 +1846,7 @@
                                 @click="sendMessage()"
                                 :disabled="!canSendCurrentSession()"
                                 :style="canSendCurrentSession() ? 'background:var(--accent); box-shadow:0 2px 10px rgba(106,66,194,0.3); opacity:1;' : 'background:rgba(106,66,194,0.18); opacity:0.5; cursor:not-allowed;'"
-                                style="width:36px; height:36px; border-radius:var(--radius); border:none; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
+                                style="width:42px; height:42px; border-radius:var(--radius); border:none; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
                                 <i class="fas fa-paper-plane" style="font-size:0.75rem;"></i>
                             </button>
                         </div>
@@ -1875,6 +1880,7 @@
                                                 onmouseout="this.style.background='none'">
                                                 <span style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
                                                     <span x-text="model.displayName"></span>
+                                                    <span style="font-size:0.62rem; color:var(--muted);" x-text="getModelStatus(model.id) === 'ready' ? 'Ready' : (getModelStatus(model.id) === 'loading' ? 'Loading…' : 'Unknown')"></span>
                                                     <template x-if="model.iconVision">
                                                         <i class="fas fa-eye" style="font-size:0.6rem; color:#6b99d4;" title="Vision"></i>
                                                     </template>
@@ -1913,7 +1919,7 @@
                                         title="Attach file">
                                         <i class="fas fa-paperclip"></i>
                                     </button>
-                                    <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
+                                    <input type="file" multiple x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
 
                                     <!-- Thinking Toggle -->
                                     <button
@@ -1949,6 +1955,7 @@
                                                 : 'display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s;'"
                                             :title="localRagEnabled ? 'Private document store enabled' : 'Private document store disabled'">
                                             <i class="fas fa-database" style="font-size:0.8rem;"></i>
+                                            <span style="font-size:0.62rem; margin-left:4px;" x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
                                         </button>
                                         <button
                                             @click="localRagManagerOpen = true"

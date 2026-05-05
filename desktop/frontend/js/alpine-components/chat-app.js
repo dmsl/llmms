@@ -406,6 +406,8 @@ function chatApp() {
         pendingSessionSaveIds: new Set(),
         sessionSaveTimerId: null,
         selectedModel: 'Select Model',
+        modelStatuses: {},
+        modelLoadingHint: '',
         thinkingEnabled: false,
         autoScrollEnabled: true,
         manualScrollLock: false,
@@ -436,6 +438,7 @@ function chatApp() {
         uploadedFile: null,
         uploadedFileName: '',
         uploadedFilePreview: null, // Base64 preview for images
+        uploadedFiles: [],
         conversationManager: new ConversationManager(API_BASE_URL), // Conversation summarization manager
         onboarding: {
             open: false,
@@ -3770,6 +3773,13 @@ function chatApp() {
             const model = this.availableModels.find(m => m.id === this.selectedModel);
             return model ? model.displayName : this.formatModelName(this.selectedModel) || 'Select Model';
         },
+        getModelStatus(modelId = this.selectedModel) {
+            return this.modelStatuses[modelId] || 'unknown';
+        },
+        setModelStatus(modelId, status) {
+            if (!modelId) return;
+            this.modelStatuses[modelId] = status;
+        },
         
         formatModelName(modelId) {
             if (!modelId) return 'Select Model';
@@ -3803,52 +3813,50 @@ function chatApp() {
         },
         
         async handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (file) {
+            const files = Array.from(event.target.files || []);
+            if (!files.length) return;
+            this.localRagStatusText = '';
+            for (const file of files) {
+                const entry = {
+                    id: makeId('upl'),
+                    file,
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    status: 'queued',
+                    error: ''
+                };
+                this.uploadedFiles.push(entry);
                 this.uploadedFile = file;
                 this.uploadedFileName = file.name;
-                this.localRagStatusText = '';
-                console.log('[ChatApp] File selected:', file.name, 'Type:', file.type);
-                
-                // If it's an image, create preview for vision models
-                if (file.type.startsWith('image/')) {
-                    try {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            this.uploadedFilePreview = e.target.result;
-                            console.log('[ChatApp] Image preview created');
-                        };
-                        reader.readAsDataURL(file);
-                    } catch (error) {
-                        console.error('[ChatApp] Error creating image preview:', error);
-                    }
-                }
-                
-                // If Local RAG is enabled, queue local indexing for document files
                 if (this.localRagEnabled && !file.type.startsWith('image/')) {
                     try {
+                        entry.status = 'ingesting';
                         const workspaceId = this.getCurrentWorkspaceIdForSession(this.currentSession);
                         const selectionError = this.validateLocalRagFileSelection(file, workspaceId);
-                        if (selectionError) {
-                            this.localRagStatusText = selectionError;
-                            return;
-                        }
-                        this.localRagStatusText = 'Queued for local indexing';
+                        if (selectionError) throw new Error(selectionError);
                         await this.indexUploadedDocumentForLocalRag(file);
-                        this.localRagStatusText = this.getLocalRagStatusLabel();
-                        console.log('[ChatApp] File indexed for Local RAG');
+                        entry.status = 'ready';
                     } catch (error) {
-                        console.error('[ChatApp] Error processing file for RAG:', error);
-                        this.localRagStatusText = `Local indexing failed: ${error.message}`;
+                        entry.status = 'failed';
+                        entry.error = error.message || 'Ingestion failed';
                     }
+                } else {
+                    entry.status = 'ready';
                 }
             }
+            this.localRagStatusText = this.getLocalRagStatusLabel();
+        },
+        removeUploadedFile(fileId) {
+            this.uploadedFiles = this.uploadedFiles.filter(f => f.id !== fileId);
+            if (!this.uploadedFiles.length) this.clearFile();
         },
         
         clearFile() {
             this.uploadedFile = null;
             this.uploadedFileName = '';
             this.uploadedFilePreview = null;
+            this.uploadedFiles = [];
             this.localRagStatusText = '';
             if (this.$refs.fileInput) {
                 this.$refs.fileInput.value = '';
@@ -3865,6 +3873,8 @@ function chatApp() {
                 this.newChat();
             }
             const sessionId = this.currentSession;
+            this.setModelStatus(this.selectedModel, 'loading');
+            this.modelLoadingHint = 'Model is loading into memory...';
             const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
             const hasWorkspaceSharedDocs = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
             const needsLocalRagEngine = this.localRagEnabled || hasSessionPrivateDocs || hasWorkspaceSharedDocs;
@@ -3984,9 +3994,9 @@ function chatApp() {
                 }
                 
                 let finalQuery = query;
-                let fileForAgent = this.uploadedFile;
+                let fileForAgent = this.uploadedFiles[0]?.file || this.uploadedFile;
                 this.localRagLastModeUsed = 'none';
-                const hasImageUpload = !!(this.uploadedFile && this.uploadedFile.type.startsWith('image/'));
+                const hasImageUpload = !!(fileForAgent && fileForAgent.type.startsWith('image/'));
                 let localContext = '';
 
                 if (hasImageUpload && !this.selectedModelSupportsVision(this.selectedModel)) {
@@ -4013,13 +4023,13 @@ function chatApp() {
                     }
                 }
 
-                const isDocumentUpload = !!(this.uploadedFile && !this.uploadedFile.type.startsWith('image/'));
+                const isDocumentUpload = !!(fileForAgent && !fileForAgent.type.startsWith('image/'));
                 const shouldIndexUploadedDocumentLocally = isDocumentUpload && this.getCurrentSessionPrivateStoreEnabled(sessionId);
                 if (hasSessionPrivateDocs || hasWorkspaceSharedDocs || shouldIndexUploadedDocumentLocally) {
                     try {
                         const localResult = await this.buildLocalContextForMessage(
                             query,
-                            shouldIndexUploadedDocumentLocally ? this.uploadedFile : null,
+                            shouldIndexUploadedDocumentLocally ? fileForAgent : null,
                             sessionId
                         );
                         if (localResult.ok) {
@@ -4057,6 +4067,9 @@ function chatApp() {
                 );
 
                 this.applyFinalProviderResponse(result, assistantMessageId, sessionId);
+                this.setModelStatus(this.selectedModel, 'ready');
+                this.modelLoadingHint = '';
+                this.uploadedFiles = [];
                 
                 // Auto-generate session name from first message
                 this.autoGenerateSessionName(sessionId);
@@ -4073,6 +4086,7 @@ function chatApp() {
                 
             } catch (error) {
                 console.error('Error sending message:', error);
+                this.modelLoadingHint = '';
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
                 const suffix = canUseAgent
                     ? 'Please ensure the model server and MCP tools are accessible.'
