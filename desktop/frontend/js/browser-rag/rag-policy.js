@@ -41,4 +41,4 @@
     globalScope.RAG_LIMITS = RAG_LIMITS;
     globalScope.estimateRagChunkBytes = estimateChunkBytes;
     globalScope.estimateRagChunksBytes = estimateChunksBytes;
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof self !== 'undefined' ? self : window));
