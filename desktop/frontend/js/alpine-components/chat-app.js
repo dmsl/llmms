@@ -4595,8 +4595,8 @@ function chatApp() {
                 }
                 
             } catch (error) {
-                console.error('Error sending message:', error);
-                if (requestId && this.canceledRequestIds.has(requestId)) {
+                const wasCanceled = requestId && this.canceledRequestIds.has(requestId);
+                if (wasCanceled) {
                     const stoppedMessage = assistantMessageId
                         ? this.getMessageById(assistantMessageId, sessionId)
                         : null;
@@ -4608,6 +4608,7 @@ function chatApp() {
                     this.saveSessions(sessionId);
                     return;
                 }
+                console.error('Error sending message:', error);
                 this.ragLog('RAG:sendDone', { ragTraceId, sessionId, ok: false, error: error?.message || String(error) });
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(activeModelId);
                 this.setModelStatus(activeModelId, 'error');
