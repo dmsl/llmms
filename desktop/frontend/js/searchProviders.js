@@ -61,6 +61,24 @@ function truncateSnippet(value, maxLen = 240) {
   return `${text.slice(0, maxLen - 1).trim()}…`;
 }
 
+function isWeatherLikeQuery(query) {
+  return /\b(weather|temperature|forecast|rain|raining|snow|wind|humidity|uv index|sunrise|sunset|climate)\b/i.test(String(query || ''));
+}
+
+function extractWeatherLocation(query) {
+  const raw = String(query || '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  const inMatch = lower.match(/\bin\s+([a-z][a-z\s,.'-]{1,80})$/i);
+  let location = inMatch ? inMatch[1] : raw;
+  location = location
+    .replace(/\b(current|today|now|right now|please|weather|forecast|temperature|like|what(?:'s| is)|tell me|for)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[,\s]+|[,\s]+$/g, '');
+  return location;
+}
+
 function classifyQuery(query) {
   const text = String(query || '').toLowerCase();
   const categories = [];
@@ -89,13 +107,21 @@ function classifyQuery(query) {
 }
 
 async function searchOpenMeteo(query, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const geoUrl =
-    'https://geocoding-api.open-meteo.com/v1/search' +
-    `?name=${encodeURIComponent(query)}` +
-    '&count=1&language=en&format=json';
+  const candidates = [];
+  const extracted = extractWeatherLocation(query);
+  if (extracted) candidates.push(extracted);
+  candidates.push(String(query || '').trim());
 
-  const geoData = await safeFetchJson(geoUrl, { timeoutMs });
-  const location = Array.isArray(geoData?.results) ? geoData.results[0] : null;
+  let location = null;
+  for (const candidate of candidates.filter(Boolean)) {
+    const geoUrl =
+      'https://geocoding-api.open-meteo.com/v1/search' +
+      `?name=${encodeURIComponent(candidate)}` +
+      '&count=1&language=en&format=json';
+    const geoData = await safeFetchJson(geoUrl, { timeoutMs });
+    location = Array.isArray(geoData?.results) ? geoData.results[0] : null;
+    if (location) break;
+  }
   if (!location) return [];
 
   const lat = Number(location.latitude);
@@ -354,7 +380,8 @@ function getActiveProviders(query, { category, providers = [] } = {}) {
     'general'
   ];
 
-  const targetCategory = category || profile.primary;
+  const normalizedCategory = typeof category === 'string' ? category.trim().toLowerCase() : '';
+  const targetCategory = normalizedCategory || profile.primary;
   return orderedProviders
     .filter(provider => {
       if (!targetCategory) return true;
@@ -362,8 +389,10 @@ function getActiveProviders(query, { category, providers = [] } = {}) {
       return provider.category === targetCategory || provider.category === 'general';
     })
     .sort((left, right) => {
-      const leftRank = Math.max(0, categoryPriority.indexOf(left.category));
-      const rightRank = Math.max(0, categoryPriority.indexOf(right.category));
+      const leftIdx = categoryPriority.indexOf(left.category);
+      const rightIdx = categoryPriority.indexOf(right.category);
+      const leftRank = leftIdx === -1 ? Number.MAX_SAFE_INTEGER : leftIdx;
+      const rightRank = rightIdx === -1 ? Number.MAX_SAFE_INTEGER : rightIdx;
       return leftRank - rightRank;
     });
 }
@@ -406,9 +435,10 @@ export async function gatherEvidence(query, options = {}) {
   }
 
   const profile = classifyQuery(text);
+  const forcedCategory = isWeatherLikeQuery(text) ? 'weather' : options.category;
   const providerBudget = Number.isFinite(options.providerBudget) ? Math.max(1, options.providerBudget) : 4;
   const totalLimit = Number.isFinite(options.totalLimit) ? Math.max(1, options.totalLimit) : DEFAULT_MAX_RESULTS_TOTAL;
-  const providers = getActiveProviders(text, options).slice(0, providerBudget);
+  const providers = getActiveProviders(text, { ...options, category: forcedCategory }).slice(0, providerBudget);
 
   const settled = await Promise.all(
     providers.map(provider => searchProvider(provider, text, options))

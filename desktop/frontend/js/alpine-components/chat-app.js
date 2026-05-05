@@ -4021,18 +4021,7 @@ function chatApp() {
 
             // Sending a message should return to normal chat view.
             this.workspaceDetailsOpen = false;
-            
-            // If any local-scoped retrieval may be needed, ensure scripts are loaded.
-            if (needsLocalRagEngine) {
-                try {
-                    await ensureRagLoaded();
-                } catch (error) {
-                    console.error('[ChatApp] Failed to load RAG dependencies:', error);
-                    alert('Could not load Local RAG components. Please try again.');
-                    return;
-                }
-            }
-            
+
             const userMessage = {
                 id: makeId('msg'),
                 role: 'user',
@@ -4131,7 +4120,21 @@ function chatApp() {
                 this.localRagLastModeUsed = 'none';
                 const hasImageUpload = !!(fileForAgent && fileForAgent.type.startsWith('image/'));
                 let localContext = '';
-                if (this.localRagEnabled) {
+                let localRagRuntimeReady = !needsLocalRagEngine;
+
+                // Load Local RAG dependencies after user bubble/typing bubble are visible,
+                // so UI feedback is immediate and perceived latency is reduced.
+                if (needsLocalRagEngine) {
+                    try {
+                        await ensureRagLoaded();
+                        localRagRuntimeReady = true;
+                    } catch (error) {
+                        console.error('[ChatApp] Failed to load RAG dependencies:', error);
+                        localRagRuntimeReady = false;
+                        this.localRagStatusText = 'Local RAG failed to initialize; continuing without local retrieval.';
+                    }
+                }
+                if (this.localRagEnabled && localRagRuntimeReady) {
                     for (const entry of this.uploadedFiles) {
                         if (entry.status !== 'queued') continue;
                         if (entry.file?.type?.startsWith('image/')) {
@@ -4191,7 +4194,7 @@ function chatApp() {
                     sessionRefCount: this.getSessionDocumentRefs(sessionId).length,
                     workspaceRefCount: this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length
                 });
-                const shouldUseLocalRetrieval = this.localRagEnabled || hasSessionPrivateDocsNow || hasWorkspaceSharedDocsNow || shouldIndexUploadedDocumentLocally;
+                const shouldUseLocalRetrieval = localRagRuntimeReady && (this.localRagEnabled || hasSessionPrivateDocsNow || hasWorkspaceSharedDocsNow || shouldIndexUploadedDocumentLocally);
                 if (shouldUseLocalRetrieval) {
                     try {
                         const localResult = await this.buildLocalContextForMessage(

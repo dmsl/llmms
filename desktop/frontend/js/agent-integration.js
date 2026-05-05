@@ -355,6 +355,10 @@ function normalizeMiniSearchArgs(args, defaultQuery) {
   };
 }
 
+function isWeatherLikeMiniQuery(query) {
+  return /\b(weather|temperature|forecast|rain|raining|snow|wind|humidity|uv index|sunrise|sunset|climate)\b/i.test(String(query || ''));
+}
+
 async function executeMiniSearchCommand(command, defaultQuery) {
   const name = String(command?.name || '').trim().toLowerCase();
   const parsedArgs = normalizeMiniSearchArgs(command?.args, defaultQuery);
@@ -363,8 +367,11 @@ async function executeMiniSearchCommand(command, defaultQuery) {
   }
 
   if (name === 'search_web') {
+    const effectiveCategory = isWeatherLikeMiniQuery(parsedArgs.query)
+      ? 'weather'
+      : parsedArgs.category;
     const bundle = await gatherEvidence(parsedArgs.query, {
-      category: parsedArgs.category,
+      category: effectiveCategory,
       providerBudget: parsedArgs.providerBudget,
       totalLimit: parsedArgs.totalLimit,
       timeoutMs: parsedArgs.timeoutMs
