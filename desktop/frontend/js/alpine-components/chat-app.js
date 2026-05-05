@@ -16,7 +16,8 @@ const LOCAL_RAG_ASSET_URLS = {
     documentParserUrl: new URL('../document-parser.js', import.meta.url).href,
     ragPolicyUrl: new URL('../browser-rag/rag-policy.js', import.meta.url).href,
     vectorStoreUrl: new URL('../browser-rag/indexed-db-vector-store.js', import.meta.url).href,
-    retrieverUrl: new URL('../browser-rag/browser-retriever.js', import.meta.url).href
+    retrieverUrl: new URL('../browser-rag/browser-retriever.js', import.meta.url).href,
+    ragWorkerUrl: new URL('../browser-rag/rag-worker.js', import.meta.url).href
 };
 
 window.RAG_ASSET_URLS = {
@@ -1399,7 +1400,7 @@ function chatApp() {
             }
 
             if (!this.ragWorker) {
-                this.ragWorker = new Worker('../js/browser-rag/rag-worker.js');
+                this.ragWorker = new Worker(LOCAL_RAG_ASSET_URLS.ragWorkerUrl);
                 this.ragWorker.onmessage = (event) => {
                     const data = event.data || {};
                     const job = this.ragWorkerJobs[data.jobId];
@@ -1423,6 +1424,7 @@ function chatApp() {
 
                 this.ragWorker.onerror = (error) => {
                     console.error('[ChatApp] RAG worker error:', error);
+                    this.localRagStatusText = 'Local RAG worker error. Check browser console.';
                 };
             }
 
@@ -1984,6 +1986,18 @@ function chatApp() {
                 extractedTextBytes: result.extractedTextBytes || 0,
                 error: ''
             });
+            try {
+                await this.ensureLocalRetriever();
+                if (window.browserRetriever?.vectorDB?.size) {
+                    const localVectorCount = await window.browserRetriever.vectorDB.size();
+                    console.log('[ChatApp] Local vector count after index:', localVectorCount);
+                    if (!Number.isFinite(localVectorCount) || localVectorCount <= 0) {
+                        this.localRagStatusText = 'Indexing completed but no vectors found in IndexedDB.';
+                    }
+                }
+            } catch (verifyError) {
+                console.warn('[ChatApp] Could not verify local vector count:', verifyError);
+            }
             this.addSessionDocumentRef({
                 fileId,
                 name: file.name,
@@ -4060,7 +4074,7 @@ function chatApp() {
                             this.localRagStatusText = `Using local retrieval (${localResult.usedChunks} chunks)`;
                         } else {
                             this.localRagLastModeUsed = 'local';
-                            this.localRagStatusText = 'Local retrieval found no relevant chunks.';
+                            this.localRagStatusText = `Local retrieval unavailable: ${localResult.reason || 'no-relevant-chunks'}`;
                         }
                     } catch (localError) {
                         console.warn('[ChatApp] Local retrieval failed (no backend fallback for Local RAG mode):', localError);
