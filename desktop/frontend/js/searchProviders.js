@@ -79,6 +79,14 @@ function extractWeatherLocation(query) {
   return location;
 }
 
+function weatherLog(event, payload = {}) {
+  try {
+    console.info(`[MiniSearch][Weather] ${event}`, payload);
+  } catch (_) {
+    // no-op
+  }
+}
+
 function classifyQuery(query) {
   const text = String(query || '').toLowerCase();
   const categories = [];
@@ -111,18 +119,43 @@ async function searchOpenMeteo(query, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const extracted = extractWeatherLocation(query);
   if (extracted) candidates.push(extracted);
   candidates.push(String(query || '').trim());
+  weatherLog('searchOpenMeteo:start', {
+    query,
+    extractedLocation: extracted || null,
+    candidates
+  });
 
   let location = null;
+  let matchedCandidate = null;
   for (const candidate of candidates.filter(Boolean)) {
     const geoUrl =
       'https://geocoding-api.open-meteo.com/v1/search' +
       `?name=${encodeURIComponent(candidate)}` +
       '&count=1&language=en&format=json';
+    weatherLog('searchOpenMeteo:geocodeRequest', { candidate, geoUrl });
     const geoData = await safeFetchJson(geoUrl, { timeoutMs });
     location = Array.isArray(geoData?.results) ? geoData.results[0] : null;
-    if (location) break;
+    weatherLog('searchOpenMeteo:geocodeResponse', {
+      candidate,
+      hitCount: Array.isArray(geoData?.results) ? geoData.results.length : 0,
+      topHit: location
+        ? {
+            name: location.name,
+            country: location.country,
+            latitude: location.latitude,
+            longitude: location.longitude
+          }
+        : null
+    });
+    if (location) {
+      matchedCandidate = candidate;
+      break;
+    }
   }
-  if (!location) return [];
+  if (!location) {
+    weatherLog('searchOpenMeteo:noLocation', { query, candidates });
+    return [];
+  }
 
   const lat = Number(location.latitude);
   const lon = Number(location.longitude);
@@ -135,6 +168,12 @@ async function searchOpenMeteo(query, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum' +
     '&timezone=auto&forecast_days=2';
+  weatherLog('searchOpenMeteo:forecastRequest', {
+    matchedCandidate,
+    latitude: lat,
+    longitude: lon,
+    weatherUrl
+  });
 
   const weatherData = await safeFetchJson(weatherUrl, { timeoutMs });
   const current = weatherData?.current || {};
@@ -154,6 +193,12 @@ async function searchOpenMeteo(query, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   ].filter(Boolean).join(' · ');
 
   const place = [location.name, location.country].filter(Boolean).join(', ');
+  weatherLog('searchOpenMeteo:forecastResponse', {
+    place,
+    currentKeys: Object.keys(current || {}),
+    dailyKeys: Object.keys(daily || {}),
+    summary
+  });
   return [
     {
       title: place ? `Current weather in ${place}` : 'Current weather',
