@@ -84,74 +84,6 @@
         }
         .scroll-top:hover { border-color: var(--accent); color: var(--accent); }
         
-        /* Portal styles */
-        .portal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            pointer-events: none;
-        }
-        .portal-overlay.active {
-            display: flex;
-            opacity: 1;
-            pointer-events: auto;
-        }
-        .portal-container {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            animation: portalGlow 1.6s ease-out forwards;
-            position: fixed;
-            top: 0;
-            left: 0;
-            box-shadow: inset 0 0 80px 20px rgba(102, 51, 153, 0.8);
-        }
-        @keyframes portalExpand {
-            from {
-                width: 100px;
-                height: 100px;
-                border-radius: 50%;
-            }
-            to {
-                width: 100%;
-                height: 100%;
-                border-radius: 0;
-            }
-        }
-        @keyframes portalGlow {
-            0% {
-                box-shadow: 0 0 60px 10px rgba(102, 51, 153, 0.8);
-            }
-            100% {
-                box-shadow: 0 0 0px 0px rgba(102, 51, 153, 0);
-            }
-        }
-        .portal-content {
-            width: 100%;
-            height: 100%;
-            animation: portalReveal 1.6s ease-out forwards;
-            clip-path: circle(0% at 50% 50%);
-        }
-        @keyframes portalReveal {
-            to {
-                clip-path: circle(100% at 50% 50%);
-            }
-        }
-        .portal-content iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-        
         @media(max-width:740px){
             .about-grid,
             .team-grid { grid-template-columns: 1fr !important; }
@@ -205,7 +137,7 @@
                 <span>Privacy First — No Data Stored</span>
             </div> -->
             <div class="ds-hero-actions">
-                <button onclick="openPortal()" class="ds-btn ds-btn--solid">Start a Chat</button>
+                <a href="./chat.html" class="ds-btn ds-btn--solid">Start a Chat</a>
                 <!-- <a href="/llmms.html" class="ds-btn">Multi LLM Chat</a>
                 <a href="/privacyllm.html" class="ds-btn">Private LLM</a> -->
             </div>
@@ -383,22 +315,8 @@
 
     <a href="#page-top" class="scroll-top" aria-label="Back to top"><i class="fas fa-arrow-up"></i></a>
 
-    <!-- Portal Overlay -->
-    <div id="portalOverlay" class="portal-overlay">
-        <div class="portal-container">
-            <div class="portal-content">
-                <iframe id="chatFrame" src="./chat.html"></iframe>
-            </div>
-        </div>
-    </div>
-
     <script src="../js/ds-theme.js"></script>
     <script src="../js/alpine-components/contact-form.js"></script>
-    
-    <script>
-        function openPortal() {
-            const overlay = document.getElementById('portalOverlay');
-            overlay.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        }
-    </script>
+
+</body>
+</html>
