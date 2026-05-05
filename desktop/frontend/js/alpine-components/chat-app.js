@@ -4065,6 +4065,11 @@ function chatApp() {
                     }
                 }
 
+                // Ensure retrieved local context is actually passed to the model prompt.
+                if (localContext && localContext.trim()) {
+                    finalQuery = this.buildKnowledgeContextBlock(query, { localContext });
+                }
+
                 // Call agent integration (supports file uploads and conversation context)
                 const result = await window.askAgent(
                     finalQuery,
