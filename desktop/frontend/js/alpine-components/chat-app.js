@@ -429,6 +429,7 @@ function chatApp() {
         },
         inFlightRequests: new Map(),
         requestAbortControllers: new Map(),
+        canceledRequestIds: new Set(),
         pendingSessionSaveIds: new Set(),
         sessionSaveTimerId: null,
         selectedModel: 'Select Model',
@@ -3080,6 +3081,7 @@ function chatApp() {
 
             const requestIds = [...pending];
             for (const requestId of requestIds) {
+                this.canceledRequestIds.add(requestId);
                 const controller = this.requestAbortControllers.get(requestId);
                 if (controller) {
                     try {
@@ -3098,9 +3100,9 @@ function chatApp() {
                 if (message?.role !== 'assistant') continue;
                 if (!message.requestId || !pendingSet.has(message.requestId)) continue;
                 const hadRawText = typeof message.rawText === 'string' && message.rawText.trim().length > 0;
-                if (!hadRawText) {
-                    message.content = `[Generation stopped] ${reason}`;
-                    message.rawText = message.content;
+                if (!hadRawText && message.isTyping) {
+                    message.content = '';
+                    message.rawText = '';
                 }
                 message.isStreaming = false;
                 message.isTyping = false;
@@ -4357,6 +4359,7 @@ function chatApp() {
                 
                 assistantMessageId = makeId('msg');
                 requestId = makeId('req');
+                this.canceledRequestIds.delete(requestId);
                 const requestAbortController = new AbortController();
                 let assistantMessage = {
                     id: assistantMessageId,
@@ -4570,6 +4573,9 @@ function chatApp() {
                     }
                 );
 
+                if (requestId && this.canceledRequestIds.has(requestId)) {
+                    return;
+                }
                 this.applyFinalProviderResponse(result, assistantMessageId, sessionId);
                 this.setModelStatus(activeModelId, 'ready');
                 this.uploadedFiles = [];
@@ -4590,6 +4596,18 @@ function chatApp() {
                 
             } catch (error) {
                 console.error('Error sending message:', error);
+                if (requestId && this.canceledRequestIds.has(requestId)) {
+                    const stoppedMessage = assistantMessageId
+                        ? this.getMessageById(assistantMessageId, sessionId)
+                        : null;
+                    if (stoppedMessage && stoppedMessage.role === 'assistant') {
+                        stoppedMessage.isStreaming = false;
+                        stoppedMessage.isTyping = false;
+                        stoppedMessage.finishReason = stoppedMessage.finishReason || 'stopped';
+                    }
+                    this.saveSessions(sessionId);
+                    return;
+                }
                 this.ragLog('RAG:sendDone', { ragTraceId, sessionId, ok: false, error: error?.message || String(error) });
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(activeModelId);
                 this.setModelStatus(activeModelId, 'error');
@@ -4618,6 +4636,7 @@ function chatApp() {
             } finally {
                 if (requestId) {
                     this.unregisterInFlightRequest(sessionId, requestId);
+                    this.canceledRequestIds.delete(requestId);
                 }
                 const noMoreRequests = this.getInFlightRequestCount(sessionId) === 0;
                 this.saveSessions(sessionId, { immediate: noMoreRequests ? true : false });

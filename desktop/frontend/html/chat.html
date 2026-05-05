@@ -1881,6 +1881,10 @@
                                     </div>
                                     <!-- Plain content -->
                                     <div class="md-content" x-html="message.content"></div>
+                                    <div x-show="message.finishReason === 'stopped'"
+                                         style="margin-top:4px; font-size:0.68rem; color:#9ca3af;">
+                                        Stopped.
+                                    </div>
                                 </div>
                             </template>
 
