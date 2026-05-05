@@ -213,7 +213,19 @@ export async function askAgent(
   mode = 'agent',
   handlers = {}
 ) {
-  if (uploadedFile && !uploadedFile.type.startsWith('image/')) {
+  const hasNonImageUpload = Array.isArray(uploadedFile)
+    ? uploadedFile.some(file => file && !file.type.startsWith('image/'))
+    : (uploadedFile && !uploadedFile.type.startsWith('image/'));
+  if (hasNonImageUpload) {
+    const firstNonImage = Array.isArray(uploadedFile)
+      ? uploadedFile.find(file => file && !file.type.startsWith('image/'))
+      : uploadedFile;
+    if (firstNonImage) {
+      return handleRagChain(userMessage, model, firstNonImage, conversationHistory, sessionId);
+    }
+  }
+
+  if (uploadedFile && !Array.isArray(uploadedFile) && !uploadedFile.type.startsWith('image/')) {
     return handleRagChain(userMessage, model, uploadedFile, conversationHistory, sessionId);
   }
 
@@ -541,15 +553,20 @@ async function buildMessages(conversationHistory, userMessage, uploadedFile = nu
   }));
 
   let userContent = userMessage;
-  if (uploadedFile && uploadedFile.type.startsWith('image/')) {
+  const imageFiles = Array.isArray(uploadedFile)
+    ? uploadedFile.filter(file => file && file.type.startsWith('image/'))
+    : (uploadedFile && uploadedFile.type.startsWith('image/') ? [uploadedFile] : []);
+  if (imageFiles.length > 0) {
     userContent = [{ type: 'text', text: userMessage }];
-    const base64 = await fileToBase64(uploadedFile);
-    userContent.push({
-      type: 'image_url',
-      image_url: {
-        url: `data:${uploadedFile.type};base64,${base64}`
-      }
-    });
+    for (const file of imageFiles) {
+      const base64 = await fileToBase64(file);
+      userContent.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:${file.type};base64,${base64}`
+        }
+      });
+    }
   }
 
   messages.push({

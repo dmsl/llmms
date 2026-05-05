@@ -1921,19 +1921,21 @@
             <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0">
                 <div class="mx-auto" :style="workspaceDetailsOpen && getCurrentWorkspace() ? 'max-width:1020px;' : 'max-width:72rem;'">
                     <!-- File info display -->
-                    <div x-show="uploadedFiles.length > 0" class="custom-scrollbar" style="margin-bottom:8px; display:flex; gap:8px; flex-wrap:nowrap; align-items:stretch; overflow-x:auto; overflow-y:hidden; padding-bottom:2px;">
-                        <template x-for="f in uploadedFiles" :key="f.id">
-                            <div style="padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; width:260px; min-width:260px; max-width:260px; flex-shrink:0;">
-                                <div style="display:grid; gap:2px; min-width:0; flex:1;">
-                                    <div style="display:flex; align-items:center; gap:8px;">
-                                        <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
-                                        <span style="font-size:0.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="f.name"></span>
+                    <div x-show="uploadedFiles.length > 0" class="custom-scrollbar" style="margin-bottom:8px; overflow-x:auto; overflow-y:hidden; padding-bottom:2px; white-space:nowrap;">
+                        <div style="display:flex; flex-wrap:nowrap; align-items:stretch; gap:8px; width:max-content; min-width:100%;">
+                            <template x-for="f in uploadedFiles" :key="f.id">
+                                <div style="padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; width:260px; min-width:260px; max-width:260px; flex-shrink:0;">
+                                    <div style="display:grid; gap:2px; min-width:0; flex:1;">
+                                        <div style="display:flex; align-items:center; gap:8px;">
+                                            <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
+                                            <span style="font-size:0.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="f.name"></span>
+                                        </div>
+                                        <span style="font-size:0.68rem; color:var(--muted);" x-text="f.status + (f.error ? ' - ' + f.error : '')"></span>
                                     </div>
-                                    <span style="font-size:0.68rem; color:var(--muted);" x-text="f.status + (f.error ? ' - ' + f.error : '')"></span>
+                                    <button x-show="f.status !== 'ingesting'" @click="removeUploadedFile(f.id)" style="background:none; border:none; cursor:pointer; color:var(--muted); font-size:0.8rem;" onmouseover="this.style.color='#ff2d2d'" onmouseout="this.style.color='var(--muted)'"><i class="fas fa-times"></i></button>
                                 </div>
-                                <button x-show="f.status !== 'ingesting'" @click="removeUploadedFile(f.id)" style="background:none; border:none; cursor:pointer; color:var(--muted); font-size:0.8rem;" onmouseover="this.style.color='#ff2d2d'" onmouseout="this.style.color='var(--muted)'"><i class="fas fa-times"></i></button>
-                            </div>
-                        </template>
+                            </template>
+                        </div>
                     </div>
                     
                     <div data-tour="composer-shell" style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px; box-shadow:0 2px 16px rgba(106,66,194,0.08); padding:10px 12px;">

@@ -2191,6 +2191,87 @@ function chatApp() {
             return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
         },
 
+        async indexOcrTextForLocalRag(file, ocrText, sessionId = this.currentSession) {
+            const limits = getRagLimits();
+            const scope = {
+                scopeType: 'chat',
+                workspaceId: this.getCurrentWorkspaceIdForSession(sessionId),
+                chatId: sessionId
+            };
+            const fileId = this.buildLocalRagFileId(file, scope);
+            const existingState = this.localRagFileStates[fileId];
+            if (existingState?.status === 'indexed') {
+                return { ok: true, fileId, chunkCount: existingState.chunkCount || 0 };
+            }
+
+            this.setLocalRagFileState(fileId, {
+                status: 'indexing',
+                name: file.name,
+                scopeType: scope.scopeType,
+                sourceType: 'chatAttachment',
+                workspaceId: scope.workspaceId,
+                chatId: scope.chatId,
+                chunkCount: 0,
+                estimatedBytes: 0,
+                error: ''
+            });
+
+            const extractedTextBytes = new TextEncoder().encode(ocrText || '').length;
+            const workerTask = await this.postRagWorkerTask('indexText', {
+                text: ocrText,
+                descriptor: {
+                    fileId,
+                    source: file.name,
+                    sourceName: file.name,
+                    sourceType: 'chatAttachment',
+                    workspaceId: scope.workspaceId,
+                    chatId: scope.chatId,
+                    replaceExisting: true,
+                    extractedTextBytes,
+                    extractionHints: { kind: 'ocr' }
+                },
+                limits
+            });
+
+            let result;
+            try {
+                result = await workerTask.promise;
+            } catch (error) {
+                this.setLocalRagFileState(fileId, {
+                    status: 'failed',
+                    error: error?.message || 'OCR indexing failed'
+                });
+                return { ok: false, fileId, error: error?.message || 'OCR indexing failed' };
+            }
+
+            if (!result?.success) {
+                const errorMessage = result?.error || 'OCR indexing failed';
+                this.setLocalRagFileState(fileId, {
+                    status: 'failed',
+                    error: errorMessage
+                });
+                return { ok: false, fileId, error: errorMessage };
+            }
+
+            this.setLocalRagFileState(fileId, {
+                status: 'indexed',
+                chunkCount: result.chunkCount || 0,
+                estimatedBytes: result.estimatedBytes || 0,
+                extractedTextBytes: result.extractedTextBytes || 0,
+                error: ''
+            });
+            this.addSessionDocumentRef({
+                fileId,
+                name: file.name,
+                workspaceId: scope.workspaceId,
+                chatId: scope.chatId,
+                sourceType: 'chatAttachment',
+                chunkCount: result.chunkCount || 0,
+                estimatedBytes: result.estimatedBytes || 0
+            }, scope.chatId);
+            return { ok: true, fileId, chunkCount: result.chunkCount || 0 };
+        },
+
         async indexWorkspaceFileForLocalRag(file, workspaceId = this.selectedWorkspaceId) {
             const limits = getRagLimits();
             const scope = {
@@ -4228,9 +4309,13 @@ function chatApp() {
                 let finalQuery = query;
                 let fileForAgent = this.uploadedFiles[0]?.file || this.uploadedFile;
                 this.localRagLastModeUsed = 'none';
-                const hasImageUpload = !!(fileForAgent && fileForAgent.type.startsWith('image/'));
+                const queuedEntries = [...this.uploadedFiles];
+                const queuedImageEntries = queuedEntries.filter(entry => entry?.file?.type?.startsWith('image/'));
+                const queuedDocumentEntries = queuedEntries.filter(entry => entry?.file && !entry.file.type.startsWith('image/'));
+                const hasImageUpload = queuedImageEntries.length > 0;
                 let localContext = '';
                 let localRagRuntimeReady = !needsLocalRagEngine;
+                const ocrContextSections = [];
 
                 // Load Local RAG dependencies after user bubble/typing bubble are visible,
                 // so UI feedback is immediate and perceived latency is reduced.
@@ -4245,12 +4330,8 @@ function chatApp() {
                     }
                 }
                 if (this.localRagEnabled && localRagRuntimeReady) {
-                    for (const entry of this.uploadedFiles) {
+                    for (const entry of queuedDocumentEntries) {
                         if (entry.status !== 'queued') continue;
-                        if (entry.file?.type?.startsWith('image/')) {
-                            entry.status = 'ready';
-                            continue;
-                        }
                         try {
                             entry.status = 'ingesting';
                             const workspaceId = this.getCurrentWorkspaceIdForSession(sessionId);
@@ -4265,34 +4346,46 @@ function chatApp() {
                     }
                 }
 
-                if (hasImageUpload && !this.selectedModelSupportsVision(this.selectedModel)) {
-                    try {
-                        const ocrResult = await extractImageTextWithOcr(this.uploadedFile);
-                        const ocrText = (ocrResult?.text || '').trim();
-                        if (!ocrText) {
-                            throw new Error('OCR did not extract readable text from the image.');
+                if (hasImageUpload) {
+                    for (const imageEntry of queuedImageEntries) {
+                        try {
+                            imageEntry.status = 'ingesting';
+                            const ocrResult = await extractImageTextWithOcr(imageEntry.file);
+                            const ocrText = (ocrResult?.text || '').trim();
+                            if (!ocrText) {
+                                throw new Error('OCR returned empty text');
+                            }
+                            ocrContextSections.push(`[Image OCR: ${imageEntry.file.name}]\n${ocrText}`);
+                            if (this.localRagEnabled && localRagRuntimeReady) {
+                                await this.indexOcrTextForLocalRag(imageEntry.file, ocrText, sessionId);
+                            }
+                            imageEntry.status = 'ready';
+                        } catch (ocrError) {
+                            imageEntry.status = 'failed';
+                            imageEntry.error = ocrError?.message || 'OCR failed';
+                            this.ragLog('RAG:ocrFail', {
+                                ragTraceId,
+                                sessionId,
+                                fileName: imageEntry?.file?.name,
+                                error: imageEntry.error
+                            });
                         }
-                        finalQuery = this.buildImageOcrContextBlock(query, ocrText);
-                        fileForAgent = null;
-                    } catch (ocrError) {
-                        const errorMessage = `Image OCR failed: ${ocrError.message || 'Unable to extract text from the image.'}`;
-                        sessionMessages.push({
-                            id: makeId('msg'),
-                            role: 'assistant',
-                            content: errorMessage
-                        });
-                        if (sessionId === this.currentSession) {
-                            this.messages = sessionMessages;
-                        }
-                        this.saveSessions(sessionId);
-                        return;
                     }
                 }
 
-                const isDocumentUpload = !!(fileForAgent && !fileForAgent.type.startsWith('image/'));
+                const visionCapable = this.selectedModelSupportsVision(this.selectedModel);
+                const imageFilesForVision = queuedImageEntries
+                    .filter(entry => entry?.status === 'ready' && entry?.file)
+                    .map(entry => entry.file);
+                const isDocumentUpload = queuedDocumentEntries.length > 0;
                 const shouldIndexUploadedDocumentLocally = isDocumentUpload && this.getCurrentSessionPrivateStoreEnabled(sessionId);
                 if (this.localRagEnabled && isDocumentUpload) {
                     // Local RAG mode must keep document processing browser-side only.
+                    fileForAgent = null;
+                }
+                if (visionCapable) {
+                    fileForAgent = imageFilesForVision.length > 0 ? imageFilesForVision : null;
+                } else {
                     fileForAgent = null;
                 }
                 // Recompute local document availability after deferred ingestion above.
@@ -4328,8 +4421,12 @@ function chatApp() {
                 }
 
                 // Ensure retrieved local context is actually passed to the model prompt.
+                if (ocrContextSections.length > 0) {
+                    const ocrContext = ocrContextSections.join('\n\n');
+                    finalQuery = this.buildKnowledgeContextBlock(finalQuery, { localContext: ocrContext });
+                }
                 if (localContext && localContext.trim()) {
-                    finalQuery = this.buildKnowledgeContextBlock(query, { localContext });
+                    finalQuery = this.buildKnowledgeContextBlock(finalQuery, { localContext });
                     this.ragLog('RAG:contextInjected', {
                         ragTraceId,
                         sessionId,
