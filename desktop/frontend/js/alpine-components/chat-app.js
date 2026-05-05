@@ -422,6 +422,7 @@ function chatApp() {
         localRagFileStates: {},
         localRagWarmupDone: false,
         localRagWarmupInProgress: false,
+        localRagTraceSeq: 0,
         get localRagEnabled() {
             return !!this.getCurrentSessionRecord?.()?.privateStoreEnabled;
         },
@@ -1386,6 +1387,16 @@ function chatApp() {
                 }
                 window.browserRetriever = new RetrieverClass();
             }
+            if (!window.browserRetriever?.vectorDB) {
+                throw new Error('indexeddb-unavailable');
+            }
+            if (!window.browserRetriever?.embeddingModel) {
+                try {
+                    await window.browserRetriever.initializeEmbeddingModel();
+                } catch (error) {
+                    throw new Error(`embedding-init-failed: ${error?.message || String(error)}`);
+                }
+            }
             return window.browserRetriever;
         },
 
@@ -1431,11 +1442,18 @@ function chatApp() {
             if (!this.ragWorkerReady) {
                 this.ragWorkerJobSeq += 1;
                 const initJobId = `init_${Date.now()}_${this.ragWorkerJobSeq}`;
-                await new Promise((resolve, reject) => {
-                    this.ragWorkerJobs[initJobId] = { resolve, reject, onProgress: null };
-                    this.ragWorker.postMessage({ type: 'init', jobId: initJobId, payload: {} });
-                });
+                try {
+                    await new Promise((resolve, reject) => {
+                        this.ragWorkerJobs[initJobId] = { resolve, reject, onProgress: null };
+                        this.ragWorker.postMessage({ type: 'init', jobId: initJobId, payload: {} });
+                    });
+                } catch (error) {
+                    this.localRagStatusText = 'worker-init-failed';
+                    this.ragLog('RAG:workerInit', { ok: false, initJobId, error: error?.message || String(error) });
+                    throw new Error(`worker-init-failed: ${error?.message || String(error)}`);
+                }
                 this.ragWorkerReady = true;
+                this.ragLog('RAG:workerInit', { ok: true, initJobId });
             }
 
             return this.ragWorker;
@@ -1445,6 +1463,7 @@ function chatApp() {
             await this.ensureRagWorker();
             this.ragWorkerJobSeq += 1;
             const jobId = `${type}_${Date.now()}_${this.ragWorkerJobSeq}`;
+            this.ragLog('RAG:workerTaskStart', { type, jobId });
 
             const promise = new Promise((resolve, reject) => {
                 this.ragWorkerJobs[jobId] = {
@@ -1711,8 +1730,29 @@ function chatApp() {
         },
 
         toggleLocalRagEnabled() {
+            if (!this.currentSession || !this.sessions.find(s => s.id === this.currentSession)) {
+                this.newChat();
+            }
             const nextValue = !this.getCurrentSessionPrivateStoreEnabled();
-            this.setCurrentSessionPrivateStoreEnabled(nextValue);
+            const applied = this.setCurrentSessionPrivateStoreEnabled(nextValue);
+            const sessionId = this.currentSession;
+            this.localRagStatusText = nextValue
+                ? `Local RAG enabled for chat ${sessionId}`
+                : `Local RAG disabled for chat ${sessionId}`;
+            this.ragLog('RAG:toggle', { sessionId, enabled: nextValue, applied });
+        },
+
+        makeRagTraceId(sessionId = this.currentSession) {
+            this.localRagTraceSeq = Number(this.localRagTraceSeq || 0) + 1;
+            return `rag_${sessionId || 'nochat'}_${Date.now()}_${this.localRagTraceSeq}`;
+        },
+
+        ragLog(event, details = {}) {
+            try {
+                console.log(`[LocalRAG] ${event}`, details);
+            } catch (_) {
+                // noop
+            }
         },
 
         async removeSessionDocument(fileId, sessionId = this.currentSession) {
@@ -1895,6 +1935,7 @@ function chatApp() {
             }
 
             const fileId = this.buildLocalRagFileId(file, scope);
+            this.ragLog('RAG:indexStart', { sessionId, fileId, fileName: file?.name, workspaceId: scope.workspaceId });
             const existingState = this.localRagFileStates[fileId];
             if (existingState?.status === 'indexed') {
                 this.addSessionDocumentRef({
@@ -1959,6 +2000,7 @@ function chatApp() {
                         const processed = Number(progress?.processedChunks || 0);
                         const total = Number(progress?.totalChunks || 0);
                         this.localRagStatusText = `Indexing locally... ${processed}/${total}`;
+                        this.ragLog('RAG:indexProgress', { sessionId, fileId, processed, total });
                     }
                 }
             );
@@ -1976,6 +2018,7 @@ function chatApp() {
                     status: 'failed',
                     error: errorMessage
                 });
+                this.ragLog('RAG:indexFail', { sessionId, fileId, error: errorMessage });
                 return { ok: false, fileId, error: errorMessage };
             }
 
@@ -1990,13 +2033,35 @@ function chatApp() {
                 await this.ensureLocalRetriever();
                 if (window.browserRetriever?.vectorDB?.size) {
                     const localVectorCount = await window.browserRetriever.vectorDB.size();
+                    const scopedVectorCount = window.browserRetriever?.vectorDB?.countByFilter
+                        ? await window.browserRetriever.vectorDB.countByFilter({
+                            sourceType: 'chatAttachment',
+                            workspaceId: scope.workspaceId,
+                            chatId: scope.chatId,
+                            fileId
+                        })
+                        : null;
                     console.log('[ChatApp] Local vector count after index:', localVectorCount);
+                    this.ragLog('RAG:indexDone', {
+                        sessionId,
+                        fileId,
+                        chunkCount: result.chunkCount || 0,
+                        globalVectorCount: localVectorCount,
+                        scopedVectorCount
+                    });
                     if (!Number.isFinite(localVectorCount) || localVectorCount <= 0) {
                         this.localRagStatusText = 'Indexing completed but no vectors found in IndexedDB.';
+                        this.ragLog('RAG:indexeddbWarning', {
+                            sessionId,
+                            fileId,
+                            dbName: window.browserRetriever?.vectorDB?.dbName || 'unknown',
+                            storeName: window.browserRetriever?.vectorDB?.storeName || 'unknown'
+                        });
                     }
                 }
             } catch (verifyError) {
                 console.warn('[ChatApp] Could not verify local vector count:', verifyError);
+                this.ragLog('RAG:indexeddbVerifyFail', { sessionId, fileId, error: verifyError?.message || String(verifyError) });
             }
             this.addSessionDocumentRef({
                 fileId,
@@ -2168,6 +2233,12 @@ function chatApp() {
 
             const retrievalJobs = [];
             if (sessionFileIds.length > 0) {
+                this.ragLog('RAG:retrieveStart', {
+                    sessionId,
+                    sourceType: 'chatAttachment',
+                    topK: limits.RETRIEVAL_TOP_K || 5,
+                    fileIds: sessionFileIds
+                });
                 retrievalJobs.push(this.postRagWorkerTask('retrieve', {
                     query,
                     maxResults: limits.RETRIEVAL_TOP_K || 5,
@@ -2184,6 +2255,12 @@ function chatApp() {
                 }));
             }
             if (workspaceFileIds.length > 0) {
+                this.ragLog('RAG:retrieveStart', {
+                    sessionId,
+                    sourceType: 'workspaceAttachment',
+                    topK: limits.RETRIEVAL_TOP_K || 5,
+                    fileIds: workspaceFileIds
+                });
                 retrievalJobs.push(this.postRagWorkerTask('retrieve', {
                     query,
                     maxResults: limits.RETRIEVAL_TOP_K || 5,
@@ -2214,8 +2291,14 @@ function chatApp() {
             }
 
             if (docs.length === 0) {
+                this.ragLog('RAG:retrieveDone', { sessionId, chunks: 0 });
                 return { ok: false, reason: 'no-local-results' };
             }
+            this.ragLog('RAG:retrieveDone', {
+                sessionId,
+                chunks: docs.length,
+                fileIdsHit: [...new Set(docs.map(d => d?.metadata?.fileId).filter(Boolean))]
+            });
 
             const context = docs
                 .map((doc) => `[Source: ${doc.metadata?.source || 'document'}, Chunk: ${(doc.metadata?.chunkIndex ?? 0) + 1}]\n${doc.text}`)
@@ -3853,6 +3936,12 @@ function chatApp() {
                 this.uploadedFile = file;
                 this.uploadedFileName = file.name;
                 entry.status = 'queued';
+                this.ragLog('RAG:uploadQueued', {
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type,
+                    sessionId: this.currentSession
+                });
             }
             this.localRagStatusText = 'Files queued. They will be ingested when you send.';
         },
@@ -3882,10 +3971,19 @@ function chatApp() {
                 this.newChat();
             }
             const sessionId = this.currentSession;
+            const ragTraceId = this.makeRagTraceId(sessionId);
             this.setModelStatus(this.selectedModel, 'loading');
             const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
             const hasWorkspaceSharedDocs = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
             const needsLocalRagEngine = this.localRagEnabled || hasSessionPrivateDocs || hasWorkspaceSharedDocs;
+            this.ragLog('RAG:sendStart', {
+                ragTraceId,
+                sessionId,
+                localRagEnabled: this.localRagEnabled,
+                queuedFiles: this.uploadedFiles.length,
+                hasSessionPrivateDocs,
+                hasWorkspaceSharedDocs
+            });
             if (this.isSessionAtConcurrencyLimit(sessionId)) {
                 console.warn('[ChatApp] Session reached max concurrent requests', {
                     sessionId,
@@ -4060,6 +4158,12 @@ function chatApp() {
                 // Recompute local document availability after deferred ingestion above.
                 const hasSessionPrivateDocsNow = this.getSessionDocumentRefs(sessionId).length > 0;
                 const hasWorkspaceSharedDocsNow = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
+                this.ragLog('RAG:postIndexDocRefs', {
+                    ragTraceId,
+                    sessionId,
+                    sessionRefCount: this.getSessionDocumentRefs(sessionId).length,
+                    workspaceRefCount: this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length
+                });
                 const shouldUseLocalRetrieval = this.localRagEnabled || hasSessionPrivateDocsNow || hasWorkspaceSharedDocsNow || shouldIndexUploadedDocumentLocally;
                 if (shouldUseLocalRetrieval) {
                     try {
@@ -4086,7 +4190,19 @@ function chatApp() {
                 // Ensure retrieved local context is actually passed to the model prompt.
                 if (localContext && localContext.trim()) {
                     finalQuery = this.buildKnowledgeContextBlock(query, { localContext });
+                    this.ragLog('RAG:contextInjected', {
+                        ragTraceId,
+                        sessionId,
+                        usedChunks: (localContext.match(/\[Source:/g) || []).length,
+                        contextChars: localContext.length
+                    });
                 }
+                this.ragLog('RAG:agentDispatch', {
+                    ragTraceId,
+                    sessionId,
+                    mode: canUseAgent ? 'agent' : 'ask',
+                    fileForAgent: fileForAgent ? 'present' : 'null'
+                });
 
                 // Call agent integration (supports file uploads and conversation context)
                 const result = await window.askAgent(
@@ -4107,6 +4223,7 @@ function chatApp() {
                 this.applyFinalProviderResponse(result, assistantMessageId, sessionId);
                 this.setModelStatus(this.selectedModel, 'ready');
                 this.uploadedFiles = [];
+                this.ragLog('RAG:sendDone', { ragTraceId, sessionId, ok: true });
                 
                 // Auto-generate session name from first message
                 this.autoGenerateSessionName(sessionId);
@@ -4123,6 +4240,7 @@ function chatApp() {
                 
             } catch (error) {
                 console.error('Error sending message:', error);
+                this.ragLog('RAG:sendDone', { ragTraceId, sessionId, ok: false, error: error?.message || String(error) });
                 const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
                 const suffix = canUseAgent
                     ? 'Please ensure the model server and MCP tools are accessible.'
