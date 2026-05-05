@@ -239,6 +239,7 @@ export async function askAgent(
   if (normalizedMode === 'ask' || !modelSupportsTooling || !hasAvailableTools) {
     return runMiniSearchLoop(messages, model, userMessage, {
       handlers,
+      abortSignal: handlers?.abortSignal || null,
       thinkingEnabled: handlers?.thinkingEnabled === true,
       thinkingSupported: handlers?.thinkingSupported === true
     });
@@ -254,6 +255,7 @@ export async function askAgent(
     const response = await callLLM(messages, toolSchemas, model, modelSupportsTooling, {
       stream: false,
       handlers,
+      abortSignal: handlers?.abortSignal || null,
       thinkingEnabled: handlers?.thinkingEnabled === true,
       thinkingSupported: handlers?.thinkingSupported === true
     });
@@ -438,6 +440,7 @@ async function runMiniSearchLoop(messages, model, userMessage, options = {}) {
     callLLM(messages, [], model, false, {
       stream: true,
       handlers: options.handlers,
+      abortSignal: options.abortSignal || null,
       thinkingEnabled: options.thinkingEnabled === true,
       thinkingSupported: options.thinkingSupported === true
     });
@@ -458,6 +461,7 @@ async function runMiniSearchLoop(messages, model, userMessage, options = {}) {
       const response = await callLLM(loopMessages, [], model, false, {
         stream: false,
         handlers: options.handlers,
+        abortSignal: options.abortSignal || null,
         thinkingEnabled: options.thinkingEnabled === true,
         thinkingSupported: options.thinkingSupported === true
       });
@@ -506,6 +510,9 @@ async function runMiniSearchLoop(messages, model, userMessage, options = {}) {
       finishReason: 'max_mini_search_steps'
     };
   } catch (error) {
+    if (error?.name === 'AbortError' || /aborted|aborterror|request aborted/i.test(String(error?.message || ''))) {
+      throw error;
+    }
     console.warn('[MiniSearch] Mini loop failed; falling back to simple ask mode:', error);
     return runSimpleAskFallback();
   }
@@ -590,6 +597,7 @@ async function callLLM(messages, toolSchemas, model, allowTools = false, options
         allowTools,
         stream: !!options.stream,
         temperature: 0.7,
+        signal: options.abortSignal || null,
         thinkingEnabled: options.thinkingEnabled === true,
         thinkingSupported: options.thinkingSupported === true
       }, options.handlers);
@@ -600,6 +608,10 @@ async function callLLM(messages, toolSchemas, model, allowTools = false, options
 
       return response;
     } catch (error) {
+      const isAbort = error?.name === 'AbortError' || /aborted|aborterror/i.test(String(error?.message || ''));
+      if (isAbort) {
+        throw new Error('Request aborted');
+      }
       const isLastAttempt = attempt === LLM_MAX_RETRIES;
       const retryable = /network|fetch|timeout|503|502|gateway|temporar/i.test(String(error?.message || ''));
       if (isLastAttempt || !retryable) {

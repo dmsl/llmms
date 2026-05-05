@@ -1950,11 +1950,11 @@
                                 class="scrollbar-hidden"></textarea>
 
                             <button
-                                @click="sendMessage()"
-                                :disabled="!canSendCurrentSession()"
-                                :style="canSendCurrentSession() ? 'background:transparent; color:var(--accent); opacity:1;' : 'background:transparent; color:var(--muted); opacity:0.5; cursor:not-allowed;'"
+                                @click="handleComposerPrimaryAction()"
+                                :disabled="!canComposerPrimaryAction()"
+                                :style="hasActiveResponse() ? 'background:transparent; color:#c62828; opacity:1;' : (canComposerPrimaryAction() ? 'background:transparent; color:var(--accent); opacity:1;' : 'background:transparent; color:var(--muted); opacity:0.5; cursor:not-allowed;')"
                                 style="width:40px; height:40px; border-radius:2px; border:none; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s;">
-                                <i class="fas fa-paper-plane" style="font-size:0.95rem; line-height:1;"></i>
+                                <i :class="hasActiveResponse() ? 'fas fa-stop' : 'fas fa-paper-plane'" style="font-size:0.95rem; line-height:1;"></i>
                             </button>
                         </div>
                         

@@ -1001,6 +1001,7 @@ async function requestOpenAICompatibleCompletion(settings, request, handlers) {
   const response = await fetch(resolveOpenAIChatUrl(settings.baseUrl), {
     method: 'POST',
     headers: buildHeaders(settings, { 'Content-Type': 'application/json' }),
+    signal: request?.signal || undefined,
     body: JSON.stringify(payload)
   });
 
@@ -1023,6 +1024,7 @@ async function requestOllamaCompletion(settings, request, handlers) {
     const response = await fetch(resolveOllamaApiUrl(settings.baseUrl, 'chat'), {
       method: 'POST',
       headers: buildHeaders(settings, { 'Content-Type': 'application/json' }),
+      signal: request?.signal || undefined,
       body: JSON.stringify(payload)
     });
 
@@ -1038,6 +1040,9 @@ async function requestOllamaCompletion(settings, request, handlers) {
     emitEvent(handlers, { type: 'started' });
     return parseOllamaStream(response, handlers, request.model, settings.providerType);
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
     console.warn('[Provider] Ollama native chat request failed; falling back to OpenAI-compatible chat endpoint:', error);
     return requestOpenAICompatibleCompletion(
       { ...settings, providerType: PROVIDER_TYPES.OPENAI },
@@ -1052,6 +1057,7 @@ async function requestAnthropicCompletion(settings, request, handlers) {
   const response = await fetch(resolveAnthropicMessagesUrl(settings.baseUrl), {
     method: 'POST',
     headers: buildHeaders(settings, { 'Content-Type': 'application/json' }),
+    signal: request?.signal || undefined,
     body: JSON.stringify(payload)
   });
 
@@ -1742,6 +1748,12 @@ async function buildErrorMessage(response) {
       return prefix;
     }
   }
+}
+
+function isAbortError(error) {
+  if (!error) return false;
+  if (error.name === 'AbortError') return true;
+  return /aborted|aborterror/i.test(String(error.message || error));
 }
 
 function resolveOpenAIChatUrl(baseUrl) {

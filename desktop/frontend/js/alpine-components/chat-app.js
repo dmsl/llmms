@@ -428,6 +428,7 @@ function chatApp() {
             ...WORKSPACE_STORAGE_LIMIT_DEFAULTS
         },
         inFlightRequests: new Map(),
+        requestAbortControllers: new Map(),
         pendingSessionSaveIds: new Set(),
         sessionSaveTimerId: null,
         selectedModel: 'Select Model',
@@ -438,7 +439,7 @@ function chatApp() {
         manualScrollLock: false,
         interactionMode: 'agent',
         availableModels: [],
-        legacyLocalRagEnabled: false,
+        legacyLocalRagEnabled: true,
         localRagManagerOpen: false,
         localRagMode: 'hybrid-fallback',
         localRagLastModeUsed: 'none',
@@ -1438,7 +1439,7 @@ function chatApp() {
                 ...s,
                 privateStoreEnabled: typeof s.privateStoreEnabled === 'boolean'
                     ? s.privateStoreEnabled
-                    : !!this.legacyLocalRagEnabled,
+                    : true,
                 workspaceId: s.workspaceId && workspaceIds.has(s.workspaceId) ? s.workspaceId : null,
                 localDocumentRefs: Array.isArray(s.localDocumentRefs) ? s.localDocumentRefs : []
             }));
@@ -1459,7 +1460,9 @@ function chatApp() {
                 const raw = localStorage.getItem(STORAGE_KEYS.localRagPrefs);
                 if (!raw) return;
                 const parsed = JSON.parse(raw);
-                this.legacyLocalRagEnabled = !!parsed.localRagEnabled;
+                this.legacyLocalRagEnabled = typeof parsed.localRagEnabled === 'boolean'
+                    ? parsed.localRagEnabled
+                    : true;
                 this.localRagFileStates = parsed.localRagFileStates || {};
             } catch (error) {
                 console.warn('[ChatApp] Failed to load local RAG preferences:', error);
@@ -2548,7 +2551,7 @@ function chatApp() {
             this.persistAppState();
         },
 
-        normalizeSessions(sessions, defaultPrivateStoreEnabled = false) {
+        normalizeSessions(sessions, defaultPrivateStoreEnabled = true) {
             return (sessions || []).map((s, idx) => ({
                 id: s.id || makeId('chat'),
                 name: s.name || `Chat ${idx + 1}`,
@@ -3008,12 +3011,32 @@ function chatApp() {
             return pending ? pending.size : 0;
         },
 
+        hasActiveResponse(sessionId = this.currentSession) {
+            return this.getInFlightRequestCount(sessionId) > 0;
+        },
+
         isSessionAtConcurrencyLimit(sessionId = this.currentSession) {
             return this.getInFlightRequestCount(sessionId) >= MAX_CONCURRENT_PER_SESSION;
         },
 
         canSendCurrentSession() {
             return !!this.userInput.trim() && !this.isSessionAtConcurrencyLimit(this.currentSession);
+        },
+
+        canComposerPrimaryAction() {
+            return this.hasActiveResponse(this.currentSession) || !!this.userInput.trim();
+        },
+
+        async handleComposerPrimaryAction() {
+            if (this.hasActiveResponse(this.currentSession)) {
+                if (this.userInput.trim()) {
+                    await this.sendMessage();
+                    return;
+                }
+                await this.stopCurrentSessionResponses();
+                return;
+            }
+            await this.sendMessage();
         },
 
         registerInFlightRequest(sessionId, requestId) {
@@ -3042,6 +3065,50 @@ function chatApp() {
                 requestId,
                 activeRequests: this.getInFlightRequestCount(sessionId)
             });
+            this.requestAbortControllers.delete(requestId);
+        },
+
+        registerRequestAbortController(requestId, controller) {
+            if (!requestId || !controller) return;
+            this.requestAbortControllers.set(requestId, controller);
+        },
+
+        async stopCurrentSessionResponses(sessionId = this.currentSession, reason = 'Stopped by user.') {
+            if (!sessionId) return false;
+            const pending = this.inFlightRequests.get(sessionId);
+            if (!pending || pending.size === 0) return false;
+
+            const requestIds = [...pending];
+            for (const requestId of requestIds) {
+                const controller = this.requestAbortControllers.get(requestId);
+                if (controller) {
+                    try {
+                        controller.abort();
+                    } catch (error) {
+                        console.warn('[ChatApp] Failed to abort request', { requestId, error });
+                    }
+                }
+                this.requestAbortControllers.delete(requestId);
+            }
+            this.inFlightRequests.delete(sessionId);
+
+            const sessionMessages = this.getSessionMessages(sessionId);
+            const pendingSet = new Set(requestIds);
+            for (const message of sessionMessages) {
+                if (message?.role !== 'assistant') continue;
+                if (!message.requestId || !pendingSet.has(message.requestId)) continue;
+                const hadRawText = typeof message.rawText === 'string' && message.rawText.trim().length > 0;
+                if (!hadRawText) {
+                    message.content = `[Generation stopped] ${reason}`;
+                    message.rawText = message.content;
+                }
+                message.isStreaming = false;
+                message.isTyping = false;
+                message.finishReason = message.finishReason || 'stopped';
+            }
+
+            this.saveSessions(sessionId);
+            return true;
         },
 
         scheduleSessionSave(sessionId = this.currentSession) {
@@ -3347,7 +3414,7 @@ function chatApp() {
                 name: `Chat ${this.sessions.length + 1}`,
                 messages: [],
                 workspaceId: workspaceId || null,
-                privateStoreEnabled: false,
+                privateStoreEnabled: true,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 modelOverride: workspaceDefaults?.defaultModel || null
@@ -4104,6 +4171,45 @@ function chatApp() {
             if (!modelId) return;
             this.modelStatuses[modelId] = status;
         },
+
+        formatProviderErrorMessage(error, { modelId = '', canUseAgent = false } = {}) {
+            const raw = String(error?.message || error || 'Unknown error');
+            const msg = raw.toLowerCase();
+            const modelNote = modelId ? ` (model: ${modelId})` : '';
+
+            if (msg.includes('load failed')) {
+                return `Could not reach the model backend${modelNote}. Check network reachability, CORS/TLS, and that the model server is running.`;
+            }
+            if (msg.includes('aborted') || msg.includes('aborterror')) {
+                return `Generation was stopped before completion${modelNote}.`;
+            }
+            if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network error')) {
+                return `Network request failed${modelNote}. Verify base URL, server availability, and browser network access.`;
+            }
+            if (msg.includes('timeout') || msg.includes('timed out')) {
+                return `Model request timed out${modelNote}. The model may be cold-starting or overloaded; retry after it becomes responsive.`;
+            }
+            if (msg.includes('503') || msg.includes('502') || msg.includes('gateway')) {
+                return `Model backend is temporarily unavailable${modelNote} (gateway/service error). Try again shortly.`;
+            }
+            if (msg.includes('404')) {
+                return `Model endpoint was not found${modelNote}. Check provider base URL and API path configuration.`;
+            }
+            if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('forbidden')) {
+                return `Authorization failed${modelNote}. Verify API key/token and provider permissions.`;
+            }
+            if (msg.includes('model') && (msg.includes('not found') || msg.includes('no such'))) {
+                return `Selected model is unavailable on the provider${modelNote}. Pull/install the model or choose another one.`;
+            }
+            if (msg.includes('mcp tools not available') || msg.includes('tool execution not available') || msg.includes('not found in any connected mcp server')) {
+                return `Agent tools are unavailable. Ensure MCP servers are connected and tool schemas are loaded.`;
+            }
+
+            const suffix = canUseAgent
+                ? 'Please ensure the model server and MCP tools are accessible.'
+                : 'Please ensure the model server is accessible.';
+            return `${raw}. ${suffix}`;
+        },
         
         formatModelName(modelId) {
             if (!modelId) return 'Select Model';
@@ -4189,8 +4295,12 @@ function chatApp() {
                 this.newChat();
             }
             const sessionId = this.currentSession;
+            if (this.getInFlightRequestCount(sessionId) > 0) {
+                await this.stopCurrentSessionResponses(sessionId, 'Interrupted by a newer message.');
+            }
             const ragTraceId = this.makeRagTraceId(sessionId);
-            this.setModelStatus(this.selectedModel, 'loading');
+            const activeModelId = this.selectedModel;
+            this.setModelStatus(activeModelId, 'loading');
             const hasSessionPrivateDocs = this.getSessionDocumentRefs(sessionId).length > 0;
             const hasWorkspaceSharedDocs = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
             const needsLocalRagEngine = this.localRagEnabled || hasSessionPrivateDocs || hasWorkspaceSharedDocs;
@@ -4243,16 +4353,17 @@ function chatApp() {
                 const lastAssistantModel = previousAssistantMessages.length > 0 
                     ? previousAssistantMessages[previousAssistantMessages.length - 1].model 
                     : null;
-                const showModelInfo = previousAssistantMessages.length === 0 || lastAssistantModel !== this.selectedModel;
+                const showModelInfo = previousAssistantMessages.length === 0 || lastAssistantModel !== activeModelId;
                 
                 assistantMessageId = makeId('msg');
                 requestId = makeId('req');
+                const requestAbortController = new AbortController();
                 let assistantMessage = {
                     id: assistantMessageId,
                     role: 'assistant',
                     content: '<div class="typing-indicator"><span></span><span></span><span></span></div>',
-                    model: this.selectedModel,
-                    providerLabel: this.availableModels.find(m => m.id === this.selectedModel)?.providerLabel || '',
+                    model: activeModelId,
+                    providerLabel: this.availableModels.find(m => m.id === activeModelId)?.providerLabel || '',
                     showModelInfo: showModelInfo,
                     requestId,
                     reasoningMessageId: null,
@@ -4265,6 +4376,7 @@ function chatApp() {
                 };
                 sessionMessages.push(assistantMessage);
                 this.registerInFlightRequest(sessionId, requestId);
+                this.registerRequestAbortController(requestId, requestAbortController);
                 this.saveSessions(sessionId, { immediate: false });
                 
                 // Build conversation history excluding:
@@ -4373,7 +4485,7 @@ function chatApp() {
                     }
                 }
 
-                const visionCapable = this.selectedModelSupportsVision(this.selectedModel);
+                const visionCapable = this.selectedModelSupportsVision(activeModelId);
                 const imageFilesForVision = queuedImageEntries
                     .filter(entry => entry?.status === 'ready' && entry?.file)
                     .map(entry => entry.file);
@@ -4445,20 +4557,21 @@ function chatApp() {
                 const result = await window.askAgent(
                     finalQuery,
                     toolSchemas,
-                    this.selectedModel,
+                    activeModelId,
                     conversationHistory,
                     fileForAgent,
                     sessionId,
                     canUseAgent ? 'agent' : 'ask',
                     {
                         thinkingEnabled: this.thinkingEnabled === true,
-                        thinkingSupported: this.selectedModelSupportsThinking(this.selectedModel),
+                        thinkingSupported: this.selectedModelSupportsThinking(activeModelId),
+                        abortSignal: requestAbortController.signal,
                         onEvent: (event) => this.handleProviderEvent(event, assistantMessageId, sessionId)
                     }
                 );
 
                 this.applyFinalProviderResponse(result, assistantMessageId, sessionId);
-                this.setModelStatus(this.selectedModel, 'ready');
+                this.setModelStatus(activeModelId, 'ready');
                 this.uploadedFiles = [];
                 this.ragLog('RAG:sendDone', { ragTraceId, sessionId, ok: true });
                 
@@ -4478,16 +4591,18 @@ function chatApp() {
             } catch (error) {
                 console.error('Error sending message:', error);
                 this.ragLog('RAG:sendDone', { ragTraceId, sessionId, ok: false, error: error?.message || String(error) });
-                const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(this.selectedModel);
-                const suffix = canUseAgent
-                    ? 'Please ensure the model server and MCP tools are accessible.'
-                    : 'Please ensure the model server is accessible.';
+                const canUseAgent = this.interactionMode === 'agent' && this.modelSupportsAgent(activeModelId);
+                this.setModelStatus(activeModelId, 'error');
+                const formattedError = this.formatProviderErrorMessage(error, {
+                    modelId: activeModelId,
+                    canUseAgent
+                });
                 // Update the existing assistant message with the error
                 const targetMessage = assistantMessageId
                     ? this.getMessageById(assistantMessageId, sessionId)
                     : null;
                 if (targetMessage && targetMessage.role === 'assistant') {
-                    targetMessage.content = `Error: ${error.message}. ${suffix}`;
+                    targetMessage.content = `Error: ${formattedError}`;
                     targetMessage.rawText = targetMessage.content;
                     targetMessage.isStreaming = false;
                     targetMessage.isTyping = false;
@@ -4496,7 +4611,7 @@ function chatApp() {
                     sessionMessages.push({
                         id: makeId('msg'),
                         role: 'assistant',
-                        content: `Error: ${error.message}. ${suffix}`
+                        content: `Error: ${formattedError}`
                     });
                 }
                 this.saveSessions(sessionId);
