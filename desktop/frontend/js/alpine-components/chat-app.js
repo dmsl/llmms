@@ -2239,7 +2239,7 @@ function chatApp() {
                     topK: limits.RETRIEVAL_TOP_K || 5,
                     fileIds: sessionFileIds
                 });
-                retrievalJobs.push(this.postRagWorkerTask('retrieve', {
+                retrievalJobs.push(await this.postRagWorkerTask('retrieve', {
                     query,
                     maxResults: limits.RETRIEVAL_TOP_K || 5,
                     filters: {
@@ -2261,7 +2261,7 @@ function chatApp() {
                     topK: limits.RETRIEVAL_TOP_K || 5,
                     fileIds: workspaceFileIds
                 });
-                retrievalJobs.push(this.postRagWorkerTask('retrieve', {
+                retrievalJobs.push(await this.postRagWorkerTask('retrieve', {
                     query,
                     maxResults: limits.RETRIEVAL_TOP_K || 5,
                     filters: {
