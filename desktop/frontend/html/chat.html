@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="Chat UCY">
     <title>Chat UCY</title>
-    <link rel="icon" type="image/png" href="/img/logo.png">
+    <link rel="icon" type="image/png" href="../img/chatucy_logo.png">
 
     <!-- Theme: apply before paint -->
     <script>
@@ -2380,9 +2380,6 @@
     <!-- PDF.js Module Import -->
     <script type="module">
         import * as pdfjsLib from "../js/browser-rag/pdf.mjs";
-        if (pdfjsLib?.VerbosityLevel) {
-            pdfjsLib.verbosity = pdfjsLib.VerbosityLevel.ERRORS;
-        }
         pdfjsLib.GlobalWorkerOptions.workerSrc = "../js/browser-rag/pdf.worker.mjs";
         window.pdfjsLib = pdfjsLib;
         console.log("Local PDF.js imported and attached to window.pdfjsLib");
