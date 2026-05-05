@@ -419,6 +419,8 @@ function chatApp() {
         localRagLastModeUsed: 'none',
         localRagStatusText: '',
         localRagFileStates: {},
+        localRagWarmupDone: false,
+        localRagWarmupInProgress: false,
         get localRagEnabled() {
             return !!this.getCurrentSessionRecord?.()?.privateStoreEnabled;
         },
@@ -917,6 +919,10 @@ function chatApp() {
             this.$watch('localRagEnabled', async (enabled) => {
                 this.persistLocalRagPrefs();
                 if (enabled) {
+                    if (this.localRagWarmupDone || this.localRagWarmupInProgress) {
+                        return;
+                    }
+                    this.localRagWarmupInProgress = true;
                     // Show loading indicator
                     const loadingMsg = {
                         id: Date.now(),
@@ -930,6 +936,7 @@ function chatApp() {
                         console.log('[ChatApp] Local RAG enabled, loading dependencies...');
                         await ensureRagLoaded();
                         await this.ensureLocalRetriever();
+                        this.localRagWarmupDone = true;
                         
                         // Update loading message to success
                         this.messages[loadingIndex].content = '✅ Local RAG ready! You can now upload documents for context-aware chat.';
@@ -950,6 +957,8 @@ function chatApp() {
                             const idx = this.messages.findIndex(m => m.id === loadingMsg.id);
                             if (idx !== -1) this.messages.splice(idx, 1);
                         }, 5000);
+                    } finally {
+                        this.localRagWarmupInProgress = false;
                     }
                 }
             });
@@ -3829,23 +3838,9 @@ function chatApp() {
                 this.uploadedFiles.push(entry);
                 this.uploadedFile = file;
                 this.uploadedFileName = file.name;
-                if (this.localRagEnabled && !file.type.startsWith('image/')) {
-                    try {
-                        entry.status = 'ingesting';
-                        const workspaceId = this.getCurrentWorkspaceIdForSession(this.currentSession);
-                        const selectionError = this.validateLocalRagFileSelection(file, workspaceId);
-                        if (selectionError) throw new Error(selectionError);
-                        await this.indexUploadedDocumentForLocalRag(file);
-                        entry.status = 'ready';
-                    } catch (error) {
-                        entry.status = 'failed';
-                        entry.error = error.message || 'Ingestion failed';
-                    }
-                } else {
-                    entry.status = 'ready';
-                }
+                entry.status = 'queued';
             }
-            this.localRagStatusText = this.getLocalRagStatusLabel();
+            this.localRagStatusText = 'Files queued. They will be ingested when you send.';
         },
         removeUploadedFile(fileId) {
             this.uploadedFiles = this.uploadedFiles.filter(f => f.id !== fileId);
@@ -3998,6 +3993,26 @@ function chatApp() {
                 this.localRagLastModeUsed = 'none';
                 const hasImageUpload = !!(fileForAgent && fileForAgent.type.startsWith('image/'));
                 let localContext = '';
+                if (this.localRagEnabled) {
+                    for (const entry of this.uploadedFiles) {
+                        if (entry.status !== 'queued') continue;
+                        if (entry.file?.type?.startsWith('image/')) {
+                            entry.status = 'ready';
+                            continue;
+                        }
+                        try {
+                            entry.status = 'ingesting';
+                            const workspaceId = this.getCurrentWorkspaceIdForSession(sessionId);
+                            const selectionError = this.validateLocalRagFileSelection(entry.file, workspaceId);
+                            if (selectionError) throw new Error(selectionError);
+                            await this.indexUploadedDocumentForLocalRag(entry.file);
+                            entry.status = 'ready';
+                        } catch (error) {
+                            entry.status = 'failed';
+                            entry.error = error.message || 'Ingestion failed';
+                        }
+                    }
+                }
 
                 if (hasImageUpload && !this.selectedModelSupportsVision(this.selectedModel)) {
                     try {

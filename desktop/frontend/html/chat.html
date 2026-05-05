@@ -3,10 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="Chat UCY">
     <title>Chat UCY</title>
+    <link rel="icon" type="image/png" href="/img/logo.png">
 
     <!-- Theme: apply before paint -->
     <script>
@@ -1815,9 +1817,9 @@
             <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0">
                 <div class="mx-auto" :style="workspaceDetailsOpen && getCurrentWorkspace() ? 'max-width:1020px;' : 'max-width:72rem;'">
                     <!-- File info display -->
-                    <div x-show="uploadedFiles.length > 0" style="margin-bottom:8px; display:grid; gap:8px;">
+                    <div x-show="uploadedFiles.length > 0" style="margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">
                         <template x-for="f in uploadedFiles" :key="f.id">
-                            <div style="padding:7px 12px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                            <div style="padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; width:auto; max-width:320px;">
                                 <div style="display:grid; gap:2px; min-width:0;">
                                     <div style="display:flex; align-items:center; gap:8px;">
                                         <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
@@ -1907,18 +1909,7 @@
                                         : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
                                     title="Enable or disable model thinking/reasoning. Disabled by default to avoid hidden reasoning traces.">
                                     <i class="fas fa-brain" style="font-size:0.65rem;"></i>
-                                    <span class="composer-thinking-label" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Thinking</span>
-                                    <span
-                                        class="composer-thinking-switch"
-                                        aria-hidden="true"
-                                        :style="thinkingEnabled
-                                            ? 'width:30px; height:18px; border-radius:999px; background:var(--accent); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'
-                                            : 'width:30px; height:18px; border-radius:999px; background:rgba(106,66,194,0.14); position:relative; display:inline-flex; align-items:center; transition:background 0.18s ease; margin-left:2px;'">
-                                        <span
-                                            :style="thinkingEnabled
-                                                ? 'position:absolute; top:2px; left:14px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.18); transition:left 0.18s ease;'
-                                                : 'position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.18); transition:left 0.18s ease;'"></span>
-                                    </span>
+                                    <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="thinkingEnabled ? 'Thinking On' : 'Thinking Off'"></span>
                                 </button>
                                 <button
                                     @click="toggleLocalRagEnabled()"
@@ -2390,6 +2381,9 @@
     <!-- PDF.js Module Import -->
     <script type="module">
         import * as pdfjsLib from "../js/browser-rag/pdf.mjs";
+        if (pdfjsLib?.VerbosityLevel) {
+            pdfjsLib.verbosity = pdfjsLib.VerbosityLevel.ERRORS;
+        }
         pdfjsLib.GlobalWorkerOptions.workerSrc = "../js/browser-rag/pdf.worker.mjs";
         window.pdfjsLib = pdfjsLib;
         console.log("Local PDF.js imported and attached to window.pdfjsLib");
