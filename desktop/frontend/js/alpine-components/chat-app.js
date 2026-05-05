@@ -4043,11 +4043,15 @@ function chatApp() {
                     // Local RAG mode must keep document processing browser-side only.
                     fileForAgent = null;
                 }
-                if (hasSessionPrivateDocs || hasWorkspaceSharedDocs || shouldIndexUploadedDocumentLocally) {
+                // Recompute local document availability after deferred ingestion above.
+                const hasSessionPrivateDocsNow = this.getSessionDocumentRefs(sessionId).length > 0;
+                const hasWorkspaceSharedDocsNow = this.getWorkspaceDocumentRefs(this.getCurrentWorkspaceIdForSession(sessionId)).length > 0;
+                const shouldUseLocalRetrieval = this.localRagEnabled || hasSessionPrivateDocsNow || hasWorkspaceSharedDocsNow || shouldIndexUploadedDocumentLocally;
+                if (shouldUseLocalRetrieval) {
                     try {
                         const localResult = await this.buildLocalContextForMessage(
                             query,
-                            shouldIndexUploadedDocumentLocally ? fileForAgent : null,
+                            null,
                             sessionId
                         );
                         if (localResult.ok) {
