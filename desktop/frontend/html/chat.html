@@ -1921,10 +1921,10 @@
             <div id="input-area" class="absolute left-0 right-0 p-4 bottom-0 lg:bottom-0">
                 <div class="mx-auto" :style="workspaceDetailsOpen && getCurrentWorkspace() ? 'max-width:1020px;' : 'max-width:72rem;'">
                     <!-- File info display -->
-                    <div x-show="uploadedFiles.length > 0" style="margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start;">
+                    <div x-show="uploadedFiles.length > 0" class="custom-scrollbar" style="margin-bottom:8px; display:flex; gap:8px; flex-wrap:nowrap; align-items:stretch; overflow-x:auto; overflow-y:hidden; padding-bottom:2px;">
                         <template x-for="f in uploadedFiles" :key="f.id">
-                            <div style="padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; width:auto; max-width:320px;">
-                                <div style="display:grid; gap:2px; min-width:0;">
+                            <div style="padding:7px 10px; background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; width:260px; min-width:260px; max-width:260px; flex-shrink:0;">
+                                <div style="display:grid; gap:2px; min-width:0; flex:1;">
                                     <div style="display:flex; align-items:center; gap:8px;">
                                         <i class="fas fa-file" style="color:var(--accent); font-size:0.8rem;"></i>
                                         <span style="font-size:0.82rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="f.name"></span>

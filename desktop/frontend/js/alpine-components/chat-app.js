@@ -270,15 +270,6 @@ function setCookieValue(name, value, maxAgeSeconds = 60 * 60 * 24 * 365) {
     }
 }
 
-function isA2hsDebugForced() {
-    try {
-        const params = new URLSearchParams(window.location.search || '');
-        return params.get('a2hs') === '1';
-    } catch {
-        return false;
-    }
-}
-
 function findScrollableAncestor(element) {
     if (!element || typeof window === 'undefined') {
         return null;
@@ -1108,7 +1099,6 @@ function chatApp() {
         },
 
         hasSeenAddToHomePrompt() {
-            if (isA2hsDebugForced()) return false;
             if (getCookieValue(A2HS_SEEN_COOKIE_KEY) === '1') return true;
             return localStorage.getItem(A2HS_SEEN_COOKIE_KEY) === '1';
         },
@@ -1124,10 +1114,6 @@ function chatApp() {
         },
 
         maybeShowAddToHomePrompt() {
-            if (isA2hsDebugForced()) {
-                this.addToHomePromptOpen = true;
-                return;
-            }
             if (this.hasSeenAddToHomePrompt()) return;
             if (this.isRunningStandalonePwa()) return;
             if (this.installPromptAvailable || this.isIosMobile()) {
