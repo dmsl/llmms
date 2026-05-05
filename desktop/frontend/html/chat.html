@@ -545,6 +545,10 @@
                 display: none !important;
             }
 
+            .composer-desktop-toggle {
+                display: none !important;
+            }
+
             .composer-more-mobile-trigger {
                 display: inline-flex !important;
             }
@@ -1797,8 +1801,8 @@
                                                 <i class="fas fa-brain" style="font-size:0.74rem; color:#6b7280; margin-top:2px; flex-shrink:0;"></i>
                                                 <pre
                                                     :style="message.expanded
-                                                        ? 'margin:0; width:100%; max-width:100%; min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:monospace; flex:1;'
-                                                        : 'margin:0; width:100%; max-width:100%; min-width:0; white-space:nowrap; text-overflow:ellipsis; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:monospace; flex:1; display:block;'"
+                                                        ? 'margin:0; width:100%; max-width:100%; min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:var(--font-body); flex:1;'
+                                                        : 'margin:0; width:100%; max-width:100%; min-width:0; white-space:normal; overflow-wrap:anywhere; word-break:break-word; text-overflow:ellipsis; font-size:0.74rem; line-height:1.45; color:#6b7280; background:none; border:none; padding:0; overflow:hidden; font-family:var(--font-body); flex:1; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical;'"
                                                     x-text="message.content"></pre>
                                             </div>
                                             <span
@@ -1883,7 +1887,10 @@
                                                 onmouseout="this.style.background='none'">
                                                 <span style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
                                                     <span x-text="model.displayName"></span>
-                                                    <span style="font-size:0.62rem; color:var(--muted);" x-text="getModelStatus(model.id) === 'ready' ? 'Ready' : (getModelStatus(model.id) === 'loading' ? 'Loading…' : 'Unknown')"></span>
+                                                    <span
+                                                        x-show="getModelStatus(model.id) === 'ready' || getModelStatus(model.id) === 'loading'"
+                                                        style="font-size:0.62rem; color:var(--muted);"
+                                                        x-text="getModelStatus(model.id) === 'ready' ? 'Ready' : 'Loading…'"></span>
                                                     <template x-if="model.iconVision">
                                                         <i class="fas fa-eye" style="font-size:0.6rem; color:#6b99d4;" title="Vision"></i>
                                                     </template>
@@ -1902,6 +1909,7 @@
                                     </div>
                                 </div>
                                 <button
+                                    class="composer-desktop-toggle"
                                     x-show="selectedModelSupportsThinking()"
                                     @click="toggleThinking()"
                                     type="button"
@@ -1913,6 +1921,7 @@
                                     <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="thinkingEnabled ? 'Thinking On' : 'Thinking Off'"></span>
                                 </button>
                                 <button
+                                    class="composer-desktop-toggle"
                                     @click="toggleLocalRagEnabled()"
                                     type="button"
                                     :style="localRagEnabled
@@ -1989,12 +1998,7 @@
                                             ? 'width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px; border-color:var(--accent); color:var(--accent); background:rgba(106,66,194,0.08);'
                                             : 'width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px;'">
                                         <i class="fas fa-database" style="font-size:0.72rem;"></i>
-                                        <span x-text="localRagEnabled ? 'Private docs on' : 'Private docs off'"></span>
-                                    </button>
-                                    <button @click="localRagManagerOpen = true; mobileOpen = false" class="ds-btn" style="width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px;">
-                                        <i class="fas fa-folder-open" style="font-size:0.72rem;"></i>
-                                        <span>Private docs</span>
-                                        <span x-show="getSessionPrivateDocCount() > 0" style="margin-left:auto; font-size:0.64rem; color:var(--accent);" x-text="getSessionPrivateDocCount()"></span>
+                                        <span x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
                                     </button>
                                     <button
                                         x-show="browserPreviewEnabled"
