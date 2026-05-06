@@ -913,7 +913,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ragToggle.checked = false;
                     isClientSideRagEnabled = false;
                     localStorage.setItem("clientSideRagEnabled", "false");
-                    alert("Could not load Local RAG components.");
+                    alert("Could not load Privacy components.");
                 } finally {
                     ragToggle.disabled = false;
                 }
@@ -1118,7 +1118,7 @@ resetScrollBehavior();
 
             // If a file is selected and not yet ingested, ingest it.
             if (selectedFile && browserRetriever && !(await browserRetriever.hasDocuments())) {
-                console.log("submitRequest: Ingesting file with local RAG...");
+                console.log("submitRequest: Ingesting file with Privacy...");
                 const chatMessages = document.getElementById('chat-messages');
                 if (chatMessages) {
                     const processingMsg = document.createElement('div');
@@ -1148,7 +1148,7 @@ resetScrollBehavior();
 
             // If documents have been ingested, retrieve context.
             if (browserRetriever && (await browserRetriever.hasDocuments())) {
-                console.log("submitRequest: Retrieving context from local RAG...");
+                console.log("submitRequest: Retrieving context from Privacy...");
                 const context = await getLocalRagContext(input);
                 console.log("submitRequest: Retrieved context:", context);
 

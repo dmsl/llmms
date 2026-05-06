@@ -47,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateFileUI(isClientSideRagEnabled);
                 }
 
-                console.log(`Local RAG ${isClientSideRagEnabled ? 'enabled' : 'disabled'}`);
+                console.log(`Privacy ${isClientSideRagEnabled ? 'enabled' : 'disabled'}`);
             });
         }
     } catch (error) {
@@ -273,7 +273,7 @@ let originalSubmitRequest = null;
 let originalSendButton = null;
 let originalSendButtonHandler = null;
 
-// Override the submitRequest function to add local RAG functionality
+// Override the submitRequest function to add Privacy functionality
 document.addEventListener('DOMContentLoaded', () => {
     // Wait for the page to fully load to ensure the original elements are defined
     setTimeout(() => {

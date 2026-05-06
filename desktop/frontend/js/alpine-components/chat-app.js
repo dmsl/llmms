@@ -972,19 +972,19 @@ function chatApp() {
                     const loadingMsg = {
                         id: Date.now(),
                         role: 'system',
-                        content: '🔄 Loading Local RAG (downloading ~50MB model shards)...'
+                        content: '🔄 Loading Privacy (downloading ~50MB model shards)...'
                     };
                     this.messages.push(loadingMsg);
                     const loadingIndex = this.messages.length - 1;
                     
                     try {
-                        console.log('[ChatApp] Local RAG enabled, loading dependencies...');
+                        console.log('[ChatApp] Privacy enabled, loading dependencies...');
                         await ensureRagLoaded();
                         await this.ensureLocalRetriever();
                         this.localRagWarmupDone = true;
                         
                         // Update loading message to success
-                        this.messages[loadingIndex].content = '✅ Local RAG ready! You can now upload documents for context-aware chat.';
+                        this.messages[loadingIndex].content = '✅ Privacy ready! You can now upload documents for context-aware chat.';
                         console.log('[ChatApp] RAG dependencies loaded successfully');
                         
                         // Remove success message after 3 seconds
@@ -995,7 +995,7 @@ function chatApp() {
                     } catch (error) {
                         console.error('[ChatApp] Failed to load RAG dependencies:', error);
                         this.localRagEnabled = false;
-                        this.messages[loadingIndex].content = '❌ Failed to load Local RAG: ' + error.message;
+                        this.messages[loadingIndex].content = '❌ Failed to load Privacy: ' + error.message;
                         
                         // Remove error message after 5 seconds
                         setTimeout(() => {
@@ -1466,7 +1466,7 @@ function chatApp() {
                     : true;
                 this.localRagFileStates = parsed.localRagFileStates || {};
             } catch (error) {
-                console.warn('[ChatApp] Failed to load local RAG preferences:', error);
+                console.warn('[ChatApp] Failed to load Privacy preferences:', error);
             }
         },
 
@@ -1493,7 +1493,7 @@ function chatApp() {
                     localRagFileStates: this.localRagFileStates
                 }));
             } catch (error) {
-                console.warn('[ChatApp] Failed to persist local RAG preferences:', error);
+                console.warn('[ChatApp] Failed to persist Privacy preferences:', error);
             }
         },
 
@@ -1554,7 +1554,7 @@ function chatApp() {
 
                 this.ragWorker.onerror = (error) => {
                     console.error('[ChatApp] RAG worker error:', error);
-                    this.localRagStatusText = 'Local RAG worker error. Check browser console.';
+                    this.localRagStatusText = 'Privacy worker error. Check browser console.';
                 };
             }
 
@@ -1856,8 +1856,8 @@ function chatApp() {
             const applied = this.setCurrentSessionPrivateStoreEnabled(nextValue);
             const sessionId = this.currentSession;
             this.localRagStatusText = nextValue
-                ? `Local RAG enabled for chat ${sessionId}`
-                : `Local RAG disabled for chat ${sessionId}`;
+                ? `Privacy enabled for chat ${sessionId}`
+                : `Privacy disabled for chat ${sessionId}`;
             this.ragLog('RAG:toggle', { sessionId, enabled: nextValue, applied });
         },
 
@@ -4243,6 +4243,13 @@ function chatApp() {
                 this.sendMessage();
             }
         },
+
+        openFilePicker() {
+            if (!this.$refs.fileInput) return;
+            // Always clear current value so selecting the same file emits `change`.
+            this.$refs.fileInput.value = '';
+            this.$refs.fileInput.click();
+        },
         
         async handleFileUpload(event) {
             const files = Array.from(event.target.files || []);
@@ -4270,6 +4277,10 @@ function chatApp() {
                 });
             }
             this.localRagStatusText = 'Files queued. They will be ingested when you send.';
+            // Keep picker reusable even for immediate re-selection of identical files.
+            if (event?.target) {
+                event.target.value = '';
+            }
         },
         removeUploadedFile(fileId) {
             this.uploadedFiles = this.uploadedFiles.filter(f => f.id !== fileId);
@@ -4432,7 +4443,7 @@ function chatApp() {
                 let localRagRuntimeReady = !needsLocalRagEngine;
                 const ocrContextSections = [];
 
-                // Load Local RAG dependencies after user bubble/typing bubble are visible,
+                // Load Privacy dependencies after user bubble/typing bubble are visible,
                 // so UI feedback is immediate and perceived latency is reduced.
                 if (needsLocalRagEngine) {
                     try {
@@ -4441,7 +4452,7 @@ function chatApp() {
                     } catch (error) {
                         console.error('[ChatApp] Failed to load RAG dependencies:', error);
                         localRagRuntimeReady = false;
-                        this.localRagStatusText = 'Local RAG failed to initialize; continuing without local retrieval.';
+                        this.localRagStatusText = 'Privacy failed to initialize; continuing without local retrieval.';
                     }
                 }
                 if (this.localRagEnabled && localRagRuntimeReady) {
@@ -4495,7 +4506,7 @@ function chatApp() {
                 const isDocumentUpload = queuedDocumentEntries.length > 0;
                 const shouldIndexUploadedDocumentLocally = isDocumentUpload && this.getCurrentSessionPrivateStoreEnabled(sessionId);
                 if (this.localRagEnabled && isDocumentUpload) {
-                    // Local RAG mode must keep document processing browser-side only.
+                    // Privacy mode must keep document processing browser-side only.
                     fileForAgent = null;
                 }
                 if (visionCapable) {
@@ -4529,7 +4540,7 @@ function chatApp() {
                             this.localRagStatusText = `Local retrieval unavailable: ${localResult.reason || 'no-relevant-chunks'}`;
                         }
                     } catch (localError) {
-                        console.warn('[ChatApp] Local retrieval failed (no backend fallback for Local RAG mode):', localError);
+                        console.warn('[ChatApp] Local retrieval failed (no backend fallback for Privacy mode):', localError);
                         this.localRagLastModeUsed = 'local';
                         this.localRagStatusText = 'Local retrieval failed in browser.';
                     }

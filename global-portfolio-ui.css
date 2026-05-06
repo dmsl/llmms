@@ -1197,7 +1197,7 @@ a {
         /* File upload button */
         .w-10.h-10.rounded-lg.border.border-primary { border-color: var(--accent) !important; color: var(--accent) !important; }
 
-        /* Local RAG toggle */
+        /* Privacy toggle */
         .border-primary.bg-primary-pale { background: rgba(106,66,194,0.07) !important; border-color: var(--accent) !important; color: var(--accent) !important; }
         .border-gray-300.text-gray-600 { border-color: var(--border) !important; color: var(--muted) !important; }
 

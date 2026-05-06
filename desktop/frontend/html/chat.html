@@ -772,7 +772,7 @@
         /* File upload button */
         .w-10.h-10.rounded-lg.border.border-primary { border-color: var(--accent) !important; color: var(--accent) !important; }
 
-        /* Local RAG toggle */
+        /* Privacy toggle */
         .border-primary.bg-primary-pale { background: rgba(106,66,194,0.07) !important; border-color: var(--accent) !important; color: var(--accent) !important; }
         .border-gray-300.text-gray-600 { border-color: var(--border) !important; color: var(--muted) !important; }
 
@@ -2033,14 +2033,14 @@
                                         : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
                                     :title="localRagEnabled ? 'Private document store enabled' : 'Private document store disabled'">
                                     <i class="fas fa-database" style="font-size:0.8rem;"></i>
-                                    <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
+                                    <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="localRagEnabled ? 'Privacy On' : 'Privacy Off'"></span>
                                 </button>
 
                             </div>
 
                             <div data-tour="composer-context" x-data="{ mobileOpen: false }" style="margin-left:auto; display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; min-width:0; max-width:100%; position:relative;">
                                 <button
-                                    @click="$refs.fileInput.click()"
+                                    @click="openFilePicker()"
                                     class="ds-icon-btn composer-attach-mobile"
                                     style="display:none; width:36px; height:36px;"
                                     title="Attach file">
@@ -2050,7 +2050,7 @@
                                 <div class="composer-secondary-desktop" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                                     <!-- File Upload -->
                                     <button
-                                        @click="$refs.fileInput.click()"
+                                        @click="openFilePicker()"
                                         class="ds-icon-btn"
                                         style="width:36px; height:36px;"
                                         title="Attach file">
@@ -2102,7 +2102,7 @@
                                             ? 'width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px; border-color:var(--accent); color:var(--accent); background:rgba(106,66,194,0.08);'
                                             : 'width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px;'">
                                         <i class="fas fa-database" style="font-size:0.72rem;"></i>
-                                        <span x-text="localRagEnabled ? 'Local RAG On' : 'Local RAG Off'"></span>
+                                        <span x-text="localRagEnabled ? 'Privacy On' : 'Privacy Off'"></span>
                                     </button>
                                     <button
                                         x-show="browserPreviewEnabled"
