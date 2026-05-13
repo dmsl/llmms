@@ -32,6 +32,9 @@
     
     <!-- Font Awesome for icons -->
     <link href="../vendor/fontawesome/css/all.min.css" rel="stylesheet">
+
+    <!-- Marked.js for Markdown parsing -->
+    <script src="../vendor/marked/marked.umd.js"></script>
     
     <!-- Custom minimal CSS -->
     <style>
@@ -62,6 +65,31 @@
             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
             transition-duration: 150ms;
         }
+
+        .md-content { font-size: 0.875rem; line-height: 1.7; color: inherit; }
+        .md-content p { margin: 0 0 0.65em; }
+        .md-content p:last-child { margin-bottom: 0; }
+        .md-content ul, .md-content ol { margin: 0.4em 0 0.7em 1.2em; }
+        .md-content pre {
+            background: rgba(106,66,194,0.07);
+            border-radius: 8px;
+            padding: 10px 12px;
+            overflow-x: auto;
+            margin: 0.6em 0;
+            border: 1px solid rgba(106,66,194,0.15);
+        }
+        .md-content code {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.82em;
+            background: rgba(106,66,194,0.08);
+            color: var(--accent);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+        }
+        .md-content pre code { background: none; padding: 0; }
+        .md-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+        .md-content--user code { background: rgba(255,255,255,0.18); color: #fff; }
+        .md-content--user a { color: rgba(255,255,255,0.9); }
     </style>
 </head>
 
@@ -205,7 +233,7 @@
                                     ? 'bg-primary text-white rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl' 
                                     : 'bg-gray-100 text-gray-800 rounded-tl-2xl rounded-tr-2xl rounded-br-2xl'"
                                 class="max-w-[80%] px-4 py-3 shadow-sm">
-                                <p class="text-sm whitespace-pre-wrap" x-html="message.content"></p>
+                                <div class="text-sm whitespace-pre-wrap" x-html="message.content"></div>
                                 <template x-if="message.model">
                                     <div class="text-xs opacity-70 mt-2" x-text="'Model: ' + message.model"></div>
                                 </template>
@@ -285,22 +313,20 @@
                                 <i class="fas fa-paperclip"></i>
                             </button>
                             <input type="file" x-ref="fileInput" @change="handleFileUpload($event)" class="hidden" accept=".pdf,.txt,image/*">
+
+                            <template x-if="selectedFile">
+                                <div class="px-2 py-1 rounded-lg bg-primary-pale text-primary text-xs border border-sidebar-border flex items-center gap-2 max-w-[280px]">
+                                    <span class="truncate" x-text="selectedFile.name"></span>
+                                    <button @click="removeSelectedFile()" class="text-primary hover:text-primary-dark">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </template>
                             
-                            <!-- LLM-MS Toggle -->
                             <div class="flex items-center gap-2 ml-auto">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input 
-                                        type="checkbox"
-                                        x-model="llmMsEnabled"
-                                        class="w-4 h-4 text-primary rounded focus:ring-primary">
-                                    <span class="text-sm text-gray-700">LLM-MS</span>
-                                </label>
-                                
-                                <!-- Settings Button -->
                                 <button 
                                     @click="settingsOpen = true"
-                                    :class="llmMsEnabled ? 'text-green-600 bg-green-50' : 'text-gray-600 bg-gray-50'"
-                                    class="w-10 h-10 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center">
+                                    class="w-10 h-10 rounded-lg border border-gray-300 hover:bg-gray-100 transition-colors flex items-center justify-center text-green-600 bg-green-50">
                                     <i class="fas fa-sliders"></i>
                                 </button>
                             </div>
@@ -388,6 +414,68 @@
                             step="0.05"
                             class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary">
                     </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Dynamic Margin Coefficient</label>
+                    <input
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        x-model.number="config.dynamicMarginCoeff"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Start Tokens</label>
+                        <input
+                            type="number"
+                            min="32"
+                            max="4096"
+                            step="32"
+                            x-model.number="config.startTokens"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Max Rounds</label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            step="1"
+                            x-model.number="config.maxRounds"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">MAB Explore Coefficient</label>
+                    <input
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="2"
+                        x-model.number="config.xploreCoeff"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Embedding Model</label>
+                    <input
+                        type="text"
+                        x-model.trim="config.embeddingModel"
+                        placeholder="nomic-embed-text"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Model Pool (comma-separated)</label>
+                    <textarea
+                        x-model.trim="config.modelsText"
+                        rows="2"
+                        placeholder="llama3.1,mistral,qwen2.5"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent resize-none"></textarea>
                 </div>
                 
                 <!-- Save Button -->
