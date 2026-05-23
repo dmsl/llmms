@@ -15,6 +15,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 HOME_DIR=$(eval echo ~$USER)
+GPU_REBOOT_REQUIRED=0
 # Logging functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -330,8 +331,12 @@ install_apache() {
         Require all granted
     </Directory>
     
-    # Proxy API requests to FastAPI
+    # Proxy API requests to FastAPI and Ollama OpenAI-compatible API
     ProxyPreserveHost On
+    ProxyPass /api/v1/ http://127.0.0.1:11434/v1/
+    ProxyPassReverse /api/v1/ http://127.0.0.1:11434/v1/
+    ProxyPass /api/ws/ ws://127.0.0.1:62828/ws/
+    ProxyPassReverse /api/ws/ ws://127.0.0.1:62828/ws/
     ProxyPass /api/ http://127.0.0.1:62828/
     ProxyPassReverse /api/ http://127.0.0.1:62828/
     
@@ -359,6 +364,48 @@ EOF
         log_success "Apache2 is running"
     else
         log_error "Apache2 failed to start"
+        exit 1
+    fi
+}
+
+# Patch existing Apache vhost configs to expose /api/v1 and FastAPI websocket routes
+patch_apache_openai_v1_proxy() {
+    log_info "Patching Apache vhost config(s) for /api/v1 and websocket proxy paths..."
+
+    local conf_files
+    conf_files=$(grep -Rsl "ProxyPass /api/" /etc/apache2/sites-available /etc/apache2/sites-enabled 2>/dev/null || true)
+
+    if [ -z "$conf_files" ]; then
+        log_warning "No Apache vhost with /api proxy found to patch."
+        return 0
+    fi
+
+    while IFS= read -r conf; do
+        [ -z "$conf" ] && continue
+        if grep -q "ProxyPass /api/v1/" "$conf" && grep -q "ProxyPass /api/ws/" "$conf"; then
+            log_info "Already patched: $conf"
+            continue
+        fi
+
+        log_info "Patching: $conf"
+        sudo awk '
+            /ProxyPass[[:space:]]+\/api\// && !inserted {
+                print "    ProxyPass /api/v1/ http://127.0.0.1:11434/v1/"
+                print "    ProxyPassReverse /api/v1/ http://127.0.0.1:11434/v1/"
+                print "    ProxyPass /api/ws/ ws://127.0.0.1:62828/ws/"
+                print "    ProxyPassReverse /api/ws/ ws://127.0.0.1:62828/ws/"
+                inserted=1
+            }
+            { print }
+        ' "$conf" | sudo tee "$conf.tmp" > /dev/null
+        sudo mv "$conf.tmp" "$conf"
+    done <<< "$conf_files"
+
+    if sudo apache2ctl configtest; then
+        sudo systemctl reload apache2
+        log_success "Apache patched and reloaded with /api/v1 and /api/ws proxy paths."
+    else
+        log_error "Apache config test failed after patch."
         exit 1
     fi
 }
@@ -444,8 +491,12 @@ print_completion() {
     echo "  • Pull new model: ollama pull model-name"
     echo ""
     
-    if [ -n "$GPU_DETECTED" ]; then
-        log_info "GPU detected but not configured. See installation guide for GPU setup."
+    if [ "$GPU_REBOOT_REQUIRED" -eq 1 ]; then
+        log_warning "Reboot is required to activate the newly installed NVIDIA driver."
+        echo "  • Reboot now: sudo reboot"
+        echo "  • Verify after reboot: nvidia-smi"
+    elif [ -n "$GPU_DETECTED" ]; then
+        log_info "GPU detected and NVIDIA driver appears available."
     fi
 }
 #############################################################
@@ -503,17 +554,10 @@ setup_gpu_driver_vm() {
     echo "STEP 5: Driver installed"
     echo "=========================================================="
     log_success "NVIDIA driver package installed."
-    log_warning "A reboot is required before continuing."
+    log_warning "A reboot is required before NVIDIA becomes active."
+    GPU_REBOOT_REQUIRED=1
     echo ""
-    echo "Now run:"
-    echo "  sudo reboot"
-    echo ""
-    echo "After reboot, verify with:"
-    echo "  nvidia-smi"
-    echo ""
-    echo "Then rerun this installer to continue the LLM-MS setup."
-
-    exit 0
+    echo "Installation will continue. Reboot after setup completes."
 }
 
 
@@ -564,6 +608,7 @@ main() {
     setup_llmms
     create_fastapi_service
     install_apache
+    patch_apache_openai_v1_proxy
     download_models
     
     echo ""
