@@ -33,6 +33,28 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Prompt helper that works with both direct execution and `curl | bash`.
+# If no TTY is available, require AUTO_CONFIRM=true to continue.
+confirm_or_exit() {
+    local prompt="$1"
+    local reply=""
+
+    if [ "${AUTO_CONFIRM:-false}" = "true" ]; then
+        log_info "AUTO_CONFIRM=true -> accepting prompt: $prompt"
+        return 0
+    fi
+
+    if [ -t 0 ] || [ -r /dev/tty ]; then
+        read -r -p "$prompt (y/n) " reply </dev/tty
+        if [[ "$reply" =~ ^[Yy]$ ]]; then
+            return 0
+        fi
+    fi
+
+    log_info "Installation cancelled by user"
+    exit 0
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then 
     log_error "Please do not run this script as root. Run as normal user with sudo privileges."
@@ -75,11 +97,7 @@ check_requirements() {
     TOTAL_RAM=$(free -g | awk '/^Mem:/{print $2}')
     if [ "$TOTAL_RAM" -lt 16 ]; then
         log_warning "System has ${TOTAL_RAM}GB RAM. 16GB+ recommended for optimal performance."
-        read -p "Continue anyway? (y/n) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
+        confirm_or_exit "Continue anyway?"
     else
         log_success "RAM: ${TOTAL_RAM}GB"
     fi
@@ -88,11 +106,7 @@ check_requirements() {
     AVAILABLE_SPACE=$(df -BG ~ | tail -1 | awk '{print $4}' | sed 's/G//')
     if [ "$AVAILABLE_SPACE" -lt 50 ]; then
         log_warning "Only ${AVAILABLE_SPACE}GB free space available. 50GB+ recommended."
-        read -p "Continue anyway? (y/n) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
+        confirm_or_exit "Continue anyway?"
     else
         log_success "Disk space: ${AVAILABLE_SPACE}GB available"
     fi
@@ -588,12 +602,7 @@ main() {
     log_warning "This will take approximately 20-30 minutes."
     echo ""
     
-    read -p "Continue with installation? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Installation cancelled by user"
-        exit 0
-    fi
+    confirm_or_exit "Continue with installation?"
     
     echo ""
     log_info "Starting installation..."
