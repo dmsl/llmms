@@ -1,9 +1,9 @@
 import { sanitizeHTML } from '../utils/html-safe.js';
 
 const STORAGE_KEYS = {
-    sessions: 'llmms_sessions_v2',
-    config: 'llmms_config_v2',
-    selectedModel: 'llmms_selected_model_v2'
+    sessions: 'llmms_sessions_v3',
+    config: 'llmms_config_v3',
+    selectedModels: 'llmms_selected_models_v3'
 };
 
 const DEFAULT_CONFIG = {
@@ -16,12 +16,38 @@ const DEFAULT_CONFIG = {
     dynamicMarginCoeff: 0.5,
     xploreCoeff: 0.3,
     embeddingModel: 'nomic-embed-text',
-    modelsText: 'llama3.1,mistral,qwen2.5'
+    modelsText: ''
 };
 
-const MODEL_TO_ALGO = {
-    'LLM-MS-OUA': 'stepwise',
-    'LLM-MS-MAB': 'mab'
+const ALLOWED_API_MODELS = [
+    'qwen3-vl:8b',
+    'gemma3n:e2b',
+    // 'granite4.1:8b',
+    'lfm2.5:latest',
+    'qwen3.5:2b'
+];
+
+const THINKING_API_MODELS = new Set([
+    'qwen3-vl:8b',
+    'lfm2.5:latest',
+    'qwen3.5:2b'
+]);
+
+const ALGORITHMS = {
+    stepwise: {
+        id: 'stepwise',
+        label: 'LLM-MS-OUA',
+        shortLabel: 'OUA',
+        name: 'Overperformers-Underperformers',
+        description: 'Round-robin generation with score-based underperformer pruning.'
+    },
+    mab: {
+        id: 'mab',
+        label: 'LLM-MS-MAB',
+        shortLabel: 'MAB',
+        name: 'Multi-Armed Bandit',
+        description: 'Adaptive pulls toward high-reward models under a token budget.'
+    }
 };
 
 function makeId(prefix) {
@@ -33,11 +59,18 @@ function asNumber(value, fallback) {
     return Number.isFinite(n) ? n : fallback;
 }
 
-function parseModels(modelsText) {
-    return String(modelsText || '')
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
+function formatNumber(value, digits = 3) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toFixed(digits) : '-';
+}
+
+function uniqueModels(models) {
+    return [...new Set((models || []).map(model => String(model || '').trim()).filter(Boolean))];
+}
+
+function allowedModels(models) {
+    const allowed = new Set(ALLOWED_API_MODELS);
+    return uniqueModels(models).filter(model => allowed.has(model));
 }
 
 function extractJsonObjects(buffer) {
@@ -98,6 +131,71 @@ function renderMarkdown(text, isUser = false) {
     }
 }
 
+function renderMath(element) {
+    if (!element || typeof window.renderMathInElement !== 'function') return;
+    window.renderMathInElement(element, {
+        delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '$', right: '$', display: false }
+        ],
+        throwOnError: false,
+        strict: false
+    });
+}
+
+function createModelCard(model) {
+    return {
+        model,
+        status: 'waiting',
+        statusLabel: 'Waiting',
+        rawOutput: '',
+        content: '',
+        rawThinking: '',
+        score: null,
+        qSimilarity: null,
+        interSimilarity: null,
+        tokens: 0,
+        pulls: 0,
+        round: null,
+        reason: '',
+        done: false,
+        chosen: false,
+        active: true,
+        pruned: false,
+        error: ''
+    };
+}
+
+function createRunMessage({ algorithmType, models }) {
+    const modelList = uniqueModels(models);
+    const modelCards = {};
+    modelList.forEach(model => {
+        modelCards[model] = createModelCard(model);
+    });
+
+    return {
+        id: makeId('run'),
+        role: 'assistant',
+        type: 'llmms-run',
+        algorithm: algorithmType,
+        algorithmLabel: ALGORITHMS[algorithmType]?.label || 'LLM-MS',
+        models: modelList,
+        modelCards,
+        rounds: [],
+        rawEvents: [],
+        currentRound: 0,
+        usedTokens: 0,
+        tokenBudget: 0,
+        tokenAllocation: 0,
+        selectedModel: '',
+        finalResult: null,
+        isStreaming: true,
+        error: ''
+    };
+}
+
 export default function chatApp() {
     return {
         sidebarOpen: false,
@@ -107,20 +205,23 @@ export default function chatApp() {
         sessions: [],
         currentSession: null,
         isLoading: false,
-        selectedModel: 'LLM-MS-OUA',
         config: { ...DEFAULT_CONFIG },
-        selectedFile: null,
+        installedModels: [],
+        selectedModels: [],
+        modelLoadStatus: 'idle',
+        modelLoadError: '',
 
         init() {
             this.loadState();
             if (!this.sessions.length) this.newChat();
+            this.loadInstalledModels();
 
-            this.$watch('userInput', () => {
-                this.autoResizeTextarea();
-            });
+            this.$watch('userInput', () => this.autoResizeTextarea());
+            this.$watch('selectedModels', () => this.persistSelectedModels());
 
             this.$nextTick(() => {
                 this.autoResizeTextarea();
+                renderMath(document.getElementById('chat-history'));
                 this.scrollToBottom();
             });
         },
@@ -140,12 +241,15 @@ export default function chatApp() {
                 this.config = { ...DEFAULT_CONFIG };
             }
 
-            const savedModel = localStorage.getItem(STORAGE_KEYS.selectedModel);
-            if (savedModel && MODEL_TO_ALGO[savedModel]) {
-                this.selectedModel = savedModel;
-                this.config.algorithmType = MODEL_TO_ALGO[savedModel];
-            } else {
-                this.syncModelFromAlgorithm();
+            if (!ALGORITHMS[this.config.algorithmType]) {
+                this.config.algorithmType = DEFAULT_CONFIG.algorithmType;
+            }
+
+            try {
+                const savedModels = JSON.parse(localStorage.getItem(STORAGE_KEYS.selectedModels) || '[]');
+                this.selectedModels = allowedModels(Array.isArray(savedModels) ? savedModels : []);
+            } catch {
+                this.selectedModels = [];
             }
 
             if (this.sessions.length > 0) {
@@ -154,20 +258,60 @@ export default function chatApp() {
             }
         },
 
+        async loadInstalledModels() {
+            this.modelLoadStatus = 'loading';
+            this.modelLoadError = '';
+
+            try {
+                const response = await fetch('/api/tags', { cache: 'no-store' });
+                if (!response.ok) throw new Error(`Ollama returned ${response.status}`);
+                const payload = await response.json();
+                const availableModels = Array.isArray(payload?.models)
+                    ? payload.models.map(model => model?.name || model?.model || model?.id)
+                    : [];
+                const availableModelSet = new Set(uniqueModels(availableModels));
+                const models = ALLOWED_API_MODELS.filter(model => availableModelSet.has(model));
+
+                this.installedModels = uniqueModels(models);
+                if (!this.selectedModels.length && this.installedModels.length) {
+                    this.selectedModels = [...this.installedModels];
+                } else if (this.selectedModels.length && this.installedModels.length) {
+                    const installed = new Set(this.installedModels);
+                    const stillInstalled = this.selectedModels.filter(model => installed.has(model));
+                    this.selectedModels = stillInstalled.length ? stillInstalled : [...this.installedModels];
+                } else if (!this.installedModels.length) {
+                    this.selectedModels = [];
+                }
+
+                this.config.modelsText = this.selectedModels.join(',');
+
+                this.modelLoadStatus = this.installedModels.length ? 'ready' : 'empty';
+                this.saveSettings();
+                this.persistSelectedModels();
+            } catch (error) {
+                this.modelLoadStatus = 'error';
+                this.modelLoadError = error?.message || 'Unable to load Ollama models';
+                this.installedModels = [];
+                this.selectedModels = [];
+                this.config.modelsText = '';
+                this.persistSelectedModels();
+            }
+        },
+
         saveState() {
             this.saveSessions();
             this.saveSettings();
-            localStorage.setItem(STORAGE_KEYS.selectedModel, this.selectedModel);
+            this.persistSelectedModels();
         },
 
         saveSessions() {
-            const idx = this.sessions.findIndex(s => s.id === this.currentSession);
+            const idx = this.sessions.findIndex(session => session.id === this.currentSession);
             if (idx >= 0) {
                 this.sessions[idx].messages = this.messages;
-                if (!this.sessions[idx].name || this.sessions[idx].name.startsWith('Chat ')) {
-                    const firstUser = this.messages.find(m => m.role === 'user');
+                if (!this.sessions[idx].name || this.sessions[idx].name.startsWith('Research Run ')) {
+                    const firstUser = this.messages.find(message => message.role === 'user');
                     if (firstUser?.rawText) {
-                        this.sessions[idx].name = firstUser.rawText.slice(0, 28) || this.sessions[idx].name;
+                        this.sessions[idx].name = firstUser.rawText.slice(0, 34) || this.sessions[idx].name;
                     }
                 }
             }
@@ -176,32 +320,29 @@ export default function chatApp() {
 
         saveSettings() {
             localStorage.setItem(STORAGE_KEYS.config, JSON.stringify(this.config));
-            this.syncModelFromAlgorithm();
-            localStorage.setItem(STORAGE_KEYS.selectedModel, this.selectedModel);
         },
 
-        syncModelFromAlgorithm() {
-            this.selectedModel = this.config.algorithmType === 'mab' ? 'LLM-MS-MAB' : 'LLM-MS-OUA';
+        persistSelectedModels() {
+            this.selectedModels = allowedModels(this.selectedModels);
+            localStorage.setItem(STORAGE_KEYS.selectedModels, JSON.stringify(this.selectedModels));
         },
 
         newChat() {
-            const chatNumber = this.sessions.length + 1;
             const session = {
                 id: makeId('session'),
-                name: `Chat ${chatNumber}`,
+                name: `Research Run ${this.sessions.length + 1}`,
                 messages: []
             };
             this.sessions.unshift(session);
             this.currentSession = session.id;
             this.messages = [];
-            this.selectedFile = null;
             this.userInput = '';
             this.saveState();
             this.$nextTick(() => this.scrollToBottom());
         },
 
         selectSession(sessionId) {
-            const session = this.sessions.find(s => s.id === sessionId);
+            const session = this.sessions.find(item => item.id === sessionId);
             if (!session) return;
             this.currentSession = session.id;
             this.messages = Array.isArray(session.messages) ? session.messages : [];
@@ -209,8 +350,24 @@ export default function chatApp() {
             this.$nextTick(() => this.scrollToBottom());
         },
 
+        deleteSession(sessionId) {
+            this.sessions = this.sessions.filter(session => session.id !== sessionId);
+            if (this.currentSession === sessionId) {
+                if (this.sessions.length) {
+                    this.currentSession = this.sessions[0].id;
+                    this.messages = Array.isArray(this.sessions[0].messages) ? this.sessions[0].messages : [];
+                } else {
+                    this.currentSession = null;
+                    this.messages = [];
+                    this.newChat();
+                    return;
+                }
+            }
+            this.saveState();
+        },
+
         clearAllSessions() {
-            if (!window.confirm('Clear all sessions? This cannot be undone.')) return;
+            if (!window.confirm('Clear all LLM-MS sessions? This cannot be undone.')) return;
             this.sessions = [];
             this.messages = [];
             this.currentSession = null;
@@ -218,11 +375,29 @@ export default function chatApp() {
             this.newChat();
         },
 
-        selectModel(model) {
-            this.selectedModel = model;
-            this.config.algorithmType = MODEL_TO_ALGO[model] || 'stepwise';
-            localStorage.setItem(STORAGE_KEYS.selectedModel, this.selectedModel);
+        setAlgorithm(type) {
+            if (!ALGORITHMS[type] || this.isLoading) return;
+            this.config.algorithmType = type;
             this.saveSettings();
+        },
+
+        toggleModel(model) {
+            if (this.isLoading) return;
+            if (!this.installedModels.includes(model) || !ALLOWED_API_MODELS.includes(model)) return;
+            if (this.selectedModels.includes(model)) {
+                this.selectedModels = this.selectedModels.filter(item => item !== model);
+            } else {
+                this.selectedModels = [...this.selectedModels, model];
+            }
+            this.config.modelsText = this.selectedModels.join(',');
+            this.saveSettings();
+            this.persistSelectedModels();
+        },
+
+        selectAllModels() {
+            this.selectedModels = [...this.installedModels];
+            this.config.modelsText = this.selectedModels.join(',');
+            this.saveState();
         },
 
         handleEnter(event) {
@@ -232,7 +407,7 @@ export default function chatApp() {
         },
 
         autoResizeTextarea() {
-            const textarea = this.$el.querySelector('textarea');
+            const textarea = this.$refs?.composerInput;
             if (!textarea) return;
             textarea.style.height = 'auto';
             textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
@@ -244,14 +419,29 @@ export default function chatApp() {
             chatHistory.scrollTop = chatHistory.scrollHeight;
         },
 
+        getCurrentModels() {
+            const installed = new Set(this.installedModels);
+            return allowedModels(this.selectedModels).filter(model => installed.has(model));
+        },
+
         getCleanMessagesForApi() {
-            return this.messages.map(message => ({
-                role: message.role,
-                content: message.rawText || String(message.content || '').replace(/<[^>]+>/g, '')
-            }));
+            return this.messages
+                .map(message => {
+                    if (message.role === 'user') {
+                        return { role: 'user', content: message.rawText || '' };
+                    }
+
+                    if (message.type === 'llmms-run' && message.finalResult?.output) {
+                        return { role: 'assistant', content: message.finalResult.output };
+                    }
+
+                    return null;
+                })
+                .filter(Boolean);
         },
 
         buildConfigPayload() {
+            const models = this.getCurrentModels();
             return {
                 START_TOKENS: asNumber(this.config.startTokens, DEFAULT_CONFIG.startTokens),
                 MAX_ROUNDS: asNumber(this.config.maxRounds, DEFAULT_CONFIG.maxRounds),
@@ -261,35 +451,20 @@ export default function chatApp() {
                 DYNAMIC_MARGIN_COEFF: asNumber(this.config.dynamicMarginCoeff, DEFAULT_CONFIG.dynamicMarginCoeff),
                 XPLORE_COEFF: asNumber(this.config.xploreCoeff, DEFAULT_CONFIG.xploreCoeff),
                 EMBEDDING_MODEL: String(this.config.embeddingModel || DEFAULT_CONFIG.embeddingModel).trim(),
-                MODELS: parseModels(this.config.modelsText)
+                MODELS: models
             };
-        },
-
-        async readSelectedFileAsContext() {
-            if (!this.selectedFile) return '';
-
-            const file = this.selectedFile;
-            const header = `\n\nAttached file: ${file.name} (${file.type || 'unknown'})`;
-            if (!file.type.startsWith('text/') && !file.name.toLowerCase().endsWith('.txt') && !file.name.toLowerCase().endsWith('.md')) {
-                return `${header}\nBinary file attached. Please reference it by filename in your answer.`;
-            }
-
-            try {
-                const text = await file.text();
-                const clipped = text.length > 20000 ? `${text.slice(0, 20000)}\n...[truncated]` : text;
-                return `${header}\n\nFile content:\n${clipped}`;
-            } catch {
-                return `${header}\nFile content could not be read in browser.`;
-            }
         },
 
         async sendMessage() {
             if (!this.userInput.trim() || this.isLoading) return;
 
-            const typedText = this.userInput.trim();
-            const fileContext = await this.readSelectedFileAsContext();
-            const rawUserText = `${typedText}${fileContext}`;
+            const models = this.getCurrentModels();
+            if (!models.length) {
+                this.modelLoadError = 'Select at least one model before starting an LLM-MS run.';
+                return;
+            }
 
+            const rawUserText = this.userInput.trim();
             const userMessage = {
                 id: makeId('msg'),
                 role: 'user',
@@ -301,14 +476,13 @@ export default function chatApp() {
             this.userInput = '';
             this.isLoading = true;
 
-            const assistantMessage = {
-                id: makeId('msg'),
-                role: 'assistant',
-                rawText: '',
-                content: '',
-                model: this.selectedModel
-            };
-            this.messages.push(assistantMessage);
+            const runMessage = createRunMessage({
+                algorithmType: this.config.algorithmType,
+                models
+            });
+            runMessage.tokenBudget = asNumber(this.config.maxTokens, DEFAULT_CONFIG.maxTokens);
+            this.messages.push(runMessage);
+
             this.$nextTick(() => {
                 this.autoResizeTextarea();
                 this.scrollToBottom();
@@ -321,7 +495,7 @@ export default function chatApp() {
                     config: this.buildConfigPayload()
                 };
 
-                const response = await fetch('/api/send_message_llmms', {
+                const response = await fetch('/llmms-api/send_message_llmms', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -331,78 +505,291 @@ export default function chatApp() {
                     throw new Error(`Request failed with status ${response.status}`);
                 }
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffered = '';
-                let hasFinalOutput = false;
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffered += decoder.decode(value, { stream: true });
-                    const parsed = extractJsonObjects(buffered);
-                    buffered = parsed.remainder;
-
-                    for (const objText of parsed.objects) {
-                        let data;
-                        try {
-                            data = JSON.parse(objText);
-                        } catch {
-                            continue;
-                        }
-
-                        if (data.model) assistantMessage.model = data.model;
-
-                        if (typeof data.output === 'string') {
-                            assistantMessage.rawText = data.output;
-                            hasFinalOutput = true;
-                        } else if (typeof data.response === 'string') {
-                            assistantMessage.rawText = data.response;
-                            hasFinalOutput = true;
-                        } else if (typeof data.partial_output === 'string') {
-                            assistantMessage.rawText = data.partial_output;
-                        } else if (typeof data.message === 'string' && data.status === 'error') {
-                            assistantMessage.rawText = `Error: ${data.message}`;
-                            hasFinalOutput = true;
-                        }
-
-                        assistantMessage.content = renderMarkdown(assistantMessage.rawText);
-
-                        if (data.done === true && data.status === 'error' && !assistantMessage.rawText) {
-                            assistantMessage.rawText = `Error: ${data.error || 'Unknown server error'}`;
-                            assistantMessage.content = renderMarkdown(assistantMessage.rawText);
-                            hasFinalOutput = true;
-                        }
-                    }
-
-                    this.$nextTick(() => this.scrollToBottom());
-                }
-
-                if (!hasFinalOutput && !assistantMessage.rawText.trim()) {
-                    assistantMessage.rawText = 'No response content was returned by the LLM-MS backend.';
-                    assistantMessage.content = renderMarkdown(assistantMessage.rawText);
-                }
+                await this.consumeRunStream(response, runMessage);
             } catch (error) {
-                assistantMessage.rawText = `Error: Unable to get response. ${error.message || ''}`.trim();
-                assistantMessage.content = renderMarkdown(assistantMessage.rawText);
+                runMessage.error = error?.message || 'Unable to get response.';
+                runMessage.isStreaming = false;
             } finally {
+                runMessage.isStreaming = false;
                 this.isLoading = false;
-                this.selectedFile = null;
-                if (this.$refs.fileInput) this.$refs.fileInput.value = '';
                 this.saveState();
                 this.$nextTick(() => this.scrollToBottom());
             }
         },
 
-        handleFileUpload(event) {
-            const file = event?.target?.files?.[0] || null;
-            this.selectedFile = file;
+        async consumeRunStream(response, runMessage) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffered = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffered += decoder.decode(value, { stream: true });
+                const parsed = extractJsonObjects(buffered);
+                buffered = parsed.remainder;
+
+                parsed.objects.forEach(objText => {
+                    try {
+                        const data = JSON.parse(objText);
+                        this.applyRunEvent(runMessage, data);
+                    } catch {
+                        runMessage.rawEvents.push({ status: 'parse_error', raw: objText });
+                    }
+                });
+
+                this.$nextTick(() => this.scrollToBottom());
+            }
+
+            buffered += decoder.decode();
+            const parsed = extractJsonObjects(buffered);
+            parsed.objects.forEach(objText => {
+                try {
+                    const data = JSON.parse(objText);
+                    this.applyRunEvent(runMessage, data);
+                } catch {
+                    runMessage.rawEvents.push({ status: 'parse_error', raw: objText });
+                }
+            });
         },
 
-        removeSelectedFile() {
-            this.selectedFile = null;
-            if (this.$refs.fileInput) this.$refs.fileInput.value = '';
+        applyRunEvent(run, data) {
+            const status = String(data?.status || '').trim();
+            run.rawEvents.push(data);
+
+            if (typeof data?.round === 'number') {
+                run.currentRound = Math.max(run.currentRound || 0, data.round);
+            }
+            if (typeof data?.used_tokens === 'number') run.usedTokens = data.used_tokens;
+            if (typeof data?.token_allocation === 'number') run.tokenAllocation = data.token_allocation;
+            if (typeof data?.per_model_chunk_tokens === 'number') run.tokenAllocation = data.per_model_chunk_tokens;
+            if (typeof data?.lambda_pull === 'number') run.tokenAllocation = data.lambda_pull;
+            if (typeof data?.chosen_model === 'string') run.selectedModel = data.chosen_model;
+
+            switch (status) {
+                case 'initialized':
+                    this.handleInitialized(run, data);
+                    break;
+                case 'round_start':
+                    this.handleRoundStart(run, data);
+                    break;
+                case 'model_progress':
+                    this.handleModelProgress(run, data);
+                    break;
+                case 'model_scored':
+                    this.handleModelScored(run, data);
+                    break;
+                case 'model_pruned':
+                    this.handleModelPruned(run, data);
+                    break;
+                case 'model_finished':
+                    this.handleModelFinished(run, data);
+                    break;
+                case 'model_error':
+                    this.handleModelError(run, data);
+                    break;
+                case 'model_embedding_failed':
+                    this.handleEmbeddingFailed(run, data);
+                    break;
+                case 'round_summary':
+                    this.handleRoundSummary(run, data);
+                    break;
+                case 'final_result':
+                    this.handleFinalResult(run, data);
+                    break;
+                case 'error':
+                    run.error = data.error || data.message || 'LLM-MS backend returned an error.';
+                    run.isStreaming = false;
+                    break;
+                default:
+                    if (data?.done === true && data?.error) {
+                        run.error = data.error;
+                        run.isStreaming = false;
+                    }
+            }
+
+            this.$nextTick(() => renderMath(document.getElementById('chat-history')));
+        },
+
+        handleInitialized(run, data) {
+            const models = uniqueModels(data.models || run.models);
+            run.models = models;
+            models.forEach(model => this.ensureCard(run, model));
+            run.tokenBudget = data.max_tokens || data.total_token_budget || run.tokenBudget;
+            run.algorithmLabel = ALGORITHMS[run.algorithm]?.label || run.algorithmLabel;
+        },
+
+        handleRoundStart(run, data) {
+            run.rounds.push({
+                round: data.round,
+                chosenModel: data.chosen_model || '',
+                activeModels: data.active_models || [],
+                usedTokens: data.used_tokens || 0,
+                gamma: data.gamma ?? null,
+                ucb: data.ucb ?? null
+            });
+
+            Object.values(run.modelCards).forEach(card => {
+                card.chosen = false;
+                if (Array.isArray(data.active_models)) {
+                    card.active = data.active_models.includes(card.model);
+                }
+            });
+
+            if (data.chosen_model) {
+                const card = this.ensureCard(run, data.chosen_model);
+                card.chosen = true;
+                card.status = 'active';
+                card.statusLabel = 'Chosen';
+                card.round = data.round;
+            }
+        },
+
+        handleModelProgress(run, data) {
+            const card = this.ensureCard(run, data.model);
+            card.status = data.done ? 'done' : 'streaming';
+            card.statusLabel = data.done ? 'Done' : 'Streaming';
+            card.rawOutput = data.partial_output || card.rawOutput;
+            card.content = renderMarkdown(card.rawOutput);
+            card.rawThinking = data.partial_thinking || card.rawThinking;
+            card.tokens = data.tokens ?? card.tokens;
+            card.round = data.round ?? card.round;
+            card.reason = data.reason || card.reason;
+            card.done = !!data.done;
+            card.error = '';
+        },
+
+        handleModelScored(run, data) {
+            const card = this.ensureCard(run, data.model);
+            card.status = card.done ? 'done' : 'scored';
+            card.statusLabel = card.done ? 'Done' : 'Scored';
+            card.score = data.score ?? card.score;
+            card.qSimilarity = data.q_similarity ?? card.qSimilarity;
+            card.interSimilarity = data.inter_similarity ?? card.interSimilarity;
+            card.pulls = data.pulls ?? card.pulls;
+            card.round = data.round ?? card.round;
+            if (data.metrics?.tokens !== undefined) card.tokens = data.metrics.tokens;
+            if (data.metrics?.done !== undefined) card.done = !!data.metrics.done;
+        },
+
+        handleModelPruned(run, data) {
+            const card = this.ensureCard(run, data.model);
+            card.status = 'pruned';
+            card.statusLabel = 'Pruned';
+            card.pruned = true;
+            card.active = false;
+            card.reason = data.reason || 'underperformer_pruned';
+            card.round = data.round ?? card.round;
+        },
+
+        handleModelFinished(run, data) {
+            const card = this.ensureCard(run, data.model);
+            card.status = 'done';
+            card.statusLabel = 'Finished';
+            card.done = true;
+            card.reason = data.reason || 'finished';
+            card.tokens = data.tokens ?? card.tokens;
+            card.round = data.round ?? card.round;
+        },
+
+        handleModelError(run, data) {
+            const card = this.ensureCard(run, data.model);
+            card.status = 'error';
+            card.statusLabel = 'Error';
+            card.done = true;
+            card.error = data.error || 'Model error';
+            card.round = data.round ?? card.round;
+        },
+
+        handleEmbeddingFailed(run, data) {
+            const card = this.ensureCard(run, data.model);
+            card.status = 'warning';
+            card.statusLabel = 'Embedding failed';
+            card.reason = data.reason || 'embedding_generation_failed';
+            card.round = data.round ?? card.round;
+        },
+
+        handleRoundSummary(run, data) {
+            if (Array.isArray(data.active_models)) {
+                Object.values(run.modelCards).forEach(card => {
+                    if (!card.done && !card.pruned && card.status !== 'error') {
+                        card.active = data.active_models.includes(card.model);
+                    }
+                });
+            }
+
+            if (data.scores && typeof data.scores === 'object') {
+                Object.entries(data.scores).forEach(([model, score]) => {
+                    const card = this.ensureCard(run, model);
+                    card.score = score;
+                });
+            }
+        },
+
+        handleFinalResult(run, data) {
+            const bestModel = data.best_model || data.model || '';
+            run.finalResult = {
+                bestModel,
+                output: data.output || data.response || '',
+                content: renderMarkdown(data.output || data.response || ''),
+                thinking: data.thinking || '',
+                score: data.score ?? null,
+                tokens: data.tokens ?? null,
+                reason: data.reason || '',
+                round: data.round ?? run.currentRound
+            };
+            run.isStreaming = false;
+
+            if (bestModel) {
+                const card = this.ensureCard(run, bestModel);
+                card.status = 'winner';
+                card.statusLabel = 'Selected';
+                card.score = data.score ?? card.score;
+                card.tokens = data.tokens ?? card.tokens;
+                card.rawOutput = data.output || card.rawOutput;
+                card.content = renderMarkdown(card.rawOutput);
+                card.rawThinking = data.thinking || card.rawThinking;
+                card.done = true;
+            }
+        },
+
+        ensureCard(run, model) {
+            const modelName = String(model || 'unknown').trim() || 'unknown';
+            if (!run.modelCards[modelName]) {
+                run.modelCards[modelName] = createModelCard(modelName);
+                if (!run.models.includes(modelName)) run.models.push(modelName);
+            }
+            return run.modelCards[modelName];
+        },
+
+        getRunCards(run) {
+            return (run.models || []).map(model => run.modelCards[model]).filter(Boolean);
+        },
+
+        getStatusClass(card) {
+            const status = card?.status || 'waiting';
+            if (status === 'winner') return 'llmms-card--winner';
+            if (status === 'error') return 'llmms-card--error';
+            if (status === 'pruned') return 'llmms-card--pruned';
+            if (status === 'streaming' || status === 'active') return 'llmms-card--active';
+            if (status === 'warning') return 'llmms-card--warning';
+            return '';
+        },
+
+        getAlgorithmMeta(type = this.config.algorithmType) {
+            return ALGORITHMS[type] || ALGORITHMS.stepwise;
+        },
+
+        modelSupportsThinking(model) {
+            return THINKING_API_MODELS.has(model);
+        },
+
+        formatNumber,
+
+        formatModelsLabel() {
+            const count = this.getCurrentModels().length;
+            return `${count} model${count === 1 ? '' : 's'}`;
         }
     };
 }

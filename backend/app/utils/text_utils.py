@@ -4,7 +4,6 @@ import logging
 import os
 from bs4 import BeautifulSoup
 from readability.readability import Document
-from flask import current_app as app
 import ollama
 import chromadb
 import nltk
@@ -31,11 +30,20 @@ def _ensure_nltk_data():
                 logging.warning(f"Failed to download NLTK data: {e}")
         _nltk_initialized = True
 
-# Initialize a global ChromaDB client for this module.
-chroma_client = chromadb.HttpClient(host="localhost", port=8000)
+# This module also contains legacy helpers that use a separate Chroma server.
+# Do not connect to it during import: the backend RAG chain uses an in-memory
+# Chroma client and must be able to start when that optional service is absent.
+chroma_client = None
 
 
-def get_ollama_embedding(text, model="nomic-embed-text"):
+def get_chroma_client():
+    global chroma_client
+    if chroma_client is None:
+        chroma_client = chromadb.HttpClient(host="localhost", port=8000)
+    return chroma_client
+
+
+def get_ollama_embedding(text, model=None):
     """
     Get embeddings for a text using Ollama's embedding API.
     Args:
@@ -45,6 +53,9 @@ def get_ollama_embedding(text, model="nomic-embed-text"):
         list: The embedding vector
     """
     try:
+        model = model or os.environ.get(
+            "EMBEDDING_MODEL", "nomic-embed-text-v2-moe:latest"
+        )
         response = ollama.embeddings(model=model, prompt=text)
         return response["embeddings"]
     except Exception as e:
@@ -58,7 +69,7 @@ def save_to_chromadb(name, content, embedding, collection_name):
     The document is stored with an 'id', 'content', and its 'embedding'.
     """
     try:
-        collection = chroma_client.get_collection(collection_name)
+        collection = get_chroma_client().get_collection(collection_name)
         document = {"id": str(name), "content": content, "embedding": embedding}
         collection.add([document])
         return {"success": True, "message": "Document saved successfully to ChromaDB."}
@@ -133,7 +144,7 @@ def retrieve_relevant_text(query, top_k=3, collection_name=None):
     """
     try:
         query_embedding = get_ollama_embedding(query)
-        collection = chroma_client.get_collection(collection_name)
+        collection = get_chroma_client().get_collection(collection_name)
         # Assume collection.query() returns a list of dicts with a "content" key.
         results = collection.query(query_embedding, top_k=top_k)
         retrieved_texts = "\n---\n".join([res["content"] for res in results])
@@ -206,7 +217,7 @@ def summarize_text(text, model="mistral-small"):
         if response and "message" in response:
             return response["message"]["content"]
     except Exception as e:
-        app.logger.error(f"Summarization failed: {str(e)}")
+        logging.getLogger(__name__).error(f"Summarization failed: {str(e)}")
     return ""
 
 

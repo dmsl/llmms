@@ -217,11 +217,11 @@ export async function askAgent(
     ? uploadedFile.some(file => file && !file.type.startsWith('image/'))
     : (uploadedFile && !uploadedFile.type.startsWith('image/'));
   if (hasNonImageUpload) {
-    const firstNonImage = Array.isArray(uploadedFile)
-      ? uploadedFile.find(file => file && !file.type.startsWith('image/'))
-      : uploadedFile;
-    if (firstNonImage) {
-      return handleRagChain(userMessage, model, firstNonImage, conversationHistory, sessionId);
+    const nonImageFiles = Array.isArray(uploadedFile)
+      ? uploadedFile.filter(file => file && !file.type.startsWith('image/'))
+      : [uploadedFile];
+    if (nonImageFiles.length > 0) {
+      return handleRagChain(userMessage, model, nonImageFiles, conversationHistory, sessionId);
     }
   }
 
@@ -651,7 +651,7 @@ function getAssistantMessageFromResponse(response) {
   if (response?.message && typeof response.message === 'object') {
     return {
       ...response.message,
-      content: response.message.content ?? response.text ?? ''
+      content: response.text ?? response.message.content ?? ''
     };
   }
 
@@ -1075,14 +1075,22 @@ function dispatchBrowserSessionEvent(eventName, detail) {
 }
 
 async function handleRagChain(userMessage, model, file, conversationHistory = [], sessionId = null) {
-  const base64 = await fileToBase64(file);
+  const files = Array.isArray(file) ? file.filter(Boolean) : [file];
+  const filePayloads = await Promise.all(files.map(async (currentFile) => ({
+    fileData: await fileToBase64(currentFile),
+    fileName: currentFile.name,
+    fileType: currentFile.type || 'application/octet-stream'
+  })));
   if (!sessionId) {
     sessionId = `rag_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  const messages = conversationHistory.length > 0
-    ? conversationHistory
-    : [{ role: 'user', content: userMessage }];
+  // chat-app.js excludes the newest user message before calling askAgent.
+  // The backend must receive the current question as well as prior turns.
+  const messages = [
+    ...(Array.isArray(conversationHistory) ? conversationHistory : []),
+    { role: 'user', content: userMessage }
+  ];
 
   const response = await fetch(RAG_ENDPOINT, {
     method: 'POST',
@@ -1091,9 +1099,7 @@ async function handleRagChain(userMessage, model, file, conversationHistory = []
       model,
       messages,
       sessionId,
-      fileData: base64,
-      fileName: file.name,
-      fileType: file.type || 'application/octet-stream'
+      files: filePayloads
     })
   });
 
@@ -1101,7 +1107,23 @@ async function handleRagChain(userMessage, model, file, conversationHistory = []
     throw new Error(`RAG Error: ${response.status} ${response.statusText}`);
   }
 
-  const text = await response.text();
+  const rawText = await response.text();
+  if (!rawText.trim()) {
+    throw new Error('RAG backend returned an empty response');
+  }
+
+  let text = rawText;
+  try {
+    const payload = JSON.parse(rawText);
+    if (typeof payload?.response === 'string') {
+      text = payload.response;
+    } else if (typeof payload?.text === 'string') {
+      text = payload.text;
+    }
+  } catch {
+    // The streaming endpoint normally returns plain text.
+  }
+
   return {
     text,
     finishReason: 'completed',

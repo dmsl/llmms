@@ -51,6 +51,7 @@ def generate_stream(model_name: str, question: str, num_predict: int, messages=N
         )
 
     output = ""
+    thinking = ""
     last_eval_count = 0
     for chunk in response:
         eval_count = chunk.get("eval_count", last_eval_count)
@@ -58,11 +59,13 @@ def generate_stream(model_name: str, question: str, num_predict: int, messages=N
 
         if "message" in chunk:
             output += chunk["message"].get("content", "")
+            thinking += chunk["message"].get("thinking", "")
         elif "response" in chunk:
             output += chunk.get("response", "")
+            thinking += chunk.get("thinking", "")
 
         is_done = bool(chunk.get("done", False)) or done_reason == "stop"
-        yield model_name, output, eval_count, is_done, done_reason
+        yield model_name, output, thinking, eval_count, is_done, done_reason
         if is_done:
             break
         last_eval_count = eval_count
@@ -108,6 +111,7 @@ def stream_llm_ms_mab(
     lambda_pull = max(1, total_token_budget // max(1, len(model_list) * 16))
 
     responses = {m: "" for m in model_list}
+    thoughts = {m: "" for m in model_list}
     scores = {m: 0.0 for m in model_list}
     pulls = {m: 0 for m in model_list}
     reward_sums = {m: 0.0 for m in model_list}
@@ -153,8 +157,9 @@ def stream_llm_ms_mab(
         })
 
         try:
-            _, chunk, eval_count, is_final, done_reason = next(generators[model])
+            _, chunk, thinking, eval_count, is_final, done_reason = next(generators[model])
             responses[model] = chunk
+            thoughts[model] = thinking
             last_eval_count[model] = int(eval_count or 0)
             done_flags[model] = is_final or done_reason in {"stop", "length"}
             done_reasons[model] = done_reason
@@ -167,6 +172,7 @@ def stream_llm_ms_mab(
                 "round": round_no,
                 "model": model,
                 "partial_output": chunk,
+                "partial_thinking": thinking,
                 "tokens": last_eval_count[model],
                 "done": done_flags[model],
                 "reason": done_reason,
@@ -228,8 +234,9 @@ def stream_llm_ms_mab(
         })
 
         try:
-            _, chunk, eval_count, is_final, done_reason = next(generators[chosen])
+            _, chunk, thinking, eval_count, is_final, done_reason = next(generators[chosen])
             responses[chosen] = chunk
+            thoughts[chosen] = thinking
             last_eval_count[chosen] = int(eval_count or 0)
             done_flags[chosen] = is_final or done_reason in {"stop", "length"}
             done_reasons[chosen] = done_reason
@@ -242,6 +249,7 @@ def stream_llm_ms_mab(
                 "round": round_no,
                 "model": chosen,
                 "partial_output": chunk,
+                "partial_thinking": thinking,
                 "tokens": last_eval_count[chosen],
                 "done": done_flags[chosen],
                 "reason": done_reason,
@@ -292,6 +300,7 @@ def stream_llm_ms_mab(
                     "reason": "early_stopping",
                     "best_model": best_model,
                     "output": responses[best_model],
+                    "thinking": thoughts[best_model],
                     "score": scores[best_model],
                     "tokens": last_eval_count[best_model],
                     "done": True,
@@ -311,6 +320,7 @@ def stream_llm_ms_mab(
         "reason": reason,
         "best_model": best_model,
         "output": responses[best_model],
+        "thinking": thoughts[best_model],
         "score": scores[best_model],
         "tokens": last_eval_count[best_model],
         "done": True,

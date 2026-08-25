@@ -17,6 +17,14 @@ with minimal elaboration. Strive to be factually correct, and explicitly state
 when you are unsure. Avoid mentioning that you are an AI model or adding 
 unnecessary disclaimers. Focus on clarity, correctness, and relevance above all."""
 
+ALLOWED_MODELS = {
+    "qwen3-vl:8b",
+    "gemma3n:e2b",
+    # "granite4.1:8b",
+    "lfm2.5:latest",
+    "qwen3.5:2b",
+}
+
 
 def _extract_user_prompt(messages: List[Dict[str, str]]) -> str:
     if not messages:
@@ -86,6 +94,26 @@ async def send_message_llmms(request: Request):
         messages = data.get("messages", [])
         algorithm_type = str(data.get("algorithm_type", "stepwise")).lower()
         config = data.get("config", {})
+        if not isinstance(config, dict):
+            return JSONResponse(status_code=400, content={"error": "Invalid LLM-MS configuration"})
+
+        requested_models = config.get("MODELS", [])
+
+        if (
+            not isinstance(requested_models, list)
+            or not requested_models
+            or any(not isinstance(model, str) for model in requested_models)
+        ):
+            return JSONResponse(status_code=400, content={"error": "Select at least one supported model"})
+
+        invalid_models = [model for model in requested_models if model not in ALLOWED_MODELS]
+        if invalid_models:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Unsupported model selection", "models": invalid_models},
+            )
+
+        config["MODELS"] = list(dict.fromkeys(requested_models))
 
         system_prompt = data.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
         if not system_prompt or not str(system_prompt).strip():

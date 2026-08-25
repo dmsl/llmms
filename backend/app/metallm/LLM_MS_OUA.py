@@ -51,6 +51,7 @@ def generate_stream(model_name: str, question: str, num_predict: int, messages=N
         )
 
     output = ""
+    thinking = ""
     last_eval_count = 0
     for chunk in response:
         eval_count = chunk.get("eval_count", last_eval_count)
@@ -58,11 +59,13 @@ def generate_stream(model_name: str, question: str, num_predict: int, messages=N
 
         if "message" in chunk:
             output += chunk["message"].get("content", "")
+            thinking += chunk["message"].get("thinking", "")
         elif "response" in chunk:
             output += chunk.get("response", "")
+            thinking += chunk.get("thinking", "")
 
         is_done = bool(chunk.get("done", False)) or done_reason == "stop"
-        yield model_name, output, eval_count, is_done, done_reason
+        yield model_name, output, thinking, eval_count, is_done, done_reason
         if is_done:
             break
         last_eval_count = eval_count
@@ -109,6 +112,7 @@ def stream_program_stepwise(
 
     active_models = list(model_list)
     responses = {m: "" for m in model_list}
+    thoughts = {m: "" for m in model_list}
     done_reasons = {m: "unknown" for m in model_list}
     finished = {m: False for m in model_list}
     last_eval_count = {m: 0 for m in model_list}
@@ -153,8 +157,9 @@ def stream_program_stepwise(
         pulled_models = []
         for model in list(active_models):
             try:
-                _, chunk, eval_count, is_final, done_reason = next(generators[model])
+                _, chunk, thinking, eval_count, is_final, done_reason = next(generators[model])
                 responses[model] = chunk
+                thoughts[model] = thinking
                 done_reasons[model] = done_reason
                 finished[model] = is_final or done_reason in {"stop", "length"}
                 last_eval_count[model] = int(eval_count or 0)
@@ -166,6 +171,7 @@ def stream_program_stepwise(
                         "round": round_no,
                         "model": model,
                         "partial_output": chunk,
+                        "partial_thinking": thinking,
                         "tokens": last_eval_count[model],
                         "done": finished[model],
                         "reason": done_reason,
@@ -261,6 +267,7 @@ def stream_program_stepwise(
                         "reason": "early_stopping",
                         "best_model": best_model,
                         "output": responses[best_model],
+                        "thinking": thoughts[best_model],
                         "score": scores[best_model],
                         "tokens": last_eval_count[best_model],
                         "done": True,
@@ -312,6 +319,7 @@ def stream_program_stepwise(
                 "reason": reason,
                 "best_model": best_model,
                 "output": responses[best_model],
+                "thinking": thoughts[best_model],
                 "score": candidate_scores[best_model],
                 "tokens": last_eval_count.get(best_model, 0),
                 "done": True,

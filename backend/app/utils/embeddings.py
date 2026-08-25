@@ -1,7 +1,8 @@
 import ollama
 import numpy as np
+import os
 
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text-v2-moe:latest")
 
 
 def get_ollama_embedding(text, model=None):

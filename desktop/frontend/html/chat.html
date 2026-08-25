@@ -46,6 +46,11 @@
     
     <!-- Marked.js for Markdown parsing -->
     <script src="../vendor/marked/marked.umd.js"></script>
+
+    <!-- KaTeX for inline and display equations -->
+    <link rel="stylesheet" href="../vendor/katex/katex.min.css">
+    <script src="../vendor/katex/katex.min.js"></script>
+    <script src="../vendor/katex/contrib/auto-render.min.js"></script>
     
     <style>
         html,
@@ -186,6 +191,7 @@
         .md-content table { width: 100%; border-collapse: collapse; margin: 0.6em 0; font-size: 0.85em; }
         .md-content th { background: rgba(106,66,194,0.08); font-weight: 600; }
         .md-content th, .md-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+        .md-content .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
         /* user bubble overrides – keep text white */
         .md-content--user strong, .md-content--user h1,
         .md-content--user h2, .md-content--user h3 { color: #fff; }
@@ -2020,9 +2026,9 @@
                                     :style="thinkingEnabled
                                         ? 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--accent); background:rgba(106,66,194,0.08); color:var(--accent); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'
                                         : 'display:inline-flex; align-items:center; gap:8px; min-height:36px; min-width:0; max-width:100%; padding:0 10px; border-radius:var(--radius); border:1px solid var(--border); background:transparent; color:var(--muted); font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; font-family:var(--font-body); cursor:pointer; transition:border-color 0.18s, background 0.18s, color 0.18s; flex-shrink:1;'"
-                                    title="Enable or disable model thinking/reasoning. Disabled by default to avoid hidden reasoning traces.">
+                                    :title="thinkingEnabled ? 'Thinking is enabled for this model.' : 'Thinking is disabled for this model.'">
                                     <i class="fas fa-brain" style="font-size:0.65rem;"></i>
-                                    <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="thinkingEnabled ? 'Thinking On' : 'Thinking Off'"></span>
+                                    <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="thinkingToggleLabel()"></span>
                                 </button>
                                 <button
                                     class="composer-desktop-toggle"
@@ -2093,7 +2099,7 @@
                                             ? 'width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px; border-color:var(--accent); color:var(--accent); background:rgba(106,66,194,0.08);'
                                             : 'width:100%; justify-content:flex-start; gap:8px; font-size:0.72rem; padding:8px 10px; text-transform:none; letter-spacing:0.02em; margin-bottom:6px;'">
                                         <i class="fas fa-brain" style="font-size:0.72rem;"></i>
-                                        <span x-text="thinkingEnabled ? 'Thinking on' : 'Thinking off'"></span>
+                                        <span x-text="thinkingToggleLabel()"></span>
                                     </button>
                                     <button
                                         @click="toggleLocalRagEnabled(); mobileOpen = false"

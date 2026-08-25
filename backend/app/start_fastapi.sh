@@ -3,9 +3,11 @@
 # Exit on error
 set -e
 
-DESIRED_PROJECT_ROOT="/home/konstantinkrasovitskiy/chatucy/backend"
-DESIRED_VIRTUAL_ENV="/home/konstantinkrasovitskiy/venvs/myenv"
-# ---
+# Resolve paths from this launcher so the service also works after the
+# repository is moved or cloned under a different user/home directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DESIRED_PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DESIRED_VIRTUAL_ENV="$SCRIPT_DIR/venv"
 
 echo "Starting FastAPI application..."
 

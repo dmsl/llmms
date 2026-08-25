@@ -38,7 +38,7 @@ def base64_to_file(base64_string: str, filename: str, file_type: str):
     Convert a base64 string to a FileStorage object, mimicking Flask's file handling.
     """
     try:
-        file_data = base64.b64decode(base64_string)
+        file_data = base64.b64decode(base64_string, validate=True)
         file_obj = io.BytesIO(file_data)
         # Create a FileStorage object from the in-memory stream.
         file_storage = FileStorage(
@@ -129,10 +129,16 @@ async def process_rag_chain_session(
         session_data = rag_sessions[session_id]
         rag_session = session_data["rag"]
         
+        processing_errors = []
+
         # Process any new files
         if files_data:
             for file_info in files_data:
                 try:
+                    if not isinstance(file_info, dict):
+                        raise ValueError("file entry must be an object")
+                    if not file_info.get("fileData") or not file_info.get("fileName"):
+                        raise ValueError("fileData and fileName are required")
                     file_obj, file_name, file_type = base64_to_file(
                         file_info["fileData"],
                         file_info["fileName"],
@@ -178,23 +184,48 @@ async def process_rag_chain_session(
                                 session_data["files"].append(file_name)
                                 logger.info(f"Added file to session: {file_name}")
                             else:
-                                logger.error(f"Failed to add file: {result.get('error')}")
+                                error = result.get("error", "unknown extraction/indexing error")
+                                processing_errors.append(f"{file_name}: {error}")
+                                logger.error(f"Failed to add file: {error}")
                     
                     if hasattr(file_obj, "close"):
                         file_obj.close()
                         
                 except Exception as e:
-                    logger.error(f"Error processing file {file_info.get('fileName')}: {str(e)}")
+                    file_label = file_info.get("fileName", "<unnamed file>") \
+                        if isinstance(file_info, dict) else "<invalid file entry>"
+                    processing_errors.append(
+                        f"{file_label}: {e}"
+                    )
+                    logger.error(f"Error processing file {file_label}: {str(e)}")
                     continue
         
-        # Get user query from last message
-        last_message = message_history[-1]
-        user_query = last_message["content"]
+        # Find the newest user message instead of assuming the last message
+        # has the user role.
+        user_query = ""
+        for message in reversed(message_history):
+            if isinstance(message, dict) and message.get("role") == "user":
+                content = message.get("content", "")
+                if isinstance(content, list):
+                    content = " ".join(
+                        part.get("text", "") if isinstance(part, dict) else str(part)
+                        for part in content
+                    )
+                user_query = str(content).strip()
+                break
+        if not user_query:
+            return JSONResponse(
+                {"error": "messages must contain a non-empty user message"},
+                status_code=400,
+            )
         
         # Check if session has any documents
         if not session_data["files"]:
+            detail = "No documents in session. Please upload files first."
+            if processing_errors:
+                detail += " " + " | ".join(processing_errors)
             return JSONResponse(
-                {"error": "No documents in session. Please upload files first."},
+                {"error": detail},
                 status_code=400
             )
         

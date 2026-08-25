@@ -10,6 +10,14 @@ from app.utils.file_extraction import handle_text_extraction
 
 router = APIRouter()
 
+ALLOWED_MODELS = [
+    "qwen3-vl:8b",
+    "gemma3n:e2b",
+    # "granite4.1:8b",
+    "lfm2.5:latest",
+    "qwen3.5:2b",
+]
+
 
 @router.get("/get_models")
 async def get_models():
@@ -19,24 +27,24 @@ async def get_models():
         if not models:
             return JSONResponse({"error": "No models found"}, status_code=404)
 
+        models_by_name = {
+            getattr(model, "model", None): model
+            for model in models
+            if getattr(model, "model", None)
+        }
+
         formatted_models = []
-        for model in models:
-            # Safely extract the model name
-            model_name = getattr(model, "model", None)
-            if not model_name:
+        for model_name in ALLOWED_MODELS:
+            if model_name not in models_by_name:
                 continue
-
-            # Exclude unwanted models
-            excluded_keywords = ["embed", "9b", "falcon","r1"]
-            if any(keyword in model_name for keyword in excluded_keywords):
-                continue
-
             try:
                 # Get model details and determine context length
                 model_details = ollama.show(model_name)
                 context_length = get_context_length(model_details)
+                capabilities = list(model_details.get("capabilities", []) or [])
             except Exception:
                 context_length = -1
+                capabilities = []
 
             # Format model name for display
             model_id = model_name
@@ -47,6 +55,7 @@ async def get_models():
                     "id": model_id,
                     "name": model_name_formatted,
                     "context_length": context_length,
+                    "capabilities": capabilities,
                 }
             )
 

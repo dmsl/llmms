@@ -11,6 +11,7 @@ Features:
 
 import logging
 import uuid
+import os
 from typing import List, Dict, Optional, Tuple
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -110,7 +111,7 @@ class SessionRAG:
     def __init__(
         self,
         session_id: Optional[str] = None,
-        embedding_model: str = "nomic-embed-text",
+        embedding_model: Optional[str] = None,
         chat_model: str = "mistral"
     ):
         """
@@ -122,7 +123,9 @@ class SessionRAG:
             chat_model: Ollama model for generation
         """
         self.session_id = session_id or str(uuid.uuid4())
-        self.embedding_model = embedding_model
+        self.embedding_model = embedding_model or os.environ.get(
+            "EMBEDDING_MODEL", "nomic-embed-text-v2-moe:latest"
+        )
         self.chat_model = chat_model
         
         # Initialize in-memory Chroma client (no persistence)
@@ -183,7 +186,7 @@ class SessionRAG:
                 chunk_id = f"{doc_id}_chunk_{i}"
                 
                 # Get embedding
-                embedding = get_ollama_embedding(chunk)
+                embedding = get_ollama_embedding(chunk, model=self.embedding_model)
                 
                 ids.append(chunk_id)
                 documents.append(chunk)
@@ -249,7 +252,7 @@ class SessionRAG:
         """
         try:
             # Get query embedding
-            query_embedding = get_ollama_embedding(query)
+            query_embedding = get_ollama_embedding(query, model=self.embedding_model)
             
             # Build filter if specified
             where_filter = {"doc_id": doc_filter} if doc_filter else None
@@ -363,11 +366,18 @@ Answer:"""
                 ],
                 stream=True
             )
-            
+            emitted_chars = 0
             for chunk in stream:
                 if "message" in chunk and "content" in chunk["message"]:
-                    yield chunk["message"]["content"]
-                    
+                    content = chunk["message"]["content"] or ""
+                    if content:
+                        emitted_chars += len(content)
+                        yield content
+
+            if emitted_chars == 0:
+                logger.error("Ollama returned a successful stream with no answer content")
+                yield "The model returned no answer text."
+                
         except Exception as e:
             logger.error(f"Streaming error: {str(e)}")
             yield f"Error: {str(e)}"

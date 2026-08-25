@@ -13,10 +13,33 @@ const DEFAULT_PROVIDER_SETTINGS = Object.freeze({
 
 const MODEL_LIST_CACHE_TTL_MS = 60 * 1000;
 const OLLAMA_SHOW_CACHE_PREFIX = 'chatucy:ollama-show-cache:';
+const ALLOWED_OLLAMA_MODELS = Object.freeze([
+  'qwen3-vl:8b',
+  'gemma3n:e2b',
+  // 'granite4.1:8b',
+  'lfm2.5:latest',
+  'qwen3.5:2b'
+]);
 const modelListCache = new Map();
 const toolProbeCache = new Map();
 
 const TEXT_DECODER = new TextDecoder();
+const THINKING_TAG_PAIRS = Object.freeze([
+  ['<think>', '</think>'],
+  ['<thinking>', '</thinking>'],
+  ['<thought>', '</thought>'],
+  ['<reasoning>', '</reasoning>'],
+  ['<analysis>', '</analysis>'],
+  ['<|begin_of_thought|>', '<|end_of_thought|>']
+]);
+const ANSWER_WRAPPER_TAGS = Object.freeze([
+  '<|begin_of_solution|>',
+  '<|end_of_solution|>',
+  '<final>',
+  '</final>',
+  '<answer>',
+  '</answer>'
+]);
 
 export {
   PROVIDER_TYPES,
@@ -426,7 +449,12 @@ function inferVisionCapability(descriptor, modelId) {
 
 function inferThinkingCapability(modelId) {
   const id = String(modelId || '').toLowerCase();
-  return id.includes('reason') || id.includes('deepseek-r1') || id.includes('qwq') || id.includes('o1');
+  return id.includes('reason') ||
+    id.includes('deepseek-r1') ||
+    id.includes('qwq') ||
+    id.includes('qwen3') ||
+    id.includes('lfm2.5') ||
+    id.includes('o1');
 }
 
 function inferThinkingCapabilityFromDescriptor(descriptor, modelId) {
@@ -741,8 +769,12 @@ async function listOpenAICompatibleModels(settings) {
   const models = entries
     .map(entry => normalizeOpenAICompatibleDescriptor(settings, entry))
     .filter(entry => !!entry.id);
+  const modelsById = new Map(models.map(model => [model.id, model]));
+  const allowedModels = ALLOWED_OLLAMA_MODELS
+    .map(modelId => modelsById.get(modelId))
+    .filter(Boolean);
 
-  return enrichModelsFromOllamaShow(settings, models);
+  return enrichModelsFromOllamaShow(settings, allowedModels);
 }
 
 async function listAnthropicModels(settings) {
@@ -831,7 +863,13 @@ async function listOllamaModels(settings) {
     }
 
     const tagsPayload = await tagsResponse.json();
-    const entries = Array.isArray(tagsPayload?.models) ? tagsPayload.models : [];
+    const fetchedEntries = Array.isArray(tagsPayload?.models) ? tagsPayload.models : [];
+    const entriesById = new Map(
+      fetchedEntries.map(entry => [entry?.name || entry?.model || entry?.id, entry])
+    );
+    const entries = ALLOWED_OLLAMA_MODELS
+      .map(modelId => entriesById.get(modelId))
+      .filter(Boolean);
     const remoteModelIds = entries
       .map(entry => entry?.name || entry?.model || entry?.id)
       .filter(Boolean);
@@ -1011,11 +1049,11 @@ async function requestOpenAICompatibleCompletion(settings, request, handlers) {
 
   if (!request.stream) {
     const result = await response.json();
-    return normalizeOpenAICompletion(result, settings.providerType, request.model);
+    return normalizeOpenAICompletion(result, settings.providerType, request.model, request.thinkingEnabled === true);
   }
 
   emitEvent(handlers, { type: 'started' });
-  return parseOpenAIStream(response, handlers, request.model, settings.providerType);
+  return parseOpenAIStream(response, handlers, request.model, settings.providerType, request.thinkingEnabled === true);
 }
 
 async function requestOllamaCompletion(settings, request, handlers) {
@@ -1034,11 +1072,11 @@ async function requestOllamaCompletion(settings, request, handlers) {
 
     if (!request.stream) {
       const result = await response.json();
-      return normalizeOllamaCompletion(result, settings.providerType, request.model);
+      return normalizeOllamaCompletion(result, settings.providerType, request.model, request.thinkingEnabled === true);
     }
 
     emitEvent(handlers, { type: 'started' });
-    return parseOllamaStream(response, handlers, request.model, settings.providerType);
+    return parseOllamaStream(response, handlers, request.model, settings.providerType, request.thinkingEnabled === true);
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
@@ -1354,20 +1392,141 @@ function contentToText(content) {
   }
 }
 
-function normalizeOpenAICompletion(result, providerType, modelId) {
+function longestMarkerPrefixSuffix(text, markers) {
+  const maxLength = Math.min(
+    text.length,
+    markers.reduce((longest, marker) => Math.max(longest, marker.length - 1), 0)
+  );
+
+  for (let length = maxLength; length > 0; length -= 1) {
+    const suffix = text.slice(-length).toLowerCase();
+    if (markers.some(marker => marker.toLowerCase().startsWith(suffix))) {
+      return length;
+    }
+  }
+
+  return 0;
+}
+
+function findFirstMarker(text, markers) {
+  const lower = text.toLowerCase();
+  let found = null;
+
+  markers.forEach(marker => {
+    const index = lower.indexOf(marker.toLowerCase());
+    if (index !== -1 && (!found || index < found.index)) {
+      found = { index, marker };
+    }
+  });
+
+  return found;
+}
+
+function createTaggedThinkingParser({ onText, onThinking }) {
+  const openingTags = THINKING_TAG_PAIRS.map(([opening]) => opening);
+  let buffer = '';
+  let closingTag = '';
+  let mode = 'text';
+
+  const emit = value => {
+    if (!value) return;
+    if (mode === 'thinking') {
+      onThinking(value);
+    } else {
+      onText(value);
+    }
+  };
+
+  const drain = (final = false) => {
+    while (buffer) {
+      if (mode === 'thinking') {
+        const closingIndex = buffer.toLowerCase().indexOf(closingTag.toLowerCase());
+        if (closingIndex !== -1) {
+          emit(buffer.slice(0, closingIndex));
+          buffer = buffer.slice(closingIndex + closingTag.length);
+          closingTag = '';
+          mode = 'text';
+          continue;
+        }
+
+        const retained = final ? 0 : longestMarkerPrefixSuffix(buffer, [closingTag]);
+        emit(buffer.slice(0, buffer.length - retained));
+        buffer = buffer.slice(buffer.length - retained);
+        return;
+      }
+
+      const thinkingMarker = findFirstMarker(buffer, openingTags);
+      const wrapperMarker = findFirstMarker(buffer, ANSWER_WRAPPER_TAGS);
+      const marker = !thinkingMarker
+        ? wrapperMarker
+        : !wrapperMarker || thinkingMarker.index <= wrapperMarker.index
+          ? thinkingMarker
+          : wrapperMarker;
+
+      if (marker) {
+        emit(buffer.slice(0, marker.index));
+        buffer = buffer.slice(marker.index + marker.marker.length);
+        const pair = THINKING_TAG_PAIRS.find(([opening]) => opening.toLowerCase() === marker.marker.toLowerCase());
+        if (pair) {
+          mode = 'thinking';
+          closingTag = pair[1];
+        }
+        continue;
+      }
+
+      const retained = final ? 0 : longestMarkerPrefixSuffix(buffer, [...openingTags, ...ANSWER_WRAPPER_TAGS]);
+      emit(buffer.slice(0, buffer.length - retained));
+      buffer = buffer.slice(buffer.length - retained);
+      return;
+    }
+  };
+
+  return {
+    push(value) {
+      buffer += String(value || '');
+      drain(false);
+    },
+    finish() {
+      drain(true);
+    }
+  };
+}
+
+function splitTaggedThinking(text) {
+  let answer = '';
+  let thinking = '';
+  const parser = createTaggedThinkingParser({
+    onText: value => { answer += value; },
+    onThinking: value => { thinking += value; }
+  });
+  parser.push(text);
+  parser.finish();
+  return { text: answer, thinking };
+}
+
+function normalizeOpenAICompletion(result, providerType, modelId, exposeThinking = true) {
   const choice = result?.choices?.[0] || {};
   const message = choice?.message || {};
   const finishReason = choice?.finish_reason || null;
   const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
-  const text = contentToText(message?.content);
-  const thinking = contentToText(message?.reasoning || message?.thinking);
+  const parsed = splitTaggedThinking(contentToText(message?.content));
+  const structuredThinking = contentToText(
+    message?.reasoning || message?.thinking || message?.reasoning_content || message?.analysis
+  );
 
   return {
     providerType,
     model: modelId,
-    text,
-    thinking,
-    message,
+    text: parsed.text,
+    thinking: exposeThinking ? structuredThinking || parsed.thinking : '',
+    message: {
+      ...message,
+      content: parsed.text,
+      reasoning: exposeThinking ? message?.reasoning : undefined,
+      thinking: exposeThinking ? message?.thinking : undefined,
+      reasoning_content: exposeThinking ? message?.reasoning_content : undefined,
+      analysis: exposeThinking ? message?.analysis : undefined
+    },
     toolCalls,
     finishReason,
     incompleteReason: finishReason === 'length' ? 'max_output_tokens' : null,
@@ -1376,14 +1535,21 @@ function normalizeOpenAICompletion(result, providerType, modelId) {
   };
 }
 
-function normalizeOllamaCompletion(result, providerType, modelId) {
+function normalizeOllamaCompletion(result, providerType, modelId, exposeThinking = true) {
   const finishReason = result?.done_reason || null;
+  const parsed = splitTaggedThinking(contentToText(result?.message?.content));
+  const structuredThinking = contentToText(result?.message?.thinking || result?.message?.reasoning);
   return {
     providerType,
     model: modelId,
-    text: contentToText(result?.message?.content),
-    thinking: contentToText(result?.message?.thinking),
-    message: result?.message || {},
+    text: parsed.text,
+    thinking: exposeThinking ? structuredThinking || parsed.thinking : '',
+    message: {
+      ...(result?.message || {}),
+      content: parsed.text,
+      thinking: exposeThinking ? result?.message?.thinking : undefined,
+      reasoning: exposeThinking ? result?.message?.reasoning : undefined
+    },
     toolCalls: Array.isArray(result?.message?.tool_calls) ? result.message.tool_calls : [],
     finishReason,
     incompleteReason: finishReason === 'length' ? 'max_output_tokens' : null,
@@ -1422,7 +1588,7 @@ function normalizeAnthropicCompletion(result, providerType, modelId) {
   };
 }
 
-async function parseOpenAIStream(response, handlers, modelId, providerType) {
+async function parseOpenAIStream(response, handlers, modelId, providerType, exposeThinking = true) {
   const aggregate = {
     providerType,
     model: modelId,
@@ -1435,6 +1601,7 @@ async function parseOpenAIStream(response, handlers, modelId, providerType) {
     usage: null,
     raw: null
   };
+  const taggedThinkingParser = createAggregateTaggedThinkingParser(aggregate, handlers, exposeThinking);
 
   let buffer = '';
   for await (const chunk of iterateResponseChunks(response)) {
@@ -1443,16 +1610,17 @@ async function parseOpenAIStream(response, handlers, modelId, providerType) {
     while (boundary !== -1) {
       const rawEvent = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
-      handleOpenAIEvent(rawEvent, aggregate, handlers);
+      handleOpenAIEvent(rawEvent, aggregate, handlers, taggedThinkingParser, exposeThinking);
       boundary = buffer.indexOf('\n\n');
     }
   }
 
+  taggedThinkingParser.finish();
   emitCompletionEvent(aggregate, handlers);
   return aggregate;
 }
 
-function handleOpenAIEvent(rawEvent, aggregate, handlers) {
+function handleOpenAIEvent(rawEvent, aggregate, handlers, taggedThinkingParser, exposeThinking) {
   const dataLines = [];
   for (const line of rawEvent.split(/\r?\n/)) {
     if (line.startsWith('data:')) {
@@ -1480,13 +1648,13 @@ function handleOpenAIEvent(rawEvent, aggregate, handlers) {
   const delta = choice?.delta || {};
   const contentDelta = extractOpenAIContentDelta(delta?.content);
   if (contentDelta) {
-    aggregate.text += contentDelta;
-    aggregate.message.content = aggregate.text;
-    emitEvent(handlers, { type: 'delta', delta: contentDelta });
+    taggedThinkingParser.push(contentDelta);
   }
 
-  const reasoningDelta = extractOpenAIContentDelta(delta?.reasoning || delta?.thinking);
-  if (reasoningDelta) {
+  const reasoningDelta = extractOpenAIContentDelta(
+    delta?.reasoning || delta?.thinking || delta?.reasoning_content || delta?.analysis
+  );
+  if (reasoningDelta && exposeThinking) {
     aggregate.thinking += reasoningDelta;
     emitEvent(handlers, { type: 'thinking_delta', delta: reasoningDelta });
   }
@@ -1526,7 +1694,7 @@ function extractOpenAIContentDelta(content) {
   return '';
 }
 
-async function parseOllamaStream(response, handlers, modelId, providerType) {
+async function parseOllamaStream(response, handlers, modelId, providerType, exposeThinking = true) {
   const aggregate = {
     providerType,
     model: modelId,
@@ -1539,6 +1707,7 @@ async function parseOllamaStream(response, handlers, modelId, providerType) {
     usage: null,
     raw: null
   };
+  const taggedThinkingParser = createAggregateTaggedThinkingParser(aggregate, handlers, exposeThinking);
 
   let buffer = '';
   for await (const chunk of iterateResponseChunks(response)) {
@@ -1548,21 +1717,49 @@ async function parseOllamaStream(response, handlers, modelId, providerType) {
       const line = buffer.slice(0, boundary).trim();
       buffer = buffer.slice(boundary + 1);
       if (line) {
-        handleOllamaLine(line, aggregate, handlers);
+        handleOllamaLine(line, aggregate, handlers, taggedThinkingParser, exposeThinking);
       }
       boundary = buffer.indexOf('\n');
     }
   }
 
   if (buffer.trim()) {
-    handleOllamaLine(buffer.trim(), aggregate, handlers);
+    handleOllamaLine(buffer.trim(), aggregate, handlers, taggedThinkingParser, exposeThinking);
   }
 
+  taggedThinkingParser.finish();
   emitCompletionEvent(aggregate, handlers);
   return aggregate;
 }
 
-function handleOllamaLine(line, aggregate, handlers) {
+function createAggregateTaggedThinkingParser(aggregate, handlers, exposeThinking) {
+  let taggedThinking = '';
+  const parser = createTaggedThinkingParser({
+    onText: delta => {
+      aggregate.text += delta;
+      aggregate.message.content = aggregate.text;
+      emitEvent(handlers, { type: 'delta', delta });
+    },
+    onThinking: delta => {
+      taggedThinking += delta;
+    }
+  });
+
+  return {
+    push(value) {
+      parser.push(value);
+    },
+    finish() {
+      parser.finish();
+      if (exposeThinking && !aggregate.thinking && taggedThinking) {
+        aggregate.thinking = taggedThinking;
+        emitEvent(handlers, { type: 'thinking_delta', delta: taggedThinking });
+      }
+    }
+  };
+}
+
+function handleOllamaLine(line, aggregate, handlers, taggedThinkingParser, exposeThinking) {
   let payload;
   try {
     payload = JSON.parse(line);
@@ -1572,13 +1769,11 @@ function handleOllamaLine(line, aggregate, handlers) {
 
   const delta = contentToText(payload?.message?.content);
   if (delta) {
-    aggregate.text += delta;
-    aggregate.message.content = aggregate.text;
-    emitEvent(handlers, { type: 'delta', delta });
+    taggedThinkingParser.push(delta);
   }
 
-  const thinkingDelta = contentToText(payload?.message?.thinking);
-  if (thinkingDelta) {
+  const thinkingDelta = contentToText(payload?.message?.thinking || payload?.message?.reasoning);
+  if (thinkingDelta && exposeThinking) {
     aggregate.thinking += thinkingDelta;
     emitEvent(handlers, { type: 'thinking_delta', delta: thinkingDelta });
   }

@@ -143,7 +143,7 @@ const STORAGE_KEYS = {
     workspaceStoragePolicy: 'workspace_storage_policy_v1',
     localRagPrefs: 'local_rag_prefs_v1',
     llmBaseUrl: 'llm_base_url_v1',
-    llmThinkingEnabled: 'llm_thinking_enabled_v1'
+    llmThinkingEnabled: 'llm_thinking_enabled_v2'
 };
 
 const ONBOARDING_STORAGE_KEY = 'chatucy_onboarding_seen_v1';
@@ -227,6 +227,38 @@ const SESSION_SAVE_DEBOUNCE_MS = 700;
 
 function makeId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function appendWithoutDuplicate(existing, incoming) {
+    const current = String(existing || '');
+    const next = String(incoming || '');
+    if (!next) return current;
+    if (!current) return next;
+    if (current.endsWith(next)) return current;
+    if (next.startsWith(current)) return next;
+
+    const maxOverlap = Math.min(current.length, next.length);
+    for (let length = maxOverlap; length > 0; length -= 1) {
+        if (current.slice(-length) === next.slice(0, length)) {
+            return current + next.slice(length);
+        }
+    }
+
+    return current + next;
+}
+
+function renderMath(element) {
+    if (!element || typeof window.renderMathInElement !== 'function') return;
+    window.renderMathInElement(element, {
+        delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '$', right: '$', display: false }
+        ],
+        throwOnError: false,
+        strict: false
+    });
 }
 
 function deepCloneSerializable(value, fallback) {
@@ -435,6 +467,7 @@ function chatApp() {
         selectedModel: 'Select Model',
         modelStatuses: {},
         modelLoadingHint: '',
+        thinkingPreference: null,
         thinkingEnabled: false,
         autoScrollEnabled: true,
         manualScrollLock: false,
@@ -948,6 +981,7 @@ function chatApp() {
             
             // Scroll to bottom after loading session
             this.$nextTick(() => {
+                renderMath(document.getElementById('messages-container'));
                 this.scrollToBottom();
             });
             
@@ -1472,15 +1506,18 @@ function chatApp() {
 
         loadThinkingPreference() {
             try {
-                this.thinkingEnabled = localStorage.getItem(STORAGE_KEYS.llmThinkingEnabled) === 'true';
+                const saved = localStorage.getItem(STORAGE_KEYS.llmThinkingEnabled);
+                this.thinkingPreference = saved === null ? null : saved === 'true';
+                this.syncThinkingToggle();
             } catch (error) {
+                this.thinkingPreference = null;
                 this.thinkingEnabled = false;
             }
         },
 
         saveThinkingPreference() {
             try {
-                localStorage.setItem(STORAGE_KEYS.llmThinkingEnabled, this.thinkingEnabled ? 'true' : 'false');
+                localStorage.setItem(STORAGE_KEYS.llmThinkingEnabled, this.thinkingPreference ? 'true' : 'false');
             } catch (error) {
                 console.warn('[ChatApp] Failed to persist thinking preference:', error);
             }
@@ -3214,6 +3251,7 @@ function chatApp() {
             try {
                 const parsed = window.marked.parse(rawText);
                 message.content = `${parsed}<span class="typing-cursor"></span>`;
+                this.$nextTick(() => renderMath(document.getElementById('messages-container')));
             } catch (error) {
                 console.warn('[ChatApp] Incremental markdown render failed, falling back to raw text:', error);
                 message.content = `${rawText}<span class="typing-cursor"></span>`;
@@ -3232,7 +3270,7 @@ function chatApp() {
                        name.includes('mistral') || name.includes('command-r') || name.includes('deepseek-v3') ||
                        name.includes('granite'),
                 thinking: name.includes('deepseek-r1') || name.includes('deepseek-v3') || name.includes('qwq') ||
-                         name.includes('gpt-oss') || name.includes('magistral') ||
+                         name.includes('gpt-oss') || name.includes('magistral') || name.includes('lfm2.5') ||
                          (name.includes('qwen3') && !name.includes('coder'))
             };
         },
@@ -3371,6 +3409,9 @@ function chatApp() {
                     this.availableModels = Array.isArray(data.models)
                         ? this.filterChatModels(data.models.map(model => {
                             const modelId = model.id || model.name || model;
+                            const capabilities = Array.isArray(model.capabilities)
+                                ? model.capabilities.map(capability => String(capability || '').toLowerCase())
+                                : [];
                             const embedding = this.isEmbeddingOnlyModel({ id: modelId });
                             const inferred = this.detectModelCapabilities(modelId);
                             return {
@@ -3390,10 +3431,10 @@ function chatApp() {
                                 embedding,
                                 chatCapable: !embedding,
                                 vision: false,
-                                thinking: false,
+                                thinking: capabilities.includes('thinking') || capabilities.includes('reasoning'),
                                 iconVision: inferred.vision === true,
                                 iconTools: inferred.tools === true,
-                                iconThinking: inferred.thinking === true
+                                iconThinking: capabilities.includes('thinking') || capabilities.includes('reasoning') || inferred.thinking === true
                             };
                         }))
                         : [];
@@ -3401,6 +3442,8 @@ function chatApp() {
                     console.error('[ChatApp] Failed to load models from backend fallback:', fallbackError);
                     this.availableModels = [];
                 }
+            } finally {
+                this.syncThinkingToggle();
             }
         },
         
@@ -3426,6 +3469,7 @@ function chatApp() {
             this.messages = newSession.messages;
             if (workspaceDefaults?.defaultModel) {
                 this.selectedModel = workspaceDefaults.defaultModel;
+                this.syncThinkingToggle();
             }
             this.saveSessions();
             this.$nextTick(() => {
@@ -4063,10 +4107,7 @@ function chatApp() {
         
         selectModel(modelId) {
             this.selectedModel = modelId;
-            if (!this.selectedModelSupportsThinking(modelId)) {
-                this.thinkingEnabled = false;
-                this.saveThinkingPreference();
-            }
+            this.syncThinkingToggle();
             supportsToolsFromProvider(modelId).then((isToolCapable) => {
                 const model = this.availableModels.find(m => m.id === modelId);
                 if (model) {
@@ -4091,11 +4132,30 @@ function chatApp() {
         toggleThinking() {
             if (!this.selectedModelSupportsThinking()) {
                 this.thinkingEnabled = false;
-                this.saveThinkingPreference();
                 return;
             }
             this.thinkingEnabled = !this.thinkingEnabled;
+            this.thinkingPreference = this.thinkingEnabled;
             this.saveThinkingPreference();
+        },
+
+        syncThinkingToggle(modelId = this.selectedModel) {
+            if (!this.selectedModelSupportsThinking(modelId)) {
+                this.thinkingEnabled = false;
+                return;
+            }
+
+            // Ollama enables thinking by default for models advertising the capability.
+            this.thinkingEnabled = this.thinkingPreference === null
+                ? true
+                : this.thinkingPreference;
+        },
+
+        thinkingToggleLabel() {
+            if (this.thinkingEnabled && this.thinkingPreference === null) {
+                return 'Thinking On (Default)';
+            }
+            return this.thinkingEnabled ? 'Thinking On' : 'Thinking Off';
         },
 
         modelSupportsAgent(modelId = this.selectedModel) {
@@ -4355,6 +4415,7 @@ function chatApp() {
             
             // Scroll to bottom
             this.$nextTick(() => {
+                renderMath(document.getElementById('messages-container'));
                 this.scrollToBottom({ force: true, behavior: 'smooth' });
             });
             
@@ -4505,14 +4566,27 @@ function chatApp() {
                     .map(entry => entry.file);
                 const isDocumentUpload = queuedDocumentEntries.length > 0;
                 const shouldIndexUploadedDocumentLocally = isDocumentUpload && this.getCurrentSessionPrivateStoreEnabled(sessionId);
-                if (this.localRagEnabled && isDocumentUpload) {
-                    // Privacy mode must keep document processing browser-side only.
-                    fileForAgent = null;
-                }
+
+                // Route each upload type to the appropriate processing path:
+                // - images go directly to a vision model;
+                // - documents use browser-local RAG when enabled;
+                // - otherwise documents go to the backend RAG chain.
                 if (visionCapable) {
                     fileForAgent = imageFilesForVision.length > 0 ? imageFilesForVision : null;
                 } else {
                     fileForAgent = null;
+                }
+                if (isDocumentUpload) {
+                    if (this.localRagEnabled) {
+                        // Privacy mode keeps document processing browser-side.
+                        fileForAgent = null;
+                    } else if (!imageFilesForVision.length) {
+                        // Backend RAG accepts document files regardless of
+                        // whether the selected chat model supports vision.
+                        fileForAgent = queuedDocumentEntries
+                            .map(entry => entry?.file)
+                            .filter(Boolean);
+                    }
                 }
                 // Recompute local document availability after deferred ingestion above.
                 const hasSessionPrivateDocsNow = this.getSessionDocumentRefs(sessionId).length > 0;
@@ -4684,7 +4758,7 @@ function chatApp() {
             if (event.type === 'thinking_delta') {
                 const reasoningMessage = this.ensureReasoningMessageForAssistant(assistantMessageId, sessionId);
                 if (!reasoningMessage) return;
-                reasoningMessage.rawText = `${reasoningMessage.rawText || ''}${event.delta || ''}`;
+                reasoningMessage.rawText = appendWithoutDuplicate(reasoningMessage.rawText, event.delta);
                 reasoningMessage.content = reasoningMessage.rawText;
                 this.saveSessions(sessionId, { immediate: false });
                 if (sessionId === this.currentSession) {
@@ -4816,6 +4890,7 @@ function chatApp() {
                     this.$nextTick(() => {
                         const container = document.getElementById('messages-container');
                         if (!container) return;
+                        renderMath(container);
                         container.querySelectorAll('.md-content pre:not([data-copy-added])').forEach(pre => {
                             pre.setAttribute('data-copy-added', '1');
                             const btn = document.createElement('button');
