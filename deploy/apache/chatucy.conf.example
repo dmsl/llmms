@@ -1,0 +1,58 @@
+
+<VirtualHost *:80>
+    ServerName chat.example.org
+    Redirect permanent / https://chat.example.org/
+    RewriteEngine on
+    RewriteCond %{SERVER_NAME} =chat.example.org
+    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName chat.example.org
+
+    DocumentRoot /var/www/chatucy/html
+    DirectoryIndex index.html home.html
+
+    ProxyPass        /v1/ http://127.0.0.1:11434/v1/
+    ProxyPassReverse /v1/ http://127.0.0.1:11434/v1/
+
+    <Directory /var/www/chatucy/html>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    Alias /css/ /var/www/chatucy/css/
+    Alias /js/ /var/www/chatucy/js/
+    Alias /img/ /var/www/chatucy/img/
+    Alias /vendor/ /var/www/chatucy/vendor/
+    Alias /publications/ /var/www/chatucy/publications/
+
+    <Directory /var/www/chatucy/css>
+        Options -Indexes +FollowSymLinks
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/chatucy/js>
+        Options -Indexes +FollowSymLinks
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/chatucy/img>
+        Options -Indexes +FollowSymLinks
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/chatucy/vendor>
+        Options -Indexes +FollowSymLinks
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/chatucy/publications>
+        Options -Indexes +FollowSymLinks
+        Require all granted
+    </Directory>
+
+    SSLEngine on
+
+</VirtualHost>

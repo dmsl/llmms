@@ -1866,7 +1866,7 @@
                             <!-- User bubble -->
                             <template x-if="message.role === 'user'">
                                 <div style="max-width:68%; background:var(--accent); color:#fff; border-radius:12px 12px 2px 12px; padding:8px 13px; box-shadow:0 2px 10px rgba(106,66,194,0.16);">
-                                    <div class="md-content md-content--user" x-html="message.content"></div>
+                                    <div class="md-content md-content--user" x-text="message.content" style="white-space:pre-wrap; overflow-wrap:anywhere;"></div>
                                 </div>
                             </template>
 
